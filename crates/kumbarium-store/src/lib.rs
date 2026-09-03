@@ -21,7 +21,7 @@ pub use entries::{
   namespace_id, namespaces, predecessor_of, recall, register_namespace,
   remember, resolve_id, short_id, supersede,
 };
-pub use links::{Link, Rel, link, links_of, unlink};
+pub use links::{Link, Rel, continues_chain, link, links_of, unlink};
 
 /// Numbered migrations, applied in order inside one transaction
 /// each. Append-only: a shipped migration is never edited; schema

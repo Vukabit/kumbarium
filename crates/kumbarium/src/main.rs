@@ -51,7 +51,8 @@ pub fn run() -> ExitCode {
     ["list", "--all"] => list_entries(None, true),
     ["list", ns] => list_entries(Some(ns), false),
     ["list", ns, "--all"] => list_entries(Some(ns), true),
-    ["show", id] => show_entry(id),
+    ["show", id] => show_entry(id, false),
+    ["show", id, "--full"] => show_entry(id, true),
     ["audit", "tail"] => audit_tail(20),
     ["audit", "tail", n] => match n.parse() {
       Ok(n) => audit_tail(n),
@@ -276,16 +277,16 @@ fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
   ExitCode::SUCCESS
 }
 
-fn show_entry(id: &str) -> ExitCode {
+fn show_entry(id: &str, full: bool) -> ExitCode {
   let (_, state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
-  let full = match kumbarium_store::resolve_id(&state.library, id) {
-    Ok(full) => full,
+  let full_id = match kumbarium_store::resolve_id(&state.library, id) {
+    Ok(full_id) => full_id,
     Err(err) => return fail(&err.to_string()),
   };
-  let e = match kumbarium_store::get(&state.library, &full) {
+  let e = match kumbarium_store::get(&state.library, &full_id) {
     Ok(e) => e,
     Err(err) => return fail(&err.to_string()),
   };
@@ -315,12 +316,12 @@ fn show_entry(id: &str) -> ExitCode {
   if let Some(new) = &e.superseded_by {
     println!("superseded by: {new}");
   }
-  match kumbarium_store::predecessor_of(&state.library, id) {
+  match kumbarium_store::predecessor_of(&state.library, &full_id) {
     Ok(Some(old)) => println!("supersedes: {old}"),
     Ok(None) => {}
     Err(err) => return fail(&err.to_string()),
   }
-  match kumbarium_store::links_of(&state.library, id) {
+  match kumbarium_store::links_of(&state.library, &full_id) {
     Ok(links) => {
       for l in links {
         if l.from_id == e.id {
@@ -332,7 +333,36 @@ fn show_entry(id: &str) -> ExitCode {
     }
     Err(err) => return fail(&err.to_string()),
   }
-  println!("\n{}", e.content);
+  let (chain, branched) =
+    match kumbarium_store::continues_chain(&state.library, &full_id) {
+      Ok(v) => v,
+      Err(err) => return fail(&err.to_string()),
+    };
+  let n = chain.len();
+  if n > 1 && !full {
+    let pos = chain.iter().position(|c| *c == full_id).unwrap_or(0) + 1;
+    let note = if branched { "; chain BRANCHES" } else { "" };
+    println!("set:        part {pos} of {n}{note} (--full stitches)");
+  }
+  if full && n > 1 {
+    if branched {
+      println!("warning: continues chain branches; showing mint order");
+    }
+    for (i, part_id) in chain.iter().enumerate() {
+      let part = match kumbarium_store::get(&state.library, part_id) {
+        Ok(part) => part,
+        Err(err) => return fail(&err.to_string()),
+      };
+      println!(
+        "\n-- part {}/{n}  {} --\n{}",
+        i + 1,
+        kumbarium_store::short_id(part_id),
+        part.content
+      );
+    }
+  } else {
+    println!("\n{}", e.content);
+  }
   ExitCode::SUCCESS
 }
 
@@ -452,7 +482,8 @@ Usage:
   kumbarium import claude [--apply]   import Claude Code
       [--dir <path>]... [--map name=namespace]...  memories
   kumbarium list [ns] [--all]         browse entries
-  kumbarium show <id>                 one entry, full detail
+  kumbarium show <id> [--full]        one entry (--full stitches
+                                      a split set in order)
   kumbarium audit tail [n]            recent audit events
   kumbarium audit export              minutes markdown to exports/
   kumbarium backup                    snapshot both dbs now

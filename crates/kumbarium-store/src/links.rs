@@ -89,6 +89,61 @@ pub fn unlink(
   Ok(())
 }
 
+/// The ordered `continues` chain containing `id` (a split
+/// memory's set), earliest part first; `id` itself is always a
+/// member. Cycle-proof via a visited set. Auto-split chains are
+/// linear by construction, but hand-made `continues` edges may
+/// branch: mint order wins (UUIDv7 ids sort chronologically)
+/// and the returned flag is true so callers can SAY the chain
+/// branched instead of guessing silently.
+pub fn continues_chain(
+  conn: &Connection,
+  id: &str,
+) -> Result<(Vec<String>, bool), StoreError> {
+  let mut branched = false;
+  let mut visited: std::collections::HashSet<String> = [id.to_string()].into();
+
+  let mut walk = |start: &str, sql: &str| -> Result<Vec<String>, StoreError> {
+    let mut out = Vec::new();
+    let mut current = start.to_string();
+    loop {
+      let mut stmt = conn.prepare(sql)?;
+      let nexts = stmt
+        .query_map([&current], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+      let Some(next) = nexts.first().cloned() else {
+        break;
+      };
+      if nexts.len() > 1 {
+        branched = true;
+      }
+      if !visited.insert(next.clone()) {
+        break; // cycle
+      }
+      out.push(next.clone());
+      current = next;
+    }
+    Ok(out)
+  };
+
+  // Backward: my outgoing continues edges point at earlier
+  // parts. Forward: edges pointing at me come from later parts.
+  let mut earlier = walk(
+    id,
+    "SELECT to_id FROM entry_links
+     WHERE from_id = ?1 AND rel = 'continues' ORDER BY to_id",
+  )?;
+  let later = walk(
+    id,
+    "SELECT from_id FROM entry_links
+     WHERE to_id = ?1 AND rel = 'continues' ORDER BY from_id",
+  )?;
+  earlier.reverse();
+  earlier.push(id.to_string());
+  earlier.extend(later);
+  Ok((earlier, branched))
+}
+
 /// Every edge touching `id`, in either direction.
 pub fn links_of(conn: &Connection, id: &str) -> Result<Vec<Link>, StoreError> {
   let mut stmt = conn.prepare(
@@ -189,6 +244,70 @@ mod tests {
     let left = links_of(&conn, &a).unwrap();
     assert_eq!(left.len(), 1);
     assert_eq!(left[0].rel, Rel::RelatesTo);
+  }
+
+  #[test]
+  fn chain_reconstructs_from_any_member() {
+    let (mut conn, a, b) = seeded();
+    let c = remember(
+      &mut conn,
+      &NewEntry {
+        namespace: "global".into(),
+        kind: Kind::Reference,
+        content: "part three of the design".into(),
+        agent_id: "test".into(),
+        source: "".into(),
+        tags: vec![],
+      },
+    )
+    .unwrap()
+    .id;
+    // Auto-split direction: later part points at its predecessor.
+    link(&conn, &b, &a, Rel::Continues).unwrap();
+    link(&conn, &c, &b, Rel::Continues).unwrap();
+    for member in [&a, &b, &c] {
+      let (chain, branched) = continues_chain(&conn, member).unwrap();
+      assert_eq!(chain, [a.clone(), b.clone(), c.clone()]);
+      assert!(!branched);
+    }
+    // A lone entry is a chain of one.
+    let (solo, _) = continues_chain(&conn, "not-linked").unwrap();
+    assert_eq!(solo, ["not-linked"]);
+  }
+
+  #[test]
+  fn branched_chains_flag_and_take_mint_order() {
+    let (mut conn, a, b) = seeded();
+    let c = remember(
+      &mut conn,
+      &NewEntry {
+        namespace: "global".into(),
+        kind: Kind::Reference,
+        content: "a rival continuation".into(),
+        agent_id: "test".into(),
+        source: "".into(),
+        tags: vec![],
+      },
+    )
+    .unwrap()
+    .id;
+    // Both b and c claim to continue a: a branch.
+    link(&conn, &b, &a, Rel::Continues).unwrap();
+    link(&conn, &c, &a, Rel::Continues).unwrap();
+    let (chain, branched) = continues_chain(&conn, &a).unwrap();
+    assert!(branched);
+    // Mint order: b was created before c, so b wins the walk.
+    assert_eq!(chain, [a.clone(), b.clone()]);
+  }
+
+  #[test]
+  fn cyclic_chains_terminate() {
+    let (conn, a, b) = seeded();
+    link(&conn, &b, &a, Rel::Continues).unwrap();
+    link(&conn, &a, &b, Rel::Continues).unwrap();
+    let (chain, _) = continues_chain(&conn, &a).unwrap();
+    assert!(chain.len() <= 2, "cycle terminated: {chain:?}");
+    assert!(chain.contains(&a));
   }
 
   #[test]
