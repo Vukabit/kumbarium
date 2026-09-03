@@ -77,11 +77,13 @@ Fields, reusing every convention the entries table proved:
   (provenance), created_at / updated_at.
 - `severity`: low | normal | high | urgent. Display order and
   color follow it everywhere.
-- `horizon`: now | next | later | someday. The roadmap axis.
-  Deliberately NOT a due date: dates rot silently in a
-  personal-scale tool; horizons state intent and are cheap to
-  re-judge. (A `due` date column can arrive later without
-  breaking anything; it starts as a named non-goal.)
+- `goal`: an optional target date (ISO day). A goal, not an
+  alarm: the manager surfaces, it never schedules. The roadmap
+  axis is DERIVED from it, never hand-maintained: overdue /
+  now (within a week) / next (within a month) / later (dated
+  beyond) / someday (no goal). Dates in an unwatched tool rot
+  silently, which is why goals here are watched: see the
+  creeping-deadlines section.
 - `state`: open | done | dropped. Done and dropped both KEEP
   the row (the docket is a record of judgments, like the desk);
   done_at stamps when. Dropped is for matters overtaken by
@@ -112,9 +114,9 @@ filer's authority and nothing more.
 MCP, two tools (the six memory verbs stay untouched; verb
 economy is a feature):
 
-- `task_file`: namespace, content, severity, horizon
-  (defaults: normal, next). Policy decides live vs pending.
-- `task_update`: id + any of severity / horizon / content
+- `task_file`: namespace, content, severity, optional goal
+  (default severity: normal). Policy decides live vs pending.
+- `task_update`: id + any of severity / goal / content
   (supersession under the hood) / state -> done | dropped with
   an optional note. Marking done is a CLAIM, attributed and
   witnessed, same epistemics as confirm: the charter never
@@ -131,19 +133,20 @@ If daily driving shows agents need a dedicated read tool, a
 CLI:
 
 ```
-kum task <ns> <content> [--severity S] [--horizon H]
-kum tasks [ns] [--all] [--severity S] [--horizon H]
+kum task <ns> <content> [--severity S] [--goal YYYY-MM-DD]
+kum tasks [ns] [--all] [--severity S]
 kum task done <id> [note]
 kum task drop <id> [note]
-kum task grade <id> --severity S | --horizon H
+kum task grade <id> --severity S | --goal YYYY-MM-DD
 kum roadmap [ns]
 ```
 
-`kum tasks` is the timeline: open matters, urgent first, oldest
-first within a grade, age column always visible (an old urgent
-is a smell the layout itself should surface). `kum roadmap` is
-the same rows pivoted by horizon: now / next / later / someday
-as sections, severity as ordering within each. One dataset, two
+`kum tasks` is the timeline: open matters, passed goals first,
+then urgent first, oldest first within a grade; age and goal
+columns always visible (an old urgent is a smell the layout
+itself should surface). `kum roadmap` is the same rows pivoted
+by derived horizon: overdue / now / next / later / someday as
+sections, severity ordering within each. One dataset, two
 readings, exactly as "roadmap-esque" should mean.
 
 The witness gains kinds `task_file`, `task_update`, `task_done`,
@@ -152,15 +155,34 @@ Minutes render them as prose like everything else: "filed
 urgent task 3f2a91bc", "completed 3f2a91bc". The docket's
 history IS meeting minutes now; that was free.
 
+## Creeping deadlines (the goal machinery's payoff)
+
+Re-goaling a task is a supersession like any other edit, which
+means every slip is ON THE CHAIN: the witness records who moved
+the goal, when, and by how much, and slippage becomes
+deterministic ledger math ("goal moved 3 times, 40 days total")
+instead of a feeling. Surfacing happens at two layers, both
+read-side (the manager never reminds, notifies, or schedules):
+
+- The timeline marks goal proximity as it renders: approaching
+  goals in yellow, passed ones in red with "over by Nd", and a
+  passed goal outranks its severity peers. You cannot open the
+  docket without the creep looking back at you.
+- The janitor's findings grow "creeping matters": open tasks
+  whose goal has passed or keeps sliding (slip count and total
+  slip straight off the chain), advisory and human-judged like
+  dormant memories. Deciding whether the task or the goal was
+  wrong stays a human call.
+
 ## Janitor and the docket (v2, named now)
 
 Staleness has a task shape: open + untouched + old is the
-docket's dormancy. The janitor's findings section grows a
-"stale matters" list (advisory, human-judged, like dormant
-memories). An agent-day exposure analog exists too: a task
+docket's dormancy, and creeping matters (above) are its
+overdue. An agent-day exposure analog exists too: a task
 repeatedly shown at session start and never acted on is
 telling you something about either the task or the roadmap.
-Nothing here blocks v1.
+The creep MARKS in the timeline are v1 (pure rendering); the
+janitor findings are v2. Nothing blocks either.
 
 ## Relationship to handoff logs
 
@@ -175,8 +197,9 @@ to point at.
 
 ## Non-goals (v1)
 
-- No due dates, no reminders, no scheduling (the manager never
-  directs work, it records what is owed).
+- No reminders, no notifications, no scheduling (the manager
+  never directs work, it records what is owed; goals surface
+  at read time and in janitor findings, nowhere else).
 - No hierarchy / subtasks (deep taxonomies are where personal
   tools go to die; a matter too big to state is two matters).
 - No assignees (personal tier has one human; the daemon rung
