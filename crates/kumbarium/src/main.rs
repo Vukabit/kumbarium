@@ -2,8 +2,10 @@
 //! stdio (D-014); the rest is the human-facing CLI.
 
 mod import;
+mod markdown;
 mod paths;
 mod rpc;
+mod style;
 mod tools;
 
 use std::process::ExitCode;
@@ -219,10 +221,11 @@ fn namespace_list() -> ExitCode {
   };
   match kumbarium_store::namespaces(&state.library) {
     Ok(rows) => {
-      println!("namespace  [created]  description");
+      let sty = style::Style::detect();
+      println!("{}", sty.dim("namespace  [created]  description"));
       for (path, description, created_at) in rows {
         let day = created_at.get(..10).unwrap_or(&created_at);
-        println!("{path}  [{day}]  {description}");
+        println!("{}  [{day}]  {description}", sty.bold(&path));
       }
       ExitCode::SUCCESS
     }
@@ -244,16 +247,20 @@ fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
     println!("no entries");
     return ExitCode::SUCCESS;
   }
+  let sty = style::Style::detect();
   println!(
-    "id        created     kind          namespace            \
-     content"
+    "{}",
+    sty.dim(
+      "id        created     kind          namespace            \
+       content"
+    )
   );
   for e in &entries {
     let day = e.created_at.get(..10).unwrap_or(&e.created_at);
     let dead = if e.superseded_by.is_some() {
-      " [superseded]"
+      sty.red(" [superseded]")
     } else {
-      ""
+      String::new()
     };
     let preview: String = e
       .content
@@ -264,15 +271,19 @@ fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
       .take(56)
       .collect();
     println!(
-      "{:<8}  {day}  {:<13} {:<20} {preview}{dead}",
-      kumbarium_store::short_id(&e.id),
-      e.kind.as_str(),
+      "{}  {day}  {} {:<20} {preview}{dead}",
+      sty.id(kumbarium_store::short_id(&e.id)),
+      sty.kind(&format!("{:<13}", e.kind.as_str())),
       e.namespace
     );
   }
   println!(
-    "({} entries; ids are short forms, any unique fragment works)",
-    entries.len()
+    "{}",
+    sty.dim(&format!(
+      "({} entries; ids are short forms, any unique fragment \
+       works)",
+      entries.len()
+    ))
   );
   ExitCode::SUCCESS
 }
@@ -290,13 +301,14 @@ fn show_entry(id: &str, full: bool) -> ExitCode {
     Ok(e) => e,
     Err(err) => return fail(&err.to_string()),
   };
+  let sty = style::Style::detect();
   println!(
     "id:         {} (short: {})",
     e.id,
-    kumbarium_store::short_id(&e.id)
+    sty.id(kumbarium_store::short_id(&e.id))
   );
   println!("namespace:  {}", e.namespace);
-  println!("kind:       {}", e.kind.as_str());
+  println!("kind:       {}", sty.kind(e.kind.as_str()));
   println!("agent:      {}", e.agent_id);
   if !e.source.is_empty() {
     println!("source:     {}", e.source);
@@ -314,7 +326,7 @@ fn show_entry(id: &str, full: bool) -> ExitCode {
     println!("tags:       {}", e.tags.join(", "));
   }
   if let Some(new) = &e.superseded_by {
-    println!("superseded by: {new}");
+    println!("superseded by: {}", sty.yellow(new));
   }
   match kumbarium_store::predecessor_of(&state.library, &full_id) {
     Ok(Some(old)) => println!("supersedes: {old}"),
@@ -325,9 +337,9 @@ fn show_entry(id: &str, full: bool) -> ExitCode {
     Ok(links) => {
       for l in links {
         if l.from_id == e.id {
-          println!("link:       {} -> {}", l.rel.as_str(), l.to_id);
+          println!("link:       {} -> {}", l.rel.as_str(), sty.id(&l.to_id));
         } else {
-          println!("link:       {} <- {}", l.rel.as_str(), l.from_id);
+          println!("link:       {} <- {}", l.rel.as_str(), sty.id(&l.from_id));
         }
       }
     }
@@ -342,11 +354,17 @@ fn show_entry(id: &str, full: bool) -> ExitCode {
   if n > 1 && !full {
     let pos = chain.iter().position(|c| *c == full_id).unwrap_or(0) + 1;
     let note = if branched { "; chain BRANCHES" } else { "" };
-    println!("set:        part {pos} of {n}{note} (--full stitches)");
+    println!(
+      "set:        {}",
+      sty.yellow(&format!("part {pos} of {n}{note} (--full stitches)"))
+    );
   }
   if full && n > 1 {
     if branched {
-      println!("warning: continues chain branches; showing mint order");
+      println!(
+        "{}",
+        sty.yellow("warning: continues chain branches; showing mint order")
+      );
     }
     for (i, part_id) in chain.iter().enumerate() {
       let part = match kumbarium_store::get(&state.library, part_id) {
@@ -354,14 +372,17 @@ fn show_entry(id: &str, full: bool) -> ExitCode {
         Err(err) => return fail(&err.to_string()),
       };
       println!(
-        "\n-- part {}/{n}  {} --\n{}",
-        i + 1,
-        kumbarium_store::short_id(part_id),
-        part.content
+        "\n{}\n{}",
+        sty.bold(&format!(
+          "-- part {}/{n}  {} --",
+          i + 1,
+          kumbarium_store::short_id(part_id)
+        )),
+        markdown::render(&part.content, &sty)
       );
     }
   } else {
-    println!("\n{}", e.content);
+    println!("\n{}", markdown::render(&e.content, &sty));
   }
   ExitCode::SUCCESS
 }
@@ -373,9 +394,13 @@ fn audit_tail(n: usize) -> ExitCode {
   };
   match kumbarium_audit::tail(&state.audit, n) {
     Ok(events) => {
+      let sty = style::Style::detect();
       println!(
-        "at                        kind      agent               \
-         scope  detail"
+        "{}",
+        sty.dim(
+          "at                        kind      agent              \
+           scope  detail"
+        )
       );
       for e in events {
         let scope = if e.scope.is_empty() {
@@ -384,8 +409,11 @@ fn audit_tail(n: usize) -> ExitCode {
           format!(" {}", e.scope)
         };
         println!(
-          "{}  {:<9} {:<20}{scope}  {}",
-          e.at, e.kind, e.agent_id, e.detail
+          "{}  {} {:<20}{scope}  {}",
+          sty.dim(&e.at),
+          sty.event(&format!("{:<9}", e.kind)),
+          e.agent_id,
+          e.detail
         );
       }
       ExitCode::SUCCESS
