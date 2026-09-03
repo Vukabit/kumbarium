@@ -224,7 +224,7 @@ kum audit verify
 Every librarian transaction is an event: who (agent identity),
 when, what, in which scope. `tail` shows the most recent n
 (default 20) as prose. `export` renders deterministic
-meeting-minutes markdown to exports/ and prints the path
+meeting-minutes markdown to exports/audit/ and prints the path
 (quoted on a terminal, bare into pipes); `--stdout` streams the
 markdown instead, for piping. Times render local by default;
 `--raw` keeps the stored UTC form (machine-comparable across
@@ -360,8 +360,8 @@ kum bundle <namespace> [--out DIR] [--stdout]
 kum import bundle <FILE> [--pending]
 ```
 
-Like `audit export`, a bundle lands in exports/ under a
-sortable ISO-stamped name (`bundle-<ns>-<stamp>Z.json`) and the
+Like `audit export`, a bundle lands in exports/bundles/ under
+a sortable ISO-stamped name (`bundle-<ns>-<stamp>Z.json`) and the
 path is printed. `--out <dir>` chooses the directory instead
 (created if missing; trailing slash irrelevant); `--stdout`
 streams the JSON with no file written.

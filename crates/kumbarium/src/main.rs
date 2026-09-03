@@ -691,14 +691,17 @@ fn audit_export(to_stdout: bool, raw: bool) -> ExitCode {
     }
     return ExitCode::SUCCESS;
   }
-  if let Err(e) = std::fs::create_dir_all(&p.exports_dir) {
+  // Artifact types get their own shelf under exports/ (audit/,
+  // bundles/; future exporters add siblings).
+  let dir = p.exports_dir.join("audit");
+  if let Err(e) = std::fs::create_dir_all(&dir) {
     return fail(&format!("creating exports dir: {e}"));
   }
   let stamp = kumbarium_util::now_iso8601()
     .get(..19)
     .unwrap_or_default()
     .replace(':', "-");
-  let target = p.exports_dir.join(format!("minutes-{stamp}Z.md"));
+  let target = dir.join(format!("minutes-{stamp}Z.md"));
   match kumbarium_util::write_atomically(&target, minutes.as_bytes()) {
     Ok(()) => {
       println!("{}", shell_quote(&target.display().to_string()));
@@ -1822,7 +1825,7 @@ fn bundle_cmd(scope: &str, out_dir: Option<&str>, to_stdout: bool) -> ExitCode {
   }
   let dir = match out_dir {
     Some(raw) => expand_home(raw),
-    None => p.exports_dir.clone(),
+    None => p.exports_dir.join("bundles"),
   };
   if let Err(e) = std::fs::create_dir_all(&dir) {
     return fail(&format!("creating {}: {e}", dir.display()));
