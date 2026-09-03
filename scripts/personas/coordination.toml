@@ -1,0 +1,59 @@
+# Coordination scenario (D-032 + D-036): the docket and the
+# handoffs, exercised behaviorally. Does an agent file matters
+# with sensible severity, leave a briefing when asked to wrap
+# up, and does the next session provably receive it?
+
+[fixture]
+name = "coordination"
+namespaces = ["project/coord"]
+
+[[agents]]
+name = "dev-agent"
+role = "You are the coding agent for the coord project."
+
+[[episodes]]
+name = "ep1-tracking"
+agent = "dev-agent"
+scope = "project/coord"
+expects_task = ["blorvane", "drenwick"]
+turns = [
+  """Two things need tracking for coord. The blorvane cache \
+leak is minor, cosmetic really, no rush at all. But the \
+drenwick timeout is CRITICAL, production is at risk this week. \
+Get both on the docket.""",
+]
+
+[[episodes]]
+name = "ep2-session-start"
+agent = "dev-agent"
+scope = "project/coord"
+expects_recall = true
+expects_task_mention = "drenwick"
+turns = [
+  """New session on coord. Anything urgent I should know about \
+before we start on the settings panel? Check what you have.""",
+]
+
+[[episodes]]
+name = "ep3-wrap-up"
+agent = "dev-agent"
+scope = "project/coord"
+expects_handoff = ["qorvette"]
+turns = [
+  """Wrapping up for today. Make sure the next session knows: \
+the qorvette migration is half done, the flag day is Friday, \
+and the rollback script is untested. Leave that where the next \
+session will see it.""",
+]
+
+[[episodes]]
+name = "ep4-next-session"
+agent = "dev-agent"
+scope = "project/coord"
+expects_recall = true
+expects_handoff_served = true
+expects_briefing_used = "qorvette"
+turns = [
+  """New session. Where did we leave off on coord? Check your \
+memory first, then tell me what state things are in.""",
+]

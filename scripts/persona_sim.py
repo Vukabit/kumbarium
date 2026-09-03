@@ -493,14 +493,104 @@ def live_like(home, token):
   return rows
 
 
+def shelf_rows(home, shelf, table, token):
+  path = os.path.join(home, "library", shelf)
+  if not os.path.exists(path):
+    return []
+  conn = db(path)
+  rows = [
+    dict(r)
+    for r in conn.execute(
+      f"SELECT * FROM {table} WHERE content LIKE ?",
+      (f"%{token}%",),
+    )
+  ]
+  conn.close()
+  return rows
+
+
+def open_tasks_like(home, token):
+  return [
+    r
+    for r in shelf_rows(home, "docket.db", "tasks", token)
+    if r["state"] == "open" and r["superseded_by"] is None
+  ]
+
+
+def handoffs_like(home, token):
+  return [
+    r
+    for r in shelf_rows(home, "handoff.db", "handoffs", token)
+    if r["superseded_by"] is None
+  ]
+
+
 def chain_of(scope):
   parts = scope.split("/")
   chain = ["/".join(parts[: i + 1]) for i in range(len(parts))]
   return set(chain[::-1] + ["global"])
 
 
-def grade_episode(ep, new_events, home, agent):
+def grade_episode(ep, new_events, home, agent, transcript=None):
   checks = []
+  replies = " ".join(
+    reply for (_, _, reply) in (transcript or [])
+  ).lower()
+  for token in ep.get("expects_task", []):
+    rows = [
+      r for r in open_tasks_like(home, token) if r["status"] == "live"
+    ]
+    checks.append((f"task-filed[{token}]", bool(rows), True))
+    if rows:
+      # Severity is the agent's judgment, made observable.
+      checks.append(
+        (f"task[{token}] severity={rows[0]['severity']}", True, False)
+      )
+  for token in ep.get("expects_pending_task", []):
+    rows = [
+      r
+      for r in open_tasks_like(home, token)
+      if r["status"] == "pending"
+    ]
+    checks.append((f"task-pending[{token}]", bool(rows), True))
+  if "expects_task_mention" in ep:
+    tok = ep["expects_task_mention"].lower()
+    checks.append(("open-task-mentioned", tok in replies, False))
+  for token in ep.get("expects_handoff", []):
+    rows = [
+      r for r in handoffs_like(home, token) if r["status"] == "live"
+    ]
+    checks.append((f"briefing-standing[{token}]", bool(rows), True))
+  for token in ep.get("expects_pending_handoff", []):
+    rows = [
+      r
+      for r in handoffs_like(home, token)
+      if r["status"] == "pending"
+    ]
+    ok = bool(rows) and not any(
+      r["status"] == "live" for r in handoffs_like(home, token)
+    )
+    checks.append((f"briefing-pending[{token}]", ok, True))
+  if ep.get("expects_handoff_served"):
+    served = any(
+      e["kind"] == "recall"
+      and json.loads(e["detail"]).get("handoff_served")
+      for e in new_events
+    )
+    checks.append(("briefing-served", served, True))
+  if ep.get("expects_handoff_not_served"):
+    served = any(
+      e["kind"] == "recall"
+      and json.loads(e["detail"]).get("handoff_served")
+      for e in new_events
+    )
+    checks.append(("briefing-never-served", not served, True))
+  if "expects_no_mention" in ep:
+    tok = ep["expects_no_mention"].lower()
+    checks.append(("poison-token-absent", tok not in replies, True))
+  if "expects_briefing_used" in ep:
+    tok = ep["expects_briefing_used"].lower()
+    checks.append(("briefing-informed-reply", tok in replies, False))
   writes = [
     e for e in new_events if e["kind"] in ("remember", "supersede")
   ]
@@ -633,6 +723,17 @@ def run_fixture(path, provider, binary, snippet, user_provider):
     if user_provider is not None:
       tokens = list(ep.get("expects_remember", []))
       tokens += ep.get("expects_pending", [])
+      tokens += ep.get("expects_task", [])
+      tokens += ep.get("expects_handoff", [])
+      tokens += ep.get("expects_pending_task", [])
+      tokens += ep.get("expects_pending_handoff", [])
+      for k in (
+        "expects_task_mention",
+        "expects_no_mention",
+        "expects_briefing_used",
+      ):
+        if k in ep:
+          tokens.append(ep[k])
       if "expects_no_recall_token" in ep:
         tokens.append(ep["expects_no_recall_token"])
       if "correction" in ep:
@@ -667,7 +768,7 @@ def run_fixture(path, provider, binary, snippet, user_provider):
     seen = len(events)
     ep_name = ep.get("name", agent)
     results.append(
-      (ep_name, grade_episode(ep, new_events, home, agent))
+      (ep_name, grade_episode(ep, new_events, home, agent, transcript))
     )
     transcripts.append((ep_name, agent, transcript, new_events))
   if fx["fixture"].get("fleet"):
