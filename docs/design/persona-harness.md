@@ -24,9 +24,14 @@ suite.
    the robustness floor: if a small local model uses the library
    correctly from the schemas alone, the surface is genuinely
    self-explanatory, which is what agent-agnostic means.
-4. Scripted users in v1. The "user" side of each episode is
-   fixed turns from the fixture, deterministic and free. An
-   LLM user-sim is v2.
+4. Scripted users by default; LLM user-sim on request
+   (--user-agent). The rewrite keeps graded tokens verbatim
+   (falls back to the canonical turn otherwise) but is NOT
+   forced into imperative voice: real users are ambiguous, and
+   an agent that acknowledges a fact without storing it has
+   missed for real (D-024). The user-sim itself must never
+   answer, acknowledge, or act on an intent, and runs with no
+   MCP servers and an empty cwd.
 
 ## Components
 

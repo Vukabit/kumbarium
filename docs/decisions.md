@@ -254,3 +254,21 @@ v1 (deterministic, free); expectations live in fixtures
 confirm-after-outcome as informational since confirm is
 voluntary evidence). Confirms are never REQUIRED by the grader:
 requiring them would contradict survival-first.
+
+## D-024: user-sim stays ambiguous; defers are misses (2026-09-03)
+
+The LLM user-sim rewrites canonical intents into natural
+phrasing, and natural phrasing is ambiguous: "storing the
+gremvaux process as a global constraint" reads as either the
+user's act or the agent's instruction. A haiku fleet run showed
+the failure this admits: the agent laid out the correct plan
+("gremvaux to global, redis stays local") and called no tool,
+an acknowledge-then-defer. Decision: do not force the rewrite
+prompt into imperative voice. Real users talk ambiguously, and
+an agent that plans a store without executing it has failed the
+user in exactly the way that matters; the grader counts it as a
+miss on purpose. The guardrails that remain are mechanical, not
+stylistic: graded tokens must survive the rewrite (fall back to
+the canonical turn otherwise), and the user-sim must never
+answer, acknowledge, or act on an intent. Measurement realism
+outranks scoring convenience.
