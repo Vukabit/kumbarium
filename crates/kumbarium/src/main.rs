@@ -228,10 +228,16 @@ fn namespace_list() -> ExitCode {
   match kumbarium_store::namespaces(&state.library) {
     Ok(rows) => {
       let sty = style::Style::detect();
-      println!("{}", sty.dim("namespace  [created]  description"));
+      println!(
+        "{}",
+        sty.dim("namespace             [created]     description")
+      );
       for (path, description, created_at) in rows {
         let day = created_at.get(..10).unwrap_or(&created_at);
-        println!("{}  [{day}]  {description}", sty.bold(&path));
+        println!(
+          "{}  [{day}]  {description}",
+          sty.bold(&format!("{path:<20}"))
+        );
       }
       ExitCode::SUCCESS
     }
@@ -404,21 +410,17 @@ fn audit_tail(n: usize) -> ExitCode {
       println!(
         "{}",
         sty.dim(
-          "at                        kind      agent              \
-           scope  detail"
+          "at                        kind      agent                \
+scope                detail"
         )
       );
       for e in events {
-        let scope = if e.scope.is_empty() {
-          String::new()
-        } else {
-          format!(" {}", e.scope)
-        };
         println!(
-          "{}  {} {:<20}{scope}  {}",
+          "{}  {} {:<20} {:<20} {}",
           sty.dim(&e.at),
           sty.event(&format!("{:<9}", e.kind)),
           e.agent_id,
+          e.scope,
           kumbarium_audit::describe_event(&e.kind, &e.detail)
         );
       }
@@ -488,14 +490,17 @@ fn history_cmd(id: &str, with_diff: bool) -> ExitCode {
   let n = versions.len();
   println!(
     "{}",
-    sty.dim("version   id        created     agent                 bytes")
+    sty.dim(
+      "version    id        created     agent                 \
+       bytes"
+    )
   );
   for (i, e) in versions.iter().enumerate().rev() {
     let live = if i + 1 == n { " (live)" } else { "" };
+    let ver = format!("v{}{live}", i + 1);
     let day = e.created_at.get(..10).unwrap_or(&e.created_at);
     println!(
-      "v{:<2}{live:<8} {}  {day}  {:<20}  {}",
-      i + 1,
+      "{ver:<11}{}  {day}  {:<20}  {}",
       sty.id(kumbarium_store::short_id(&e.id)),
       e.agent_id,
       e.content.len()
