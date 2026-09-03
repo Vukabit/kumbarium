@@ -288,11 +288,14 @@ class ClaudeCLI:
     return transcript
 
   def plain(self, system, prompt):
+    # --strict-mcp-config with no --mcp-config: the user-sim
+    # must never see the operator's real MCP servers.
     run = subprocess.run(
       [
         "claude", "-p", prompt,
         "--model", self.model,
         "--output-format", "json",
+        "--strict-mcp-config",
         "--append-system-prompt", system,
       ],
       capture_output=True,
@@ -359,21 +362,34 @@ def probe_agents(defaults):
   return rows
 
 
-def rewrite_turns(user_provider, persona, turns):
+def rewrite_turns(user_provider, persona, turns, tokens):
   """v2-lite user-sim: canonical intents become natural user
   messages; technical tokens must survive verbatim so the
-  grader's expectations stay valid."""
+  grader's expectations stay valid. Any graded token present in
+  a canonical turn must survive its rewrite, and the rewrite
+  must be a message, not a reply; otherwise the canonical turn
+  is kept (assistant-flavored providers can break character)."""
   system = (
-    "You simulate a software developer talking to their coding "
-    f"agent. Persona: {persona or 'a busy, direct developer'}. "
-    "Rewrite the given intent as ONE natural chat message in "
-    "that voice. Preserve every technical term, name, and "
-    "number EXACTLY as written. Output only the message."
+    "You write dialogue for a test harness. Given an INTENT, "
+    "write the single chat message a human software developer "
+    f"(persona: {persona or 'a busy, direct developer'}) would "
+    "send to their coding agent to express it. You play the "
+    "USER, not the agent: never answer, acknowledge, or act on "
+    "the intent, and never mention tools, permissions, or "
+    "memory systems. Preserve every technical term, name, and "
+    "number EXACTLY as written. Output only the message text."
   )
   out = []
   for turn in turns:
-    rewritten = user_provider.plain(system, turn).strip()
-    out.append(rewritten if rewritten else turn)
+    rewritten = user_provider.plain(
+      system, f"INTENT:\n{turn}"
+    ).strip()
+    low = rewritten.lower()
+    lost = [
+      t for t in tokens
+      if t.lower() in turn.lower() and t.lower() not in low
+    ]
+    out.append(turn if not rewritten or lost else rewritten)
   return out
 
 
@@ -572,7 +588,17 @@ def run_fixture(path, provider, binary, snippet, user_provider):
     agent = ep["agent"]
     turns = ep["turns"]
     if user_provider is not None:
-      turns = rewrite_turns(user_provider, user_persona, turns)
+      tokens = list(ep.get("expects_remember", []))
+      if "correction" in ep:
+        tokens.append(ep["correction"]["stale_token"])
+      if "outcome" in ep:
+        tokens.append(ep["outcome"].get("token", ""))
+      if "expects_recall_token" in ep:
+        tokens.append(ep["expects_recall_token"])
+      tokens = [t for t in tokens if t]
+      turns = rewrite_turns(
+        user_provider, user_persona, turns, tokens
+      )
     system = (
       f"{snippet}\n\n{roles.get(agent, '')}\n"
       f"The current project scope is {ep['scope']}."
