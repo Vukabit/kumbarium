@@ -80,7 +80,7 @@ pub fn run(
   for p in &plan {
     let parts = kumbarium_librarian::split_for_storage(
       &content_of(&p.file),
-      kumbarium_librarian::SPLIT_TARGET,
+      state.cfg.split_target,
     )
     .len();
     let status = match &p.already_imported {

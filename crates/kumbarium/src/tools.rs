@@ -5,15 +5,16 @@
 
 use serde_json::{Value, json};
 
-const RECALL_DEFAULT_LIMIT: usize = 8;
+use super::config::Config;
 
 /// Everything one server process holds: the two database
-/// connections and the identity the client declared at
-/// initialize time.
+/// connections, the identity the client declared at initialize
+/// time, and the effective tunables.
 pub struct ServerState {
   pub library: kumbarium_store::Connection,
   pub audit: kumbarium_store::Connection,
   pub agent_id: String,
+  pub cfg: Config,
 }
 
 impl ServerState {
@@ -23,6 +24,7 @@ impl ServerState {
       library: kumbarium_store::open_in_memory().unwrap(),
       audit: kumbarium_audit::open_in_memory().unwrap(),
       agent_id: "unknown-agent".into(),
+      cfg: Config::default(),
     }
   }
 }
@@ -260,7 +262,7 @@ pub(crate) fn store_split(
 ) -> Result<Vec<String>, String> {
   let parts = kumbarium_librarian::split_for_storage(
     &new.content,
-    kumbarium_librarian::SPLIT_TARGET,
+    state.cfg.split_target,
   );
   let mut ids: Vec<String> = Vec::new();
   for part in parts {
@@ -379,7 +381,7 @@ fn recall(
     .get("limit")
     .and_then(Value::as_u64)
     .map(|v| v as usize)
-    .unwrap_or(RECALL_DEFAULT_LIMIT);
+    .unwrap_or(state.cfg.recall_default_limit);
   let chain = kumbarium_librarian::namespace_chain(scope)
     .map_err(|e| format!("invalid scope: {e}"))?;
   let hits = kumbarium_store::recall(&state.library, query, &chain, limit)

@@ -1,6 +1,7 @@
 //! Kumbarium: the librarian process. `serve` speaks MCP over
 //! stdio (D-014); the rest is the human-facing CLI.
 
+mod config;
 mod diff;
 mod help;
 mod import;
@@ -67,6 +68,8 @@ pub fn run() -> ExitCode {
     ["retire", id] => retire_cmd(id, true),
     ["unretire", id] => retire_cmd(id, false),
     ["status"] => status_cmd(),
+    ["config"] => config_cmd(false),
+    ["config", "--init"] => config_cmd(true),
     ["grep", pattern] => grep_cmd(pattern, None, false),
     ["grep", pattern, "--all"] => grep_cmd(pattern, None, true),
     ["grep", pattern, ns] => grep_cmd(pattern, Some(ns), false),
@@ -148,29 +151,26 @@ fn open_stores() -> Result<(paths::Paths, tools::ServerState), String> {
     .map_err(|e| format!("opening library: {e}"))?;
   let audit = kumbarium_audit::open(&p.audit_db)
     .map_err(|e| format!("opening audit log: {e}"))?;
+  // Config: missing file = defaults; malformed lines warn on
+  // stderr and keep defaults (an agent's server still starts).
+  let cfg = match std::fs::read_to_string(&p.config_file) {
+    Ok(text) => {
+      let (cfg, warnings) = config::parse(&text);
+      for w in warnings {
+        eprintln!("kumbarium: {w}");
+      }
+      cfg
+    }
+    Err(_) => config::Config::default(),
+  };
   let state = tools::ServerState {
     library,
     audit,
     agent_id: "unknown-agent".into(),
+    cfg,
   };
   Ok((p, state))
 }
-
-/// Backup policy (mechanics live in kumbarium-store). Audit
-/// keeps a shallower tier: higher volume, lower stakes.
-const BACKUP_INTERVAL_MS: i64 = 12 * 3_600_000;
-const LIBRARY_RETENTION: kumbarium_store::Retention =
-  kumbarium_store::Retention {
-    recent: 2,
-    dailies: 7,
-    weeklies: 4,
-  };
-const AUDIT_RETENTION: kumbarium_store::Retention =
-  kumbarium_store::Retention {
-    recent: 2,
-    dailies: 3,
-    weeklies: 0,
-  };
 
 /// Run backups for both databases if due (or forced). Guarded
 /// by the maintenance lock (D-015): if another process holds
@@ -188,15 +188,33 @@ fn maintenance(
     report.push("maintenance lock held elsewhere; skipping backups".into());
     return Ok(report);
   }
+  let cfg = state.cfg;
+  let interval_ms = cfg.backup_interval_hours * 3_600_000;
   let jobs = [
-    ("library", &state.library, LIBRARY_RETENTION),
-    ("audit", &state.audit, AUDIT_RETENTION),
+    (
+      "library",
+      &state.library,
+      kumbarium_store::Retention {
+        recent: cfg.library_recent,
+        dailies: cfg.library_dailies,
+        weeklies: cfg.library_weeklies,
+      },
+    ),
+    (
+      "audit",
+      &state.audit,
+      kumbarium_store::Retention {
+        recent: cfg.audit_recent,
+        dailies: cfg.audit_dailies,
+        weeklies: cfg.audit_weeklies,
+      },
+    ),
   ];
   for (name, conn, retention) in jobs {
     let dir = p.backups_dir.join(name);
     let due = force
       || match kumbarium_store::latest_backup_ms(&dir) {
-        Some(last) => kumbarium_util::now_ms() - last >= BACKUP_INTERVAL_MS,
+        Some(last) => kumbarium_util::now_ms() - last >= interval_ms,
         None => true,
       };
     if !due {
@@ -695,11 +713,6 @@ fn retire_cmd(id: &str, retiring: bool) -> ExitCode {
   ExitCode::SUCCESS
 }
 
-/// A version collapses in the default view when it carries a
-/// note AND its measured diff is small: the note informs, the
-/// diff decides, so a mislabeled big change can never hide.
-const COLLAPSE_MAX_CHANGED_LINES: usize = 4;
-
 fn history_cmd(id: &str, with_diff: bool, all: bool) -> ExitCode {
   let (_, state) = match open_stores() {
     Ok(v) => v,
@@ -733,7 +746,9 @@ fn history_cmd(id: &str, with_diff: bool, all: bool) -> ExitCode {
     !all
       && i + 1 != n
       && versions[i].note.is_some()
-      && changed[i] <= COLLAPSE_MAX_CHANGED_LINES
+      // The note informs, the diff decides (config:
+      // history.collapse_max_changed_lines).
+      && changed[i] <= state.cfg.collapse_max_changed_lines
   };
   println!(
     "{}",
@@ -1282,6 +1297,114 @@ fn move_cmd(id: &str, namespace: &str) -> ExitCode {
   ExitCode::SUCCESS
 }
 
+fn config_cmd(init: bool) -> ExitCode {
+  let p = match paths::resolve() {
+    Ok(p) => p,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let sty = style::Style::detect();
+  if init {
+    if p.config_file.exists() {
+      return fail(&format!(
+        "config already exists at {}",
+        p.config_file.display()
+      ));
+    }
+    if let Some(dir) = p.config_file.parent()
+      && let Err(e) = std::fs::create_dir_all(dir)
+    {
+      return fail(&format!("creating config dir: {e}"));
+    }
+    if let Err(e) = kumbarium_util::write_atomically(
+      &p.config_file,
+      config::TEMPLATE.as_bytes(),
+    ) {
+      return fail(&format!("writing config: {e}"));
+    }
+    println!("{}", shell_quote(&p.config_file.display().to_string()));
+    return ExitCode::SUCCESS;
+  }
+  let (cfg, source) = match std::fs::read_to_string(&p.config_file) {
+    Ok(text) => {
+      let (cfg, warnings) = config::parse(&text);
+      for w in warnings {
+        eprintln!("kumbarium: {w}");
+      }
+      (cfg, "file")
+    }
+    Err(_) => (config::Config::default(), "defaults"),
+  };
+  println!(
+    "{} {} ({source})",
+    sty.dim("config:"),
+    p.config_file.display()
+  );
+  let d = config::Config::default();
+  let mark = |cur: i64, def: i64| -> String {
+    if cur == def {
+      String::new()
+    } else {
+      sty.yellow("  (custom)")
+    }
+  };
+  let rows: [(&str, i64, i64); 10] = [
+    (
+      "backup.interval_hours",
+      cfg.backup_interval_hours,
+      d.backup_interval_hours,
+    ),
+    (
+      "backup.library_recent",
+      cfg.library_recent as i64,
+      d.library_recent as i64,
+    ),
+    (
+      "backup.library_dailies",
+      cfg.library_dailies as i64,
+      d.library_dailies as i64,
+    ),
+    (
+      "backup.library_weeklies",
+      cfg.library_weeklies as i64,
+      d.library_weeklies as i64,
+    ),
+    (
+      "backup.audit_recent",
+      cfg.audit_recent as i64,
+      d.audit_recent as i64,
+    ),
+    (
+      "backup.audit_dailies",
+      cfg.audit_dailies as i64,
+      d.audit_dailies as i64,
+    ),
+    (
+      "backup.audit_weeklies",
+      cfg.audit_weeklies as i64,
+      d.audit_weeklies as i64,
+    ),
+    (
+      "write.split_target",
+      cfg.split_target as i64,
+      d.split_target as i64,
+    ),
+    (
+      "history.collapse_max_changed_lines",
+      cfg.collapse_max_changed_lines as i64,
+      d.collapse_max_changed_lines as i64,
+    ),
+    (
+      "recall.default_limit",
+      cfg.recall_default_limit as i64,
+      d.recall_default_limit as i64,
+    ),
+  ];
+  for (key, cur, def) in rows {
+    println!("{key:<36} {cur}{}", mark(cur, def));
+  }
+  ExitCode::SUCCESS
+}
+
 fn fail(message: &str) -> ExitCode {
   eprintln!("kumbarium: {message}");
   ExitCode::FAILURE
@@ -1317,6 +1440,8 @@ Usage:
                          [--raw]      exports/ or streamed
                                       (--raw keeps stored UTC)
   kumbarium backup                    snapshot both dbs now
+  kumbarium config [--init]           effective tunables
+                                      (--init writes template)
   kumbarium paths                     where persisted data lives
   kumbarium version                   print the version
   kumbarium help [topic]              manual pages with grammar
