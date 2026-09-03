@@ -76,7 +76,9 @@ product.
 
 Resolved via `directories` (`kumbarium paths` prints the map):
 data dir holds `library.db`, `audit.db`, `kumbarium.lock`
-(single-instance, load-bearing), `backups/`, `exports/`,
+(guards maintenance ops only, D-015: stdio spawns one server
+process per client and WAL handles the concurrency),
+`backups/`, `exports/`,
 `logs/`; config dir holds `config.toml` (all tunables, one
 file). cache_dir is reserved for a future embedding cache.
 Backups: `VACUUM INTO` -> integrity_check -> atomic rename;

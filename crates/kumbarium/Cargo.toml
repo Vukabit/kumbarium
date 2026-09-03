@@ -1,6 +1,4 @@
-# The binary: CLI today; MCP server + wiring as v0.1 lands. Deps
-# stay limited to what main.rs actually uses; the kumbarium-*
-# crates join as the server wires up.
+# The binary: the MCP stdio server (D-014) + CLI.
 
 [package]
 name = "kumbarium"
@@ -10,13 +8,14 @@ license.workspace = true
 publish = false
 
 [dependencies]
+kumbarium-audit = { path = "../kumbarium-audit" }
+kumbarium-librarian = { path = "../kumbarium-librarian" }
+kumbarium-store = { path = "../kumbarium-store" }
 directories.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-# The golden-eval runner (tests/golden_evals.rs) drives store +
-# librarian together, the way the MCP server will.
-kumbarium-librarian = { path = "../kumbarium-librarian" }
-kumbarium-store = { path = "../kumbarium-store" }
+# The golden-eval runner (tests/golden_evals.rs).
 serde.workspace = true
 toml.workspace = true

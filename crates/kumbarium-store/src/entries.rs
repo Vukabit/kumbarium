@@ -95,6 +95,21 @@ pub fn register_namespace(
   Ok(conn.last_insert_rowid())
 }
 
+/// All registered namespaces as (path, description, created_at),
+/// ordered by path.
+pub fn namespaces(
+  conn: &Connection,
+) -> Result<Vec<(String, String, String)>, StoreError> {
+  let mut stmt = conn.prepare(
+    "SELECT path, description, created_at FROM namespaces
+     ORDER BY path",
+  )?;
+  let rows = stmt
+    .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+    .collect::<Result<Vec<_>, _>>()?;
+  Ok(rows)
+}
+
 /// The namespace's rowid, or None when unregistered.
 pub fn namespace_id(
   conn: &Connection,

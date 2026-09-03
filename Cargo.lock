@@ -249,9 +249,11 @@ name = "kumbarium"
 version = "0.1.0"
 dependencies = [
  "directories",
+ "kumbarium-audit",
  "kumbarium-librarian",
  "kumbarium-store",
  "serde",
+ "serde_json",
  "thiserror",
  "toml",
 ]

@@ -14,8 +14,8 @@ use std::path::Path;
 pub use rusqlite::Connection;
 
 pub use entries::{
-  Entry, Hit, Kind, NewEntry, confirm, forget, get, namespace_id, recall,
-  register_namespace, remember, supersede,
+  Entry, Hit, Kind, NewEntry, confirm, forget, get, namespace_id, namespaces,
+  recall, register_namespace, remember, supersede,
 };
 
 /// Numbered migrations, applied in order inside one transaction

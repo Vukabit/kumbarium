@@ -95,3 +95,29 @@ launch. Until that day, squashing into one 0001_init baseline is
 allowed and was done here (0002_fts_porter folded in). After
 that day: shipped migrations are frozen, changes are new
 numbered files, no exceptions.
+
+## D-014: hand-rolled MCP stdio server, no async (2026-09-02)
+
+Resolves D-009. The MCP layer is written in-tree: newline-
+delimited JSON-RPC 2.0 over stdio, legacy-era handshake
+(initialize / initialized / ping / tools/list / tools/call),
+which every dual-era client supports through the protocol
+transition. Rationale: D-012 (rmcp pulls tokio + ~dozens of
+transitive crates for what is ~400 lines here), and a blocking
+single-thread loop pairs with sync rusqlite with no runtime
+bridge. NO async runtime in the tree. The modern stateless
+revision (2026-07-28, server/discover + per-request _meta) gets
+added in-tree when clients start requiring it; rmcp (Apache-2.0,
+allowlist-clean) stays the escape hatch if scope ever explodes
+(e.g. streamable HTTP daemon mode).
+
+## D-015: process lock scoped to maintenance (2026-09-02)
+
+stdio transport means each client spawns its own server process,
+so concurrent agents = concurrent librarian processes. SQLite
+WAL handles that safely; the sole-gatekeeper guarantee is a
+property of the code path (agents never touch SQLite directly),
+not of a single PID. kumbarium.lock therefore guards
+MAINTENANCE operations only (backups, migrations beyond open,
+future janitor), never request serving. A single-daemon + HTTP
+shape stays open for later.
