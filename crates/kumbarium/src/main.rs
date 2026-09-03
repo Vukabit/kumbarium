@@ -554,7 +554,40 @@ fn audit_export(to_stdout: bool, raw: bool) -> ExitCode {
     )
   };
   if to_stdout {
-    print!("{minutes}");
+    // On a TTY, hanging-wrap table rows at the detail column
+    // (8+2 + 9+1 + 20+1 + 20+1 = 62) so overflow stays
+    // readable; piped/redirected output is byte-identical to
+    // the file artifact.
+    const EXPORT_DETAIL_COL: usize = 62;
+    let width = term_width().filter(|w| *w > EXPORT_DETAIL_COL + 16);
+    let Some(width) = width else {
+      print!("{minutes}");
+      return ExitCode::SUCCESS;
+    };
+    let mut in_fence = false;
+    for line in minutes.lines() {
+      if line.starts_with("```") {
+        in_fence = !in_fence;
+        println!("{line}");
+        continue;
+      }
+      let wrappable = in_fence
+        && line.len() > width
+        && line.is_char_boundary(EXPORT_DETAIL_COL);
+      if !wrappable {
+        println!("{line}");
+        continue;
+      }
+      let (prefix, rest) = line.split_at(EXPORT_DETAIL_COL);
+      let chunks = wrap_words(rest, width - EXPORT_DETAIL_COL);
+      println!(
+        "{prefix}{}",
+        chunks.first().map(String::as_str).unwrap_or("")
+      );
+      for chunk in chunks.iter().skip(1) {
+        println!("{:EXPORT_DETAIL_COL$}{chunk}", "");
+      }
+    }
     return ExitCode::SUCCESS;
   }
   if let Err(e) = std::fs::create_dir_all(&p.exports_dir) {
