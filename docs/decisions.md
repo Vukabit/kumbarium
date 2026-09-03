@@ -272,3 +272,34 @@ stylistic: graded tokens must survive the rewrite (fall back to
 the canonical turn otherwise), and the user-sim must never
 answer, acknowledge, or act on an intent. Measurement realism
 outranks scoring convenience.
+
+## D-025: deterministic janitor, survival-first (2026-09-03)
+
+The janitor v1 (docs/design/janitor.md) is pure ledger math, no
+LLM: confidence = 0.50 prior + a survival term (distinct
+agent-day exposures, asymptote 0.80) + a confirm term
+(self-confirms discounted to 0.25, asymptote 0.95). Stateless
+and idempotent: every run recomputes from the full ledger, so
+there is nothing to drift and rerunning is free. The 0.95
+ceiling is doctrinal: access is provable, application never is,
+so no fact inside the walls can reach certainty. Dormant
+entries keep the neutral prior and are surfaced as human
+findings (no exposure is no evidence, and retire stays
+human-only). Preview by default, --apply to commit, one batch
+janitor audit event carrying the full change manifest. The LLM
+duties (dedup, merge, contradiction) remain future work behind
+the same propose/dispose gate.
+
+## D-026: confidence informs, never ranks (2026-09-03)
+
+Recall orders by relevance (bm25) alone; confidence is served
+alongside results and never filters or reorders them. The
+search-engine feedback loop is the reason, named before it can
+happen: once a quality score feeds retrieval order, high-rated
+entries get recalled more, survive more, and rate higher,
+manufacturing their own evidence (the rich-get-richer loop that
+plagued PageRank-era ranking). Keeping confidence out of the
+order keeps survival statistics honest: exposure is driven by
+what agents ask, never by what the janitor previously
+concluded. The librarian hands over the book and states its
+condition; it does not hide the shabby ones.
