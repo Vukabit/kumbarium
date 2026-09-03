@@ -253,6 +253,7 @@ dependencies = [
  "kumbarium-librarian",
  "kumbarium-store",
  "kumbarium-util",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",

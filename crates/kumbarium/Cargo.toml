@@ -20,6 +20,9 @@ directories.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 # The golden-eval runner (tests/golden_evals.rs) + importer
 # fixture dirs.

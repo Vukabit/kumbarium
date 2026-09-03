@@ -18,6 +18,14 @@ fn main() -> ExitCode {
 }
 
 pub fn run() -> ExitCode {
+  // Die quietly when stdout's reader hangs up (`kum list |
+  // head`): restore the default SIGPIPE disposition Rust
+  // overrides, instead of panicking mid-println. Never affects
+  // `serve`: MCP clients read until we exit anyway.
+  #[cfg(unix)]
+  unsafe {
+    libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+  }
   let args: Vec<String> = std::env::args().skip(1).collect();
   let argv: Vec<&str> = args.iter().map(String::as_str).collect();
   match argv.as_slice() {
