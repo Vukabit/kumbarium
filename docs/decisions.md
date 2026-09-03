@@ -177,3 +177,19 @@ contributor make hand-maintenance free. Authority tiers to
 remember: gates (hard) > injected law (soft) > recallable
 memory (reference); rules live at the lowest tier that works
 and graduate on evidence.
+
+## D-019: retire, the third lifecycle door (2026-09-03)
+
+live -> superseded (replaced) -> forgotten (destroyed) lacked a
+state for "true, kept, but no longer worth suggesting": retired
+(`retired_at` column, migration 0003; audit kinds widened in its
+0003). Retired entries vanish from recall and default listings
+but stay in history, version chains, and continues-sets: the
+suggestion surface changes, the record never does. Deliberately
+NOT a confidence change (D-004: relevance and trust are separate
+judgments). Human-only for now: CLI retire/unretire, immediate
+rather than sign-off-gated because fully reversible (the
+destructiveness ladder: forget > revert [preview+--apply] >
+retire [instant, undoable]). Agents get no retire surface until
+the approvals primitive lands, at which point agent proposals
+and janitor staleness findings feed the same review queue.

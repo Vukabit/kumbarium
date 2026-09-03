@@ -66,6 +66,7 @@ pub struct Entry {
   pub updated_at: String,
   pub last_accessed_at: Option<String>,
   pub last_confirmed_at: Option<String>,
+  pub retired_at: Option<String>,
   pub tags: Vec<String>,
 }
 
@@ -158,7 +159,7 @@ pub fn entries_in(
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id,
             e.source, e.confidence, e.superseded_by,
             e.created_at, e.updated_at, e.last_accessed_at,
-            e.last_confirmed_at
+            e.last_confirmed_at, e.retired_at
      FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
      WHERE 1=1",
   );
@@ -166,7 +167,7 @@ pub fn entries_in(
     sql.push_str(" AND ns.path = ?1");
   }
   if !include_superseded {
-    sql.push_str(" AND e.superseded_by IS NULL");
+    sql.push_str(" AND e.superseded_by IS NULL AND e.retired_at IS NULL");
   }
   sql.push_str(" ORDER BY e.created_at DESC");
   let mut stmt = conn.prepare(&sql)?;
@@ -200,6 +201,32 @@ pub fn predecessor_of(
       other => Err(other),
     })?;
   Ok(found)
+}
+
+/// Retire an entry: keep it (history, sets, versions intact)
+/// but remove it from every suggestion surface (recall, default
+/// listings). NOT a confidence change (D-004): relevance and
+/// trust stay separate judgments. Reversed by `unretire`.
+pub fn retire(conn: &Connection, id: &str) -> Result<(), StoreError> {
+  let entry = get(conn, id)?;
+  if entry.retired_at.is_some() {
+    return Err(StoreError::AlreadyRetired(id.to_string()));
+  }
+  conn.execute(
+    "UPDATE entries SET retired_at = ?1 WHERE id = ?2",
+    params![kumbarium_util::now_iso8601(), id],
+  )?;
+  Ok(())
+}
+
+/// Restore a retired entry to the suggestion surfaces.
+pub fn unretire(conn: &Connection, id: &str) -> Result<(), StoreError> {
+  let entry = get(conn, id)?;
+  if entry.retired_at.is_none() {
+    return Err(StoreError::NotRetired(id.to_string()));
+  }
+  conn.execute("UPDATE entries SET retired_at = NULL WHERE id = ?1", [id])?;
+  Ok(())
 }
 
 /// The supersession history containing `id`: every version of
@@ -291,7 +318,8 @@ pub fn get(conn: &Connection, id: &str) -> Result<Entry, StoreError> {
   let mut stmt = conn.prepare(
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id, e.source,
             e.confidence, e.superseded_by, e.created_at,
-            e.updated_at, e.last_accessed_at, e.last_confirmed_at
+            e.updated_at, e.last_accessed_at, e.last_confirmed_at,
+            e.retired_at
      FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
      WHERE e.id = ?1",
   )?;
@@ -329,12 +357,13 @@ pub fn recall(
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id, e.source,
             e.confidence, e.superseded_by, e.created_at,
             e.updated_at, e.last_accessed_at, e.last_confirmed_at,
-            bm25(entries_fts) AS rank
+            e.retired_at, bm25(entries_fts) AS rank
      FROM entries_fts
      JOIN entries e ON e.rowid = entries_fts.rowid
      JOIN namespaces ns ON ns.id = e.namespace_id
      WHERE entries_fts MATCH ?1
        AND e.superseded_by IS NULL
+       AND e.retired_at IS NULL
        AND ns.path IN ({ns_marks})
      ORDER BY rank
      LIMIT ?2"
@@ -343,7 +372,7 @@ pub fn recall(
   args.extend(namespaces.iter().cloned());
   let mut stmt = conn.prepare(&sql)?;
   let rows = stmt.query_map(params_from_iter(args.iter()), |row| {
-    Ok((row_to_entry(row)?, row.get::<_, f64>(12)?))
+    Ok((row_to_entry(row)?, row.get::<_, f64>(13)?))
   })?;
   let mut hits = Vec::new();
   for row in rows {
@@ -488,6 +517,7 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<Entry, rusqlite::Error> {
     updated_at: row.get(9)?,
     last_accessed_at: row.get(10)?,
     last_confirmed_at: row.get(11)?,
+    retired_at: row.get(12)?,
     tags: Vec::new(),
   })
 }
@@ -773,6 +803,44 @@ mod tests {
         Err(StoreError::EntryNotFound(_))
       ));
     }
+  }
+
+  #[test]
+  fn retire_hides_from_suggestion_surfaces_only() {
+    let mut conn = store();
+    let e = remember(
+      &mut conn,
+      &entry_in("project/demo-app", "an outdated but true fact"),
+    )
+    .unwrap();
+    retire(&conn, &e.id).unwrap();
+    // Gone from recall and default listings.
+    let hits = recall(&conn, "outdated fact", &chain(), 10).unwrap();
+    assert!(hits.is_empty(), "retired entries never surface");
+    assert!(
+      entries_in(&conn, None, false).unwrap().is_empty(),
+      "hidden from default list"
+    );
+    // Still present: --all listing, get, and history.
+    let all = entries_in(&conn, None, true).unwrap();
+    assert_eq!(all.len(), 1);
+    assert!(all[0].retired_at.is_some());
+    assert_eq!(version_history(&conn, &e.id).unwrap(), [e.id.as_str()]);
+    // Double-retire and wrong-state unretire are loud.
+    assert!(matches!(
+      retire(&conn, &e.id),
+      Err(StoreError::AlreadyRetired(_))
+    ));
+    // Unretire restores suggestion visibility.
+    unretire(&conn, &e.id).unwrap();
+    assert_eq!(
+      recall(&conn, "outdated fact", &chain(), 10).unwrap().len(),
+      1
+    );
+    assert!(matches!(
+      unretire(&conn, &e.id),
+      Err(StoreError::NotRetired(_))
+    ));
   }
 
   #[test]

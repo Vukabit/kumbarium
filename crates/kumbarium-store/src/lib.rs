@@ -19,7 +19,7 @@ pub use backup::{Retention, backup, latest_backup_ms, prune};
 pub use entries::{
   Entry, Hit, Kind, NewEntry, confirm, entries_in, find_by_source, forget, get,
   namespace_id, namespaces, predecessor_of, recall, register_namespace,
-  remember, resolve_id, short_id, supersede, version_history,
+  remember, resolve_id, retire, short_id, supersede, unretire, version_history,
 };
 pub use links::{Link, Rel, continues_chain, link, links_of, unlink};
 
@@ -32,6 +32,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     2,
     "0002_entry_links",
     include_str!("../migrations/0002_entry_links.sql"),
+  ),
+  (
+    3,
+    "0003_retire",
+    include_str!("../migrations/0003_retire.sql"),
   ),
 ];
 
@@ -55,6 +60,10 @@ pub enum StoreError {
   SelfLink(String),
   #[error("id fragment {0:?} matches more than one entry")]
   AmbiguousId(String),
+  #[error("entry {0:?} is already retired")]
+  AlreadyRetired(String),
+  #[error("entry {0:?} is not retired")]
+  NotRetired(String),
   #[error("backup io: {0}")]
   Io(#[from] std::io::Error),
   #[error("backup copy failed integrity check: {0}")]
@@ -133,7 +142,7 @@ mod tests {
   #[test]
   fn fresh_store_reaches_latest_schema() {
     let conn = open_in_memory().unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 2);
+    assert_eq!(schema_version(&conn).unwrap(), 3);
   }
 
   #[test]
@@ -141,7 +150,7 @@ mod tests {
     let conn = open_in_memory().unwrap();
     // A second pass sees itself at latest and applies nothing.
     migrate(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 2);
+    assert_eq!(schema_version(&conn).unwrap(), 3);
   }
 
   #[test]

@@ -60,6 +60,8 @@ pub fn run() -> ExitCode {
     ["history", id, "--diff"] => history_cmd(id, true),
     ["revert", id] => revert_cmd(id, false),
     ["revert", id, "--apply"] => revert_cmd(id, true),
+    ["retire", id] => retire_cmd(id, true),
+    ["unretire", id] => retire_cmd(id, false),
     ["audit", "tail"] => audit_tail(20),
     ["audit", "tail", n] => match n.parse() {
       Ok(n) => audit_tail(n),
@@ -271,6 +273,8 @@ fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
     let day = e.created_at.get(..10).unwrap_or(&e.created_at);
     let dead = if e.superseded_by.is_some() {
       sty.red(" [superseded]")
+    } else if e.retired_at.is_some() {
+      sty.yellow(" [retired]")
     } else {
       String::new()
     };
@@ -333,6 +337,9 @@ fn show_entry(id: &str, full: bool) -> ExitCode {
   }
   if let Some(at) = &e.last_confirmed_at {
     println!("confirmed:  {at}");
+  }
+  if let Some(at) = &e.retired_at {
+    println!("retired:    {}", sty.yellow(at));
   }
   if !e.tags.is_empty() {
     println!("tags:       {}", e.tags.join(", "));
@@ -475,6 +482,57 @@ fn shell_quote(path: &str) -> String {
   } else {
     format!("'{}'", path.replace('\'', "'\\''"))
   }
+}
+
+/// Retire (or restore) an entry: human-only lifecycle verb,
+/// immediate because fully reversible; audited either way.
+fn retire_cmd(id: &str, retiring: bool) -> ExitCode {
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let full = match kumbarium_store::resolve_id(&state.library, id) {
+    Ok(f) => f,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let result = if retiring {
+    kumbarium_store::retire(&state.library, &full)
+  } else {
+    kumbarium_store::unretire(&state.library, &full)
+  };
+  if let Err(e) = result {
+    return fail(&e.to_string());
+  }
+  let entry = match kumbarium_store::get(&state.library, &full) {
+    Ok(e) => e,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let kind = if retiring {
+    kumbarium_audit::EventKind::Retire
+  } else {
+    kumbarium_audit::EventKind::Unretire
+  };
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    kind,
+    scope: entry.namespace.clone(),
+    detail: serde_json::json!({ "id": full }),
+  };
+  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+    return fail(&format!("done, but audit append failed: {e}"));
+  }
+  let short = kumbarium_store::short_id(&full);
+  if retiring {
+    println!(
+      "retired {} (kept in history; `kum unretire {short}` \
+       restores)",
+      sty.id(short)
+    );
+  } else {
+    println!("restored {} to suggestions", sty.id(short));
+  }
+  ExitCode::SUCCESS
 }
 
 fn history_cmd(id: &str, with_diff: bool) -> ExitCode {
@@ -696,6 +754,8 @@ Usage:
   kumbarium show <id> [--full]        one entry (--full stitches
                                       a split set in order)
   kumbarium history <id> [--diff]     a fact's version chain
+  kumbarium retire <id>               hide from suggestions
+  kumbarium unretire <id>             restore to suggestions
   kumbarium revert <id> [--apply]     restore an old version
                                       (preview only until the
                                       --apply sign-off; CLI
