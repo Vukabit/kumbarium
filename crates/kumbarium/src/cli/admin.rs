@@ -335,3 +335,35 @@ pub(crate) fn config_cmd(init: bool) -> ExitCode {
   }
   ExitCode::SUCCESS
 }
+
+/// Build provenance, deterministic-from-source only (no build
+/// timestamp: the binary stays reproducible from its commit).
+/// Values are baked in by build.rs; a git-less build says
+/// "unknown" rather than lying.
+pub(crate) fn version_cmd() -> ExitCode {
+  let sty = style::Style::detect();
+  let sha = env!("KUMBARIUM_GIT_SHA");
+  let short = sha.get(..12).unwrap_or(sha);
+  let dirty = match env!("KUMBARIUM_GIT_DIRTY") {
+    "true" => ", dirty",
+    "false" => ", clean",
+    _ => "",
+  };
+  println!(
+    "kumbarium {} ({})",
+    env!("CARGO_PKG_VERSION"),
+    env!("KUMBARIUM_BUILD_PROFILE")
+  );
+  println!(
+    "{} {short} ({}{dirty})",
+    sty.dim("commit:    "),
+    env!("KUMBARIUM_GIT_BRANCH")
+  );
+  println!("{} {}", sty.dim("target:    "), env!("KUMBARIUM_TARGET"));
+  println!(
+    "{} {}",
+    sty.dim("repository:"),
+    env!("CARGO_PKG_REPOSITORY")
+  );
+  ExitCode::SUCCESS
+}

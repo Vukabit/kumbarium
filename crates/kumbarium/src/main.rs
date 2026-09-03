@@ -43,10 +43,7 @@ pub fn run() -> ExitCode {
   let args: Vec<String> = std::env::args().skip(1).collect();
   let argv: Vec<&str> = args.iter().map(String::as_str).collect();
   match argv.as_slice() {
-    ["version"] => {
-      println!("kumbarium {VERSION}");
-      ExitCode::SUCCESS
-    }
+    ["version"] => version_cmd(),
     ["paths"] => match paths::resolve() {
       Ok(p) => {
         println!("{p}");
