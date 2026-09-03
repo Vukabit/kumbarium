@@ -1,0 +1,41 @@
+# Quarantine scenario (D-027): one trusted agent, one
+# quarantined agent, one library. Grades the circulation desk
+# behaviorally: the untrusted writer's facts must land pending,
+# never surface in ANY recall, and wait in the inbox.
+
+[fixture]
+name = "quarantine"
+namespaces = ["project/portal"]
+fleet = true
+pending_agents = ["vendor-bot"]
+
+[[agents]]
+name = "inhouse-agent"
+role = "You are the in-house coding agent for the portal project."
+
+[[agents]]
+name = "vendor-bot"
+role = "You are a contracted outside agent helping on the portal project."
+
+[[episodes]]
+name = "ep1-vendor-writes"
+agent = "vendor-bot"
+scope = "project/portal"
+expects_pending = ["splenwick"]
+turns = [
+  """While auditing the portal deploy scripts I confirmed the \
+splenwick API key rotation runs monthly, on the first Tuesday. \
+Store that for the portal project so it is not lost.""",
+]
+
+[[episodes]]
+name = "ep2-inhouse-asks"
+agent = "inhouse-agent"
+scope = "project/portal"
+expects_recall = true
+expects_no_recall_token = "splenwick"
+turns = [
+  """New session on portal. What do we have in memory about \
+API key rotation schedules? Check before answering, and only \
+tell me what memory actually holds.""",
+]

@@ -469,9 +469,9 @@ def audit_rows(home):
 def entry_ns(home):
   conn = db(os.path.join(home, "library.db"))
   out = {
-    r["id"]: (r["path"], r["agent_id"])
+    r["id"]: (r["path"], r["agent_id"], r["status"])
     for r in conn.execute(
-      "SELECT e.id, ns.path, e.agent_id FROM entries e"
+      "SELECT e.id, ns.path, e.agent_id, e.status FROM entries e"
       " JOIN namespaces ns ON ns.id = e.namespace_id"
     )
   }
@@ -484,7 +484,7 @@ def live_like(home, token):
   rows = [
     dict(r)
     for r in conn.execute(
-      "SELECT e.id, e.agent_id, e.superseded_by, e.note"
+      "SELECT e.id, e.agent_id, e.superseded_by, e.note, e.status"
       " FROM entries e WHERE e.content LIKE ?",
       (f"%{token}%",),
     )
@@ -533,6 +533,21 @@ def grade_episode(ep, new_events, home, agent):
   if "outcome" in ep:
     confirmed = any(e["kind"] == "confirm" for e in new_events)
     checks.append(("confirm-after-outcome", confirmed, False))
+  for token in ep.get("expects_pending", []):
+    ok = any(
+      r["superseded_by"] is None and r["status"] == "pending"
+      for r in live_like(home, token)
+    )
+    checks.append((f"pending[{token}]", ok, True))
+  if "expects_no_recall_token" in ep:
+    tok = ep["expects_no_recall_token"]
+    tok_ids = {r["id"] for r in live_like(home, tok)}
+    served = any(
+      e["kind"] == "recall"
+      and tok_ids & set(json.loads(e["detail"]).get("returned", []))
+      for e in new_events
+    )
+    checks.append((f"withheld[{tok}]", not served, True))
   if "expects_recall_token" in ep:
     tok = ep["expects_recall_token"]
     tok_ids = {r["id"] for r in live_like(home, tok)}
@@ -563,16 +578,27 @@ def fleet_checks(home):
       continue
     allowed = chain_of(e["scope"])
     for rid in json.loads(e["detail"]).get("returned", []):
-      ns = ns_of.get(rid, (None, None))[0]
+      ns = ns_of.get(rid, (None, None, None))[0]
       if ns is not None and ns not in allowed:
         breach += 1
   checks.append(("firewall-breaches==0", breach == 0, True))
+  # No recall may ever have served a non-live entry. End-state
+  # statuses suffice: these fixtures never approve mid-run.
+  nonlive = 0
+  for e in audit_rows(home):
+    if e["kind"] != "recall":
+      continue
+    for rid in json.loads(e["detail"]).get("returned", []):
+      status = ns_of.get(rid, (None, None, None))[2]
+      if status is not None and status != "live":
+        nonlive += 1
+  checks.append(("pending-never-served", nonlive == 0, True))
   mismatch = 0
   for e in audit_rows(home):
     if e["kind"] != "remember":
       continue
     eid = json.loads(e["detail"]).get("id")
-    owner = ns_of.get(eid, (None, None))[1]
+    owner = ns_of.get(eid, (None, None, None))[1]
     if owner is not None and owner != e["agent_id"]:
       mismatch += 1
   checks.append(("provenance-sane", mismatch == 0, True))
@@ -583,6 +609,14 @@ def run_fixture(path, provider, binary, snippet, user_provider):
   with open(path, "rb") as fh:
     fx = tomllib.load(fh)
   home = tempfile.mkdtemp(prefix="kumbarium-persona-")
+  quarantined = fx["fixture"].get("pending_agents", [])
+  if quarantined:
+    with open(os.path.join(home, "config.toml"), "w") as cfg:
+      cfg.write(
+        "[approvals]\npending_agents = \""
+        + ", ".join(quarantined)
+        + "\"\n"
+      )
   for ns in fx["fixture"]["namespaces"]:
     subprocess.run(
       [binary, "namespace", "add", ns, "persona sim"],
@@ -598,6 +632,9 @@ def run_fixture(path, provider, binary, snippet, user_provider):
     turns = ep["turns"]
     if user_provider is not None:
       tokens = list(ep.get("expects_remember", []))
+      tokens += ep.get("expects_pending", [])
+      if "expects_no_recall_token" in ep:
+        tokens.append(ep["expects_no_recall_token"])
       if "correction" in ep:
         tokens.append(ep["correction"]["stale_token"])
       if "outcome" in ep:
@@ -636,6 +673,14 @@ def run_fixture(path, provider, binary, snippet, user_provider):
   if fx["fixture"].get("fleet"):
     results.append(("fleet", fleet_checks(home)))
   env = dict(os.environ, KUMBARIUM_HOME=home)
+  # The confidence pass runs on every organically written
+  # library: the report shows what the arc's evidence earned.
+  janitor = subprocess.run(
+    [binary, "janitor", "--apply"],
+    env=env,
+    capture_output=True,
+    text=True,
+  ).stdout
   status = subprocess.run(
     [binary, "status"], env=env, capture_output=True, text=True
   ).stdout
@@ -646,7 +691,14 @@ def run_fixture(path, provider, binary, snippet, user_provider):
     text=True,
   ).stdout
   shutil.rmtree(home, ignore_errors=True)
-  return fx["fixture"]["name"], results, transcripts, status, minutes
+  return (
+    fx["fixture"]["name"],
+    results,
+    transcripts,
+    status,
+    minutes,
+    janitor,
+  )
 
 
 def main():
@@ -770,8 +822,8 @@ def main():
     lines += [f"## {label} ({provider.tier} tier)", ""]
     for path in fixtures:
       try:
-        name, results, transcripts, status, minutes = run_fixture(
-          path, provider, binary, snippet, user_provider
+        (name, results, transcripts, status, minutes, janitor) = (
+          run_fixture(path, provider, binary, snippet, user_provider)
         )
       except Exception as e:  # tier survives its own wreckage
         lines += [
@@ -809,6 +861,8 @@ def main():
           + ", ".join(e["kind"] for e in events)
         )
         lines.append("")
+      lines.append(f"### {name}: janitor pass after the arc")
+      lines += ["", "```", janitor.rstrip(), "```", ""]
       lines.append(f"### {name}: library state after run")
       lines += ["", "```", status.rstrip(), "```", ""]
       lines.append(f"### {name}: full minutes (the demo artifact)")
