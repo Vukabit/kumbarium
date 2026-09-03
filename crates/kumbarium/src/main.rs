@@ -295,16 +295,9 @@ fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
     } else {
       String::new()
     };
-    let preview: String = e
-      .content
-      .lines()
-      .next()
-      .unwrap_or("")
-      .chars()
-      .take(56)
-      .collect();
+    let (title, part) = list_title(&state, e);
     println!(
-      "{}  {day}  {} {:<20} {preview}{dead}",
+      "{}  {day}  {} {:<20} {title}{part}{dead}",
       sty.id(kumbarium_store::short_id(&e.id)),
       sty.kind(&format!("{:<13}", e.kind.as_str())),
       e.namespace
@@ -319,6 +312,38 @@ fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
     ))
   );
   ExitCode::SUCCESS
+}
+
+/// The list row's title cell: the entry's first content line,
+/// except set members show their HEAD part's first line plus a
+/// position marker, so a split memory reads as one title across
+/// its rows.
+fn list_title(
+  state: &tools::ServerState,
+  e: &kumbarium_store::Entry,
+) -> (String, String) {
+  let first = |content: &str| -> String {
+    content
+      .lines()
+      .next()
+      .unwrap_or("")
+      .chars()
+      .take(48)
+      .collect()
+  };
+  let Ok((chain, _)) = kumbarium_store::continues_chain(&state.library, &e.id)
+  else {
+    return (first(&e.content), String::new());
+  };
+  if chain.len() < 2 {
+    return (first(&e.content), String::new());
+  }
+  let pos = chain.iter().position(|c| *c == e.id).unwrap_or(0) + 1;
+  let part = format!(" ({pos}/{})", chain.len());
+  let title = kumbarium_store::get(&state.library, &chain[0])
+    .map(|head| first(&head.content))
+    .unwrap_or_else(|_| first(&e.content));
+  (title, part)
 }
 
 fn show_entry(id: &str, full: bool) -> ExitCode {
