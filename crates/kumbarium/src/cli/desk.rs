@@ -3,7 +3,7 @@
 
 use std::process::ExitCode;
 
-use super::super::{open_stores, style};
+use super::super::{open_stores, style, tools};
 use super::term::*;
 
 /// The confidence pass (D-025): recompute every live entry from
@@ -109,7 +109,7 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
 
 /// The circulation desk's queue: pending entries, oldest first.
 pub(crate) fn inbox_cmd() -> ExitCode {
-  let (_, state) = match open_stores() {
+  let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
@@ -118,7 +118,13 @@ pub(crate) fn inbox_cmd() -> ExitCode {
     Ok(v) => v,
     Err(e) => return fail(&e.to_string()),
   };
-  if pending.is_empty() {
+  let pending_tasks = match state.docket() {
+    Ok(conn) => {
+      kumbarium_docket::pending_tasks(conn).unwrap_or_default()
+    }
+    Err(_) => Vec::new(),
+  };
+  if pending.is_empty() && pending_tasks.is_empty() {
     println!("inbox empty: nothing awaiting approval");
     return ExitCode::SUCCESS;
   }
@@ -140,6 +146,32 @@ namespace            content"
       e.namespace,
       excerpt
     );
+  }
+  if !pending_tasks.is_empty() {
+    println!(
+      "\n{}",
+      sty.dim(
+        "pending tasks (the docket's queue):\nid        \
+submitted (local)    agent                namespace            \
+matter"
+      )
+    );
+    for t in &pending_tasks {
+      let first = t.content.lines().next().unwrap_or("");
+      let excerpt: String = first.chars().take(40).collect();
+      println!(
+        "{}  {}  {:<20} {:<20} [{}] {}",
+        sty.id(&format!(
+          "{:<8}",
+          kumbarium_docket::short_id(&t.id)
+        )),
+        sty.dim(&local_display(&t.created_at)),
+        t.agent_id,
+        t.namespace,
+        t.severity.as_str(),
+        excerpt
+      );
+    }
   }
   println!(
     "\nreview with: kum review <id>; then kum approve <id> or \
@@ -241,13 +273,18 @@ pub(crate) fn judge_cmd(
   approving: bool,
   reason: Option<String>,
 ) -> ExitCode {
-  let (_, state) = match open_stores() {
+  let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
   let sty = style::Style::detect();
   let full = match kumbarium_store::resolve_id(&state.library, id) {
     Ok(f) => f,
+    Err(kumbarium_store::StoreError::EntryNotFound(_)) => {
+      // Not on the memory shelf: the docket's queue shares the
+      // desk (D-032).
+      return judge_task(&mut state, id, approving, reason);
+    }
     Err(e) => return fail(&e.to_string()),
   };
   let e = match kumbarium_store::get(&state.library, &full) {
@@ -293,6 +330,69 @@ pub(crate) fn judge_cmd(
       "rejected {} (kept for the record; forget removes wrong \
        or sensitive content)",
       sty.id(kumbarium_store::short_id(&full))
+    );
+  }
+  ExitCode::SUCCESS
+}
+
+/// Judge a pending docket task with the desk's verbs.
+fn judge_task(
+  state: &mut tools::ServerState,
+  id: &str,
+  approving: bool,
+  reason: Option<String>,
+) -> ExitCode {
+  let sty = style::Style::detect();
+  let conn = match state.docket() {
+    Ok(c) => c,
+    Err(e) => return fail(&e),
+  };
+  let full = match kumbarium_docket::resolve_id(conn, id) {
+    Ok(f) => f,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let task = match kumbarium_docket::get(conn, &full) {
+    Ok(t) => t,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let result = if approving {
+    kumbarium_docket::approve(conn, &full)
+  } else {
+    kumbarium_docket::reject(conn, &full)
+  };
+  if let Err(e) = result {
+    return fail(&e.to_string());
+  }
+  let mut detail = serde_json::json!({
+    "id": full,
+    "submitter": task.agent_id,
+  });
+  if let Some(reason) = &reason {
+    detail["reason"] = serde_json::json!(reason);
+  }
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    kind: if approving {
+      kumbarium_audit::EventKind::Approve
+    } else {
+      kumbarium_audit::EventKind::Reject
+    },
+    scope: task.namespace.clone(),
+    detail,
+  };
+  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+    return fail(&format!("judged, but audit append failed: {e}"));
+  }
+  if approving {
+    println!(
+      "approved task {}: now on the docket in {}",
+      sty.id(kumbarium_docket::short_id(&full)),
+      task.namespace
+    );
+  } else {
+    println!(
+      "rejected task {} (kept for the record)",
+      sty.id(kumbarium_docket::short_id(&full))
     );
   }
   ExitCode::SUCCESS

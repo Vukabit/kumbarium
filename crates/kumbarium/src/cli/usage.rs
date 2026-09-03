@@ -142,6 +142,22 @@ lifecycle, human sign-off:
                                       --apply sign-off; CLI
                                       only, agents cannot)
 
+the docket:
+  kumbarium task <ns> <matter...>     file a matter
+       [--severity S] [--goal DATE]   (severity low|normal|
+                                      high|urgent; goal is a
+                                      watched YYYY-MM-DD)
+  kumbarium tasks [ns] [--all]        the timeline: open
+                  [--severity S]      matters, creep marked
+  kumbarium roadmap [ns]              the same matters pivoted
+                                      by goal horizon
+  kumbarium task done <id> [note]     record a matter complete
+  kumbarium task drop <id> [note]     overtaken by events
+  kumbarium task grade <id>           re-judge severity or goal
+       [--severity S] [--goal DATE]   (the old version chains)
+  kumbarium task history <id>         a matter's chain: every
+                                      regrade and goal slip
+
 the circulation desk:
   kumbarium inbox                     pending entries awaiting
                                       approval (the desk queue)

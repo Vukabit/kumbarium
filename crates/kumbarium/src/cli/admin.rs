@@ -171,6 +171,20 @@ pub(crate) fn status_cmd() -> ExitCode {
     "  sets:      {} ({} parts)",
     stats.set_heads, stats.set_parts
   );
+  if p.docket_db.exists()
+    && let Ok(conn) = kumbarium_docket::open(&p.docket_db)
+    && let Ok((open, urgent, pending)) =
+      kumbarium_docket::counts(&conn)
+  {
+    let mut line = format!("  docket:    {open} open");
+    if urgent > 0 {
+      line.push_str(&format!(" ({urgent} urgent)"));
+    }
+    if pending > 0 {
+      line.push_str(&format!(", {pending} pending"));
+    }
+    println!("{line}");
+  }
   match kumbarium_store::namespaces(&state.library) {
     Ok(rows) => {
       for (path, _, _) in rows {

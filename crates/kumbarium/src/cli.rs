@@ -6,6 +6,7 @@
 pub(crate) mod admin;
 pub(crate) mod desk;
 pub(crate) mod dock;
+pub(crate) mod docket;
 pub(crate) mod entries;
 pub(crate) mod term;
 pub(crate) mod usage;

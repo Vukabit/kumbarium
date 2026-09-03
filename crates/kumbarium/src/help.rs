@@ -5,7 +5,7 @@
 
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
-instructions status grep move janitor approvals export";
+instructions status grep move janitor approvals export docket";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -28,6 +28,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "janitor" => PAGE_JANITOR,
     "approvals" | "inbox" | "review" | "approve" | "reject" => PAGE_APPROVALS,
     "export" | "bundle" | "bundles" | "minutes" => PAGE_EXPORT,
+    "docket" | "task" | "tasks" | "roadmap" => PAGE_DOCKET,
     _ => return None,
   })
 }
@@ -354,6 +355,40 @@ Entry counts (live / superseded / retired), split sets, live
 entries per namespace, audit event count and latest, backup
 ages, database sizes. The first command to run when wondering
 what state things are in.
+";
+
+const PAGE_DOCKET: &str = "\
+## the docket: tasks and the roadmap
+
+```
+kum task <ns> <matter...> [--severity S] [--goal YYYY-MM-DD]
+kum tasks [ns] [--all] [--severity S]
+kum roadmap [ns]
+kum task done <id> [note]    kum task drop <id> [note]
+kum task grade <id> [--severity S] [--goal DATE] [note]
+kum task history <id>
+```
+
+A task is a matter before the house: one self-contained
+statement (detail belongs in memory), filed on a registered
+shelf, carrying a severity (low | normal | high | urgent) and
+an optional GOAL date. A goal is a target the library watches,
+never an alarm: the timeline marks approaching goals and paints
+passed ones red, and re-grading a goal is a supersession, so
+every slip is on the chain (`task history` shows the creep).
+
+`kum tasks` is the timeline: most-overdue first, then severity,
+then age. `kum roadmap` pivots the same matters by derived
+horizon: overdue / now (within a week) / next (within a month)
+/ later / someday (no goal). Done and dropped keep the row (the
+docket records judgments); agents file and update tasks over
+MCP, and a quarantined writer's tasks wait at the desk like any
+write: a task poisons what an agent DOES, so provenance
+deserves a look before an urgent stranger jumps your queue.
+
+Reserved first words after `kum task`: done, drop, grade,
+history (a namespace with one of those names cannot be filed
+to from the CLI; agents are unaffected).
 ";
 
 const PAGE_EXPORT: &str = "\

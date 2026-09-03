@@ -260,6 +260,11 @@ fn validate_content(content: &str) -> Result<(), DocketError> {
   Ok(())
 }
 
+/// The short display form of an id: its last 8 hex chars.
+pub fn short_id(id: &str) -> &str {
+  id.get(id.len().saturating_sub(8)..).unwrap_or(id)
+}
+
 /// Fetch one task by full id.
 pub fn get(conn: &Connection, id: &str) -> Result<Task, DocketError> {
   let mut stmt = conn.prepare(

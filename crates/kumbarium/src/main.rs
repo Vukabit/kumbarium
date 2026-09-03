@@ -18,6 +18,7 @@ use std::process::ExitCode;
 use cli::admin::*;
 use cli::desk::*;
 use cli::dock::*;
+use cli::docket::*;
 use cli::entries::*;
 use cli::term::*;
 use cli::usage::*;
@@ -81,6 +82,18 @@ pub fn run() -> ExitCode {
     ["revert", id] => revert_cmd(id, false),
     ["revert", id, "--apply"] => revert_cmd(id, true),
     ["confirm", id] => confirm_cmd(id),
+    ["task", "done", id, note @ ..] => {
+      task_judge_cmd(id, true, &note.join(" "))
+    }
+    ["task", "drop", id, note @ ..] => {
+      task_judge_cmd(id, false, &note.join(" "))
+    }
+    ["task", "grade", id, rest @ ..] => task_grade_cmd(id, rest),
+    ["task", "history", id] => task_history_cmd(id),
+    ["task", ns, rest @ ..] => task_file_cmd(ns, rest),
+    ["tasks", rest @ ..] => tasks_cmd(rest),
+    ["roadmap"] => roadmap_cmd(None),
+    ["roadmap", ns] => roadmap_cmd(Some(ns)),
     ["janitor"] => janitor_cmd(false),
     ["janitor", "--apply"] => janitor_cmd(true),
     ["inbox"] => inbox_cmd(),
