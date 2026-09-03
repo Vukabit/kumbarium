@@ -360,6 +360,12 @@ pub(crate) fn config_cmd(init: bool) -> ExitCode {
   for (key, cur, def) in rows {
     println!("{key:<36} {cur}{}", mark(cur, def));
   }
+  if !cfg.aliases.is_empty() {
+    println!("\n{}", sty.bold("aliases (personal vocabulary):"));
+    for (name, expansion) in &cfg.aliases {
+      println!("{name:<12} {}", sty.dim(expansion));
+    }
+  }
   ExitCode::SUCCESS
 }
 

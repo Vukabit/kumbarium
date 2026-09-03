@@ -28,6 +28,11 @@ pub struct Config {
   /// Agents whose writes always land pending, comma-separated
   /// in config.
   pub approvals_pending_agents: Vec<String>,
+  /// Personal command vocabulary (D-035): name -> kumbarium
+  /// argv prefix. Internal-only by construction (the value is
+  /// spliced as arguments, never shelled); names that would
+  /// shadow a command or reserved word are refused at parse.
+  pub aliases: Vec<(String, String)>,
 }
 
 impl Default for Config {
@@ -46,6 +51,7 @@ impl Default for Config {
       janitor_dormant_days: 45,
       approvals_default_pending: false,
       approvals_pending_agents: Vec::new(),
+      aliases: Vec::new(),
     }
   }
 }
@@ -94,6 +100,13 @@ default_mode = \"live\"
 # Agents whose writes ALWAYS land pending, comma-separated,
 # e.g. \"intern-bot, contrib-scraper\".
 pending_agents = \"\"
+
+[alias]
+# Personal command vocabulary: name = \"kumbarium argv prefix\".
+# Internal-only (never shell); builtins and reserved words
+# always win; one expansion, no chaining. Examples:
+#   urgent = \"tasks --severity urgent\"
+#   mins = \"export minutes --open\"
 ";
 
 /// Parse config text over the defaults. Unknown or malformed
@@ -120,8 +133,26 @@ pub fn parse(text: &str) -> (Config, Vec<String>) {
       ));
       continue;
     };
-    let key = format!("{section}.{}", key.trim());
+    let key_word = key.trim().to_string();
+    let key = format!("{section}.{key_word}");
     let raw_value = value.trim().trim_matches('"').to_string();
+    // [alias] accepts ARBITRARY keys, the one section that does:
+    // each is a personal command name. Shadowing a builtin or a
+    // reserved future noun is refused here so the documented
+    // surface stays unforgeable (D-035).
+    if section == "alias" {
+      if kumbarium_librarian::RESERVED_WORDS.contains(&key_word.as_str()) {
+        warnings.push(format!(
+          "config alias {key_word:?} shadows a command or \
+           reserved word; ignored"
+        ));
+      } else if raw_value.is_empty() {
+        warnings.push(format!("config alias {key_word:?}: empty; ignored"));
+      } else {
+        cfg.aliases.push((key_word, raw_value));
+      }
+      continue;
+    }
     // String-valued keys first; everything else is an integer.
     match key.as_str() {
       "approvals.default_mode" => {
@@ -235,6 +266,21 @@ just a stray line
     let (cfg, warnings) = parse("[approvals]\ndefault_mode = sideways\n");
     assert!(!cfg.approvals_default_pending, "junk keeps default");
     assert_eq!(warnings.len(), 1);
+  }
+
+  #[test]
+  fn aliases_parse_and_shadowers_are_refused() {
+    let (cfg, warnings) = parse(
+      "[alias]\nurgent = \"tasks --severity urgent\"\n\
+       tasks = \"list\"\nbrief = \"status\"\nempty = \"\"\n",
+    );
+    assert_eq!(
+      cfg.aliases,
+      vec![("urgent".to_string(), "tasks --severity urgent".to_string())]
+    );
+    // A builtin, a reserved roadmap word, and an empty value:
+    // three warnings, zero entries.
+    assert_eq!(warnings.len(), 3, "{warnings:?}");
   }
 
   #[test]

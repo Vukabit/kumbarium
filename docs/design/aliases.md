@@ -1,8 +1,7 @@
-# Config aliases (roadmap: post-v0.1.0)
+# Config aliases (BUILT 2026-09-03, D-035)
 
-Personal command vocabulary via config, git-style, settled in
-design 2026-09-03 and parked on the roadmap; small enough to
-ride alongside any nearby build.
+Personal command vocabulary via config, git-style. Designed and
+built 2026-09-03; this doc is the standing reference.
 
 ```toml
 [alias]
@@ -50,4 +49,4 @@ explicit human flag, never by config content.
   the three rules; unknown-command errors say "no command or
   alias {word:?}".
 - MCP surface untouched: aliases are human vocabulary only.
-- Earns a D-number at build time.
+- D-035.

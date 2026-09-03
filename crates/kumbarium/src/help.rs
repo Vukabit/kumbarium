@@ -5,7 +5,8 @@
 
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
-instructions status grep move janitor approvals export docket";
+instructions status grep move janitor approvals export docket \
+alias";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -29,6 +30,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "approvals" | "inbox" | "review" | "approve" | "reject" => PAGE_APPROVALS,
     "export" | "bundle" | "bundles" | "minutes" => PAGE_EXPORT,
     "docket" | "task" | "tasks" | "roadmap" => PAGE_DOCKET,
+    "alias" | "aliases" => PAGE_ALIAS,
     _ => return None,
   })
 }
@@ -358,6 +360,34 @@ Entry counts (live / superseded / retired), split sets, live
 entries per namespace, audit event count and latest, backup
 ages, database sizes. The first command to run when wondering
 what state things are in.
+";
+
+const PAGE_ALIAS: &str = "\
+## alias: personal vocabulary
+
+Defined in config (`kum config --open`), listed by
+`kum config`:
+
+```
+[alias]
+urgent = \"tasks --severity urgent\"
+mins = \"export minutes --open\"
+```
+
+`kum urgent project/x` runs `kum tasks --severity urgent
+project/x`. Three rules, all load-bearing (D-035):
+
+1. INTERNAL-ONLY, never shell. An alias expands to kumbarium
+   arguments and nothing else; there is no `!` form. Anything
+   that can write files as you (a compromised agent included)
+   can edit config.toml, so config decides VALUES, never
+   executables: a poisoned alias can only invoke a kumbarium
+   command the attacker could run directly, witnessed as
+   itself.
+2. BUILTINS ALWAYS WIN. A name that shadows a command or a
+   reserved roadmap word is refused at config parse (warned,
+   ignored), so the documented surface is unforgeable.
+3. ONE EXPANSION. An alias never expands another alias.
 ";
 
 const PAGE_DOCKET: &str = "\

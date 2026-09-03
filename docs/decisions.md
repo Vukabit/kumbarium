@@ -450,3 +450,20 @@ every roadmap noun) is enforced at namespace registration and,
 when built, at alias definition, so no future command ever
 negotiates with a squatter. Free-text table columns hanging-wrap
 at their column on a terminal; snapping to column 0 is a bug.
+
+## D-035: config decides values, never executables (2026-09-03)
+
+Config aliases land (docs/design/aliases.md, built as designed):
+`[alias]` maps personal names to kumbarium argv prefixes,
+expanded once at dispatch. The three rules are load-bearing:
+internal-only with no shell form EVER (anything running as the
+user can write config.toml, a compromised agent included; the
+write-path rule applied again, so a poisoned alias can only
+invoke a kumbarium command the attacker could already run,
+witnessed as itself, and the ledger never sees the nickname);
+builtins and reserved roadmap words refused at parse so the
+documented surface is unforgeable; one expansion so chains
+cannot loop. The standing doctrine line this writes: CONFIG
+DECIDES VALUES, NEVER EXECUTABLES. The CLI's only external
+spawns remain --show and --open, driven by OS convention and an
+explicit human flag, never by config content.

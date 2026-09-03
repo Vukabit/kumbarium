@@ -42,6 +42,7 @@ pub fn run() -> ExitCode {
     libc::signal(libc::SIGPIPE, libc::SIG_DFL);
   }
   let args: Vec<String> = std::env::args().skip(1).collect();
+  let args = expand_alias(args);
   let argv: Vec<&str> = args.iter().map(String::as_str).collect();
   match argv.as_slice() {
     ["version"] => version_cmd(),
@@ -186,11 +187,38 @@ pub fn run() -> ExitCode {
       // One line and a pointer, never the whole wall: a typo
       // deserves a hint, not a punishment.
       let word = other.first().copied().unwrap_or("");
-      eprintln!("kumbarium: unknown command {word:?}");
+      eprintln!("kumbarium: no command or alias {word:?}");
       eprintln!("the map: kumbarium help");
       ExitCode::FAILURE
     }
   }
+}
+
+/// One alias expansion (D-035): when the first word is a config
+/// alias, its value splices in as kumbarium ARGUMENTS and the
+/// rest follow. Internal-only by construction (never shell);
+/// builtins cannot be shadowed (the parser refuses those names),
+/// and expansion happens exactly once, so chains cannot loop.
+/// Config problems stay silent here; open_stores voices them.
+fn expand_alias(args: Vec<String>) -> Vec<String> {
+  let Some(first) = args.first() else {
+    return args;
+  };
+  let Ok(p) = paths::resolve() else {
+    return args;
+  };
+  let Ok(text) = std::fs::read_to_string(&p.config_file) else {
+    return args;
+  };
+  let (cfg, _) = config::parse(&text);
+  let Some((_, expansion)) = cfg.aliases.iter().find(|(name, _)| name == first)
+  else {
+    return args;
+  };
+  let mut out: Vec<String> =
+    expansion.split_whitespace().map(str::to_string).collect();
+  out.extend(args.into_iter().skip(1));
+  out
 }
 
 /// The pair every command opens first.
