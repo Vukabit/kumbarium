@@ -172,7 +172,7 @@ exists; retire when something is simply no longer relevant.
 
 ```
 kum retire 8d39dd36
-kum list project/[redacted] --all   # shows [retired]
+kum list project/my-app --all   # shows [retired]
 kum unretire 8d39dd36
 ```
 ";
@@ -609,6 +609,6 @@ be registered. Moving one part of a split set moves that part
 only.
 
 ```
-kum move 8d331758 project/[redacted]
+kum move 8d331758 project/other-app
 ```
 ";

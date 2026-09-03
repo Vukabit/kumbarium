@@ -232,7 +232,7 @@ mod tests {
   }
 
   #[test]
-  fn tools_list_names_all_nine_tools() {
+  fn tools_list_names_all_ten_tools() {
     let mut state = ServerState::in_memory();
     let out = drive(&mut state, &[request(1, "tools/list", json!({}))]);
     let names: Vec<&str> = out[0]["result"]["tools"]
@@ -252,6 +252,7 @@ mod tests {
         "task_file",
         "task_update",
         "handoff_write",
+        "secret_read",
         "forget"
       ]
     );
@@ -387,6 +388,87 @@ mod tests {
       )
       .unwrap();
     assert_eq!(served, 1, "receipt of the matters is on the ledger");
+  }
+
+  #[test]
+  fn secret_read_denies_by_default_and_grants_reveal() {
+    let mut state = ServerState::in_memory();
+    kumbarium_store::register_namespace(&state.library, "project/x", "t")
+      .unwrap();
+    {
+      let conn = state.secrets().unwrap();
+      kumbarium_secrets::set_secret(
+        conn,
+        "project/x",
+        "deploy-key",
+        b"tok-swordfish-9",
+        None,
+        None,
+      )
+      .unwrap();
+    }
+    let refused = drive(
+      &mut state,
+      &[call(
+        1,
+        "secret_read",
+        json!({
+          "namespace": "project/x", "name": "deploy-key"
+        }),
+      )],
+    );
+    assert_eq!(refused[0]["result"]["isError"], true);
+    let text = text_of(&refused[0]);
+    assert!(
+      text.contains("secret grant") && !text.contains("swordfish"),
+      "refusal names the grant command, never the value: {text}"
+    );
+    {
+      let conn = state.secrets().unwrap();
+      kumbarium_secrets::grant(
+        conn,
+        "project/x",
+        "deploy-key",
+        "unknown-agent",
+        None,
+      )
+      .unwrap();
+    }
+    let granted = drive(
+      &mut state,
+      &[call(
+        2,
+        "secret_read",
+        json!({
+          "namespace": "project/x", "name": "deploy-key"
+        }),
+      )],
+    );
+    assert_eq!(granted[0]["result"]["isError"], false);
+    assert!(text_of(&granted[0]).contains("tok-swordfish-9"));
+    // Both outcomes are on the ledger, values absent.
+    let (refusals, reads): (i64, i64) = state
+      .audit
+      .query_row(
+        "SELECT
+           sum(detail LIKE '%\"granted\":false%'),
+           sum(detail LIKE '%\"granted\":true%')
+         FROM events WHERE kind = 'secret_read'",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+      )
+      .unwrap();
+    assert_eq!((refusals, reads), (1, 1));
+    let leaked: i64 = state
+      .audit
+      .query_row(
+        "SELECT count(*) FROM events
+         WHERE detail LIKE '%swordfish%'",
+        [],
+        |r| r.get(0),
+      )
+      .unwrap();
+    assert_eq!(leaked, 0, "the ledger never carries a value");
   }
 
   #[test]

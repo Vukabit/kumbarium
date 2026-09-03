@@ -1,6 +1,7 @@
-# Vendored fork of [redacted]-util ([redacted] @ 848d14e). Deliberately a
-# COPY, not a shared dependency: each project's utils diverge on
-# purpose. Cross-port bugfixes by hand when they apply to both.
+# The vendored utility floor (time/id/fs/lock/hash).
+# Deliberately a self-contained COPY with no upstream: it
+# diverges freely, and fixes are ported by hand when they
+# apply.
 
 [package]
 name = "kumbarium-util"

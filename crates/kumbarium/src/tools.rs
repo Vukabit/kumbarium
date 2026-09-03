@@ -23,6 +23,11 @@ pub struct ServerState {
   /// The handoff shelf, same lazy discipline.
   pub handoff: Option<kumbarium_handoff::Connection>,
   pub handoff_path: std::path::PathBuf,
+  /// The restricted stacks, same lazy discipline. NOTHING on
+  /// this shelf is ever served (the standing exception to
+  /// D-037); access is pull-only through secret_read.
+  pub secrets: Option<kumbarium_secrets::Connection>,
+  pub secrets_path: std::path::PathBuf,
   /// Scopes whose standing briefing this session has already
   /// been served (the FIRST recall in a scope prepends it,
   /// D-036; later recalls stay clean).
@@ -42,6 +47,20 @@ impl ServerState {
       self.docket = Some(conn);
     }
     Ok(self.docket.as_ref().expect("just opened"))
+  }
+
+  /// The secrets connection, opening the shelf on first use.
+  pub fn secrets(&mut self) -> Result<&kumbarium_secrets::Connection, String> {
+    if self.secrets.is_none() {
+      let conn = if self.secrets_path.as_os_str().is_empty() {
+        kumbarium_secrets::open_in_memory()
+      } else {
+        kumbarium_secrets::open(&self.secrets_path)
+      }
+      .map_err(|e| e.to_string())?;
+      self.secrets = Some(conn);
+    }
+    Ok(self.secrets.as_ref().expect("just opened"))
   }
 
   /// The handoff connection, opening the shelf on first use.
@@ -70,6 +89,8 @@ impl ServerState {
       handoff: None,
       handoff_path: std::path::PathBuf::new(),
       served_handoffs: std::collections::HashSet::new(),
+      secrets: None,
+      secrets_path: std::path::PathBuf::new(),
     }
   }
 }
@@ -322,6 +343,24 @@ pub fn list() -> Value {
       }
     },
     {
+      "name": "secret_read",
+      "description": "Read a credential from the restricted \
+  stacks, by namespace and name. Works only if the human has \
+  granted YOUR identity access to that secret; a refusal names \
+  the grant command so you can ask them. Every call is \
+  witnessed either way. NEVER write credential VALUES into \
+  memories, tasks, or briefings; this shelf exists so you do \
+  not have to.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "namespace": { "type": "string" },
+          "name": { "type": "string" }
+        },
+        "required": ["namespace", "name"]
+      }
+    },
+    {
       "name": "forget",
       "description": "Permanently delete a memory. Escape \
   hatch for wrong or sensitive content only; for routine \
@@ -352,6 +391,7 @@ pub fn call(
     "task_file" => task_file(state, args),
     "task_update" => task_update(state, args),
     "handoff_write" => handoff_write(state, args),
+    "secret_read" => secret_read(state, args),
     other => Err(format!("unknown tool {other:?}")),
   };
   match result {
@@ -808,6 +848,76 @@ fn confidence_basis(e: &kumbarium_store::Entry) -> String {
       format!("never confirmed; created {}", day(&e.created_at))
     }
   }
+}
+
+/// The master key for a keystore-sealed shelf, or None for a
+/// plaintext-mode shelf; Blocked and Absent refuse per D-039.
+fn secrets_key(
+  state: &mut ServerState,
+) -> Result<Option<[u8; kumbarium_secrets::KEY_LEN]>, String> {
+  let mode = kumbarium_secrets::sealing_mode(state.secrets()?)
+    .map_err(|e| e.to_string())?;
+  match mode {
+    Some(kumbarium_secrets::Sealing::Plaintext) => Ok(None),
+    Some(kumbarium_secrets::Sealing::Keystore) | None => {
+      match super::keystore::master_key() {
+        super::keystore::Keystore::Present(key) => Ok(Some(key)),
+        super::keystore::Keystore::Absent => Err(
+          "no platform keystore substrate; this shelf cannot \
+           unseal here"
+            .into(),
+        ),
+        super::keystore::Keystore::Blocked(why) => Err(format!(
+          "keystore blocked ({why}); refusing rather than \
+           downgrading"
+        )),
+      }
+    }
+  }
+}
+
+fn secret_read(
+  state: &mut ServerState,
+  args: &Value,
+) -> Result<Vec<String>, String> {
+  let namespace =
+    kumbarium_librarian::normalize_namespace(required_str(args, "namespace")?);
+  kumbarium_librarian::validate_namespace(&namespace)
+    .map_err(|e| format!("invalid namespace: {e}"))?;
+  let name = required_str(args, "name")?.to_string();
+  let agent = state.agent_id.clone();
+  let granted =
+    kumbarium_secrets::check_grant(state.secrets()?, &namespace, &name, &agent)
+      .map_err(|e| e.to_string())?;
+  // Witness BEFORE the value moves: if the append fails, the
+  // value is withheld (fail-closed, D-038). Refusals are
+  // events too.
+  audit(
+    state,
+    kumbarium_audit::EventKind::SecretRead,
+    &namespace,
+    json!({ "name": name, "granted": granted }),
+  )?;
+  if !granted {
+    return Err(format!(
+      "no grant: your identity ({agent}) is not granted \
+       {namespace}/{name}. Ask the human to run: kumbarium \
+       secret grant {namespace} {name} {agent}"
+    ));
+  }
+  let key = secrets_key(state)?;
+  let value = kumbarium_secrets::read_secret(
+    state.secrets()?,
+    &namespace,
+    &name,
+    key.as_ref(),
+  )
+  .map_err(|e| e.to_string())?;
+  let text = String::from_utf8_lossy(&value).to_string();
+  Ok(vec![format!(
+    "Secret {namespace}/{name} (do not store this value \
+     anywhere in the library):\n{text}"
+  )])
 }
 
 fn handoff_write(

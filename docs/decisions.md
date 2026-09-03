@@ -37,9 +37,9 @@ parse/format is already property-tested in the vendored util.
 
 ## D-006: vendored util, intentional fork (2026-09-02)
 
-[redacted]-util is COPIED in ([redacted] @ 848d14e), not depended on:
-each project's utils diverge on purpose. Cross-port fixes by
-hand.
+The utility floor is COPIED in, not depended on: a vendored
+copy carries no external coupling and diverges freely. Fixes
+port by hand when they apply.
 
 ## D-007: audit writes are synchronous for now (2026-09-02)
 
@@ -540,9 +540,11 @@ adversaries is the one domain where hand-rolling inverts into
 malpractice, so the restricted stacks admit a vetted floor and
 nothing above it: `chacha20poly1305` (XChaCha20-Poly1305,
 192-bit fresh-random nonce, RNG failure fails closed) and
-`zeroize`, RustCrypto, pinned, permissive. The clause is a port
-of [redacted]'s own settled doctrine, where reimplementing an
-audited protocol stack VIOLATES the hand-roll principle. The
+`zeroize`, RustCrypto, pinned, permissive. The clause follows from
+the hand-roll principle's own purpose: hand-rolling exists for
+auditability, and an audited cryptography implementation is
+more auditable than anything rewritten here, so reimplementing
+it would violate the principle it appeals to. The
 floor stays a floor: no KEMs, no signatures, no TLS crates
 enter by this door; every future crypto dependency re-argues
 its case at this bar. Sealed blobs lead with a version byte

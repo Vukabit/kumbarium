@@ -7,6 +7,7 @@ mod config;
 mod diff;
 mod help;
 mod import;
+mod keystore;
 mod markdown;
 mod paths;
 mod rpc;
@@ -261,6 +262,8 @@ pub(crate) fn open_stores() -> Result<Stores, String> {
     handoff: None,
     handoff_path: p.handoff_db.clone(),
     served_handoffs: std::collections::HashSet::new(),
+    secrets: None,
+    secrets_path: p.secrets_db.clone(),
   };
   Ok((p, state))
 }

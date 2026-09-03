@@ -37,37 +37,35 @@ Enforcement hardens at the daemon rung, where authn makes
 grants real; the mechanism is built correct-first so
 enforcement has something to guard (the D-027 posture).
 
-## The cryptography ruling: the family precedent
+## The cryptography ruling: the vetted floor
 
-Surveyed against [redacted] (the author's prior secrets system,
-shipped) and [redacted] ([redacted], decision-locked design): the
-question reserved here turned out to be already ruled, twice.
-[redacted]'s written doctrine is HAND-ROLLED ON A VETTED FLOOR:
-reimplementing an audited protocol stack VIOLATES the
-hand-roll principle there, and its floor is the exact family
-this design proposed. The D-012 amendment is therefore a port
-of the author's own settled clause, not a new invention.
-Sign-off still required; the text to sign is [redacted]'s.
+The reserved question resolves from the hand-roll principle's
+own purpose. Hand-rolling exists for auditability, and an
+audited cryptography implementation is more auditable than
+anything rewritten here, so for cryptography that must resist
+adversaries the principle INVERTS: HAND-ROLLED ON A VETTED
+FLOOR. The floor is admitted; nothing above it enters by this
+door.
 
-Adopted from the precedent, sharper than the first draft:
+The floor, precisely:
 
 - XCHACHA20-POLY1305 (not plain ChaCha20-Poly1305): 192-bit
   FRESH RANDOM nonce per seal, no counter state; an RNG
   failure fails closed, never a zero or reused nonce
-  ([redacted]'s [external] rationale: birthday bound ~2^-96 at 2^48
-  seals). Dependencies admitted: `chacha20poly1305` +
-  `zeroize` (and `subtle` if any secret comparison appears),
-  RustCrypto, pinned, permissive: the vetted floor, nothing
-  above it (no KEMs, no signatures; this shelf seals and
-  unseals, only).
-- VERSIONED ENVELOPES ([redacted] [external]): every sealed blob leads
+  (birthday bound: at 2^48 seals the collision probability is
+  ~2^-96, so no counter state is needed). Dependencies
+  admitted: `chacha20poly1305`, `getrandom`, and `zeroize`
+  (plus `subtle` if any secret comparison appears): pinned,
+  permissive, widely audited; nothing above the floor (no
+  KEMs, no signatures; this shelf seals and unseals, only).
+- VERSIONED ENVELOPES: every sealed blob leads
   with a version byte; an unknown version fails closed, never
   best-effort parses. Crypto-agility is bumping a byte.
 - The master key never touches repo, config, or backups: it
   lives in the platform keystore, reached by SHELLING the OS
   tool (`security` / PowerShell / `secret-tool`), zero
   dependencies for that part.
-- KEYSTORE TRI-STATE ([redacted]'s Presence model, adopted):
+- KEYSTORE TRI-STATE:
   PRESENT serves; genuinely ABSENT (no substrate exists)
   falls back loudly to the documented floor
   (`--i-accept-plaintext`, an explicit human choice); BLOCKED
@@ -79,11 +77,10 @@ Adopted from the precedent, sharper than the first draft:
   bytes we cannot scrub, so we do not reallocate). Stated
   non-coverage: the JSON serialization and the pipe are
   copies we do not own. No mlock membrane: for a short-lived
-  serve process that is the part that WOULD be theater, and
-  the family's own tier analysis supports the scoping.
+  serve process that is the part that WOULD be theater.
 
-Enforcement tiers named per claim ([redacted]'s doc standard,
-"never a bare adjective"): sealed-at-rest is CRYPTO-ENFORCED;
+Enforcement tiers named per claim, never a bare adjective:
+sealed-at-rest is CRYPTO-ENFORCED;
 grants are POLICY (librarian-checked, witnessed) until daemon
 authn; witnessed access is LEDGER-ENFORCED (hash chain);
 value-free audit is TYPE-SHAPE-ENFORCED (see below); the
@@ -195,14 +192,13 @@ withholds serving.
 
 ## The custody conviction, and the seam it demands
 
-[redacted]'s founding line ([redacted] is "[redacted]'s Secret<T>/membrane/
-custody story re-derived one floor down"): systems "protect
-the secret at rest and then surrender plaintext to the
-consuming program, which is precisely where theft happens."
-v1's secret_read IS that surrender, to the worst consumer in
-the family's terms: a model context whose client logs tool
-results. Stated, not hidden, and answered structurally where
-possible today:
+The deepest failure mode of every mainstream secret mechanism:
+protect the secret at rest, then surrender plaintext to the
+consuming program, which is precisely where theft happens.
+v1's secret_read IS that surrender, to an unusually leaky
+consumer: a model context whose client logs tool results.
+Stated, not hidden, and answered structurally where possible
+today:
 
 - GRANTS CARRY A MODE from day one: `reveal` (v1's only
   value) with `use` reserved, so the egress-broker future
@@ -210,8 +206,8 @@ possible today:
   slots into the grant table without a migration. The
   manager-never-executes tension stays deferred; the schema
   stops it from becoming a rewrite.
-- `kum secret copy` ships in v1: [redacted]'s concealed-clipboard
-  pattern, ported light. The value goes to the clipboard via
+- `kum secret copy` ships in v1: a concealed clipboard copy.
+  The value goes to the clipboard via
   the shelled OS tool (`pbcopy` / `clip` / `xclip` family),
   never to stdout (terminal scrollback is a ledger too), with
   a spawned auto-clear after 90 seconds. Witnessed as
@@ -226,9 +222,9 @@ MCP, ONE tool:
   otherwise, naming the grant command so the human can
   decide. Every call witnessed both ways: the REFUSAL is an
   event too. If the audit append fails, the value is
-  WITHHELD (fail-closed, the [redacted] vaults posture; the
-  existing audit-failure-fails-the-call machinery already
-  delivers it, inked here as a guarantee). Event details are
+  WITHHELD (fail-closed; the existing
+  audit-failure-fails-the-call machinery already delivers it,
+  inked here as a guarantee). Event details are
   built from fixed fields only (name, agent, granted:bool):
   a secret cannot reach the ledger through this path by
   SHAPE, not by discipline.

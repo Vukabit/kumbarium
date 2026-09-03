@@ -333,11 +333,13 @@ name = "kumbarium"
 version = "0.1.0"
 dependencies = [
  "directories",
+ "getrandom 0.2.17",
  "kumbarium-audit",
  "kumbarium-docket",
  "kumbarium-handoff",
  "kumbarium-janitor",
  "kumbarium-librarian",
+ "kumbarium-secrets",
  "kumbarium-store",
  "kumbarium-util",
  "libc",

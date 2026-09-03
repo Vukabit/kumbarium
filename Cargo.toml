@@ -1,6 +1,6 @@
 # Kumbarium workspace. Crate map:
 #   kumbarium            the binary: MCP server + CLI + wiring
-#   kumbarium-util       vendored [redacted]-util fork (time/id/fs/lock)
+#   kumbarium-util       the vendored utility floor (time/id/fs/lock)
 #   kumbarium-store      the Library: schema, migrations, FTS5, backups
 #   kumbarium-audit      audit db: event types, writer, export
 #   kumbarium-librarian  retrieval, ranking, scoring, curation traits
@@ -29,7 +29,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/Vukabit/kumbarium"
 
 [workspace.dependencies]
-# Vendored-util deps (inherited from the [redacted]-util fork).
+# Vendored-util deps (the utility floor's own).
 thiserror = "2"
 uuid = { version = "1", features = ["v7"] }
 tempfile = "3"

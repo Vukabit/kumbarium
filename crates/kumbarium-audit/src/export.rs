@@ -241,6 +241,27 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
         n("edges")?
       )),
       "handoff_write" => Some(format!("left a briefing {}", short(s("id")?))),
+      "secret_set" => Some(format!("stocked secret {:?}", s("name")?)),
+      "secret_read" => {
+        let granted =
+          v.get("granted").and_then(|x| x.as_bool()).unwrap_or(false);
+        Some(if granted {
+          format!("read secret {:?}", s("name")?)
+        } else {
+          format!("REFUSED secret {:?} (no grant)", s("name")?)
+        })
+      }
+      "secret_grant" => {
+        Some(format!("granted {:?} to {}", s("name")?, s("grantee")?))
+      }
+      "secret_revoke" => {
+        Some(format!("revoked {:?} from {}", s("name")?, s("grantee")?))
+      }
+      "secret_shred" => Some(format!("shredded secret {:?}", s("name")?)),
+      "secret_copy" => Some(format!(
+        "concealed-copied secret {:?} (auto-clear)",
+        s("name")?
+      )),
       "task_file" => {
         let mut line =
           format!("filed {} task {}", s("severity")?, short(s("id")?));

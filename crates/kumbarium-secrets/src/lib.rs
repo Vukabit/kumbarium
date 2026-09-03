@@ -260,8 +260,8 @@ fn seal(
 }
 
 /// OS entropy via the vetted primitive (getrandom is on the
-/// D-039 floor, [redacted] precedent); a failure fails closed,
-/// never a zero or derived nonce.
+/// D-039 floor); a failure fails closed, never a zero or
+/// derived nonce.
 fn getrandom_fill(out: &mut [u8; NONCE_LEN]) -> Result<(), SecretsError> {
   getrandom::getrandom(out).map_err(|_| SecretsError::SealFailure)
 }

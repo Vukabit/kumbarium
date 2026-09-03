@@ -16,6 +16,8 @@ publish = false
 kumbarium-audit = { path = "../kumbarium-audit" }
 kumbarium-docket = { path = "../kumbarium-docket" }
 kumbarium-handoff = { path = "../kumbarium-handoff" }
+kumbarium-secrets = { path = "../kumbarium-secrets" }
+getrandom.workspace = true
 kumbarium-janitor = { path = "../kumbarium-janitor" }
 kumbarium-librarian = { path = "../kumbarium-librarian" }
 kumbarium-store = { path = "../kumbarium-store" }
