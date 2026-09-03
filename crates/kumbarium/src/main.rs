@@ -139,6 +139,7 @@ pub fn run() -> ExitCode {
         help::TOPICS
       )),
     },
+    ["audit", "verify"] => audit_verify(),
     ["audit", "export", rest @ ..] => {
       let to_stdout = rest.contains(&"--stdout");
       let raw = rest.contains(&"--raw");
@@ -582,6 +583,41 @@ scope                detail"
         }
       }
       ExitCode::SUCCESS
+    }
+    Err(e) => fail(&e.to_string()),
+  }
+}
+
+/// Recompute the ledger's hash chain (D-029): tamper-evidence
+/// verifiable by anyone holding the file, no trust in us needed.
+fn audit_verify() -> ExitCode {
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  match kumbarium_audit::verify_chain(&state.audit) {
+    Ok(kumbarium_audit::ChainStatus::Intact { events, head }) => {
+      let head = head.unwrap_or_default();
+      let short = head.get(..12).unwrap_or(&head);
+      println!(
+        "{} {} events, head {}",
+        sty.green("chain intact:"),
+        events,
+        short
+      );
+      ExitCode::SUCCESS
+    }
+    Ok(kumbarium_audit::ChainStatus::Broken { index, id, at }) => {
+      eprintln!(
+        "{} first break at event {} (id {}, at {}); every\n\
+         event from there on is untrustworthy",
+        sty.red("chain BROKEN:"),
+        index,
+        id,
+        at
+      );
+      ExitCode::FAILURE
     }
     Err(e) => fail(&e.to_string()),
   }
@@ -1898,6 +1934,9 @@ Usage:
   kumbarium audit export [--stdout]   minutes markdown to
                          [--raw]      exports/ or streamed
                                       (--raw keeps stored UTC)
+  kumbarium audit verify              recompute the ledger's
+                                      hash chain; tampering
+                                      names its first break
   kumbarium backup                    snapshot both dbs now
   kumbarium config [--init]           effective tunables
                                       (--init writes template)

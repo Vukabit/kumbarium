@@ -218,6 +218,7 @@ const PAGE_AUDIT: &str = "\
 ```
 kum audit tail [n] [--scope <ns>]
 kum audit export [--stdout] [--raw]
+kum audit verify
 ```
 
 Every librarian transaction is an event: who (agent identity),
@@ -229,9 +230,16 @@ markdown instead, for piping. Times render local by default;
 `--raw` keeps the stored UTC form (machine-comparable across
 exporting machines). Storage is always strict ISO-8601 UTC.
 
+The ledger is HASH-CHAINED (D-029): each event stores
+sha256(previous hash + its own fields), so `verify` recomputes
+the whole chain and either confirms it intact (event count +
+head hash) or names the first broken link. Tamper-evidence is
+math anyone holding the file can check, not a promise.
+
 ```
 kum audit tail 50
 kum audit export --stdout | less
+kum audit verify
 command cat \"$(kum audit export)\"
 ```
 ";

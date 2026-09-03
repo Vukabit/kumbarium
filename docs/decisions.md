@@ -339,3 +339,21 @@ a `contradicts` edge to the live local head, and a human
 settles it from the inbox. Two live heads for one fact is the
 contradiction disease; the merge never chooses a winner, it
 routes the choice to the desk where judgment is witnessed.
+
+## D-029: the witness is hash-chained (2026-09-03)
+
+Every audit event stores sha256(previous event's hash + its own
+canonical fields, each length-prefixed so no field content can
+forge a boundary); genesis links from the empty string. Chain
+order is id order (UUIDv7, mint-time sorted), and append runs
+its read-prev-then-insert inside one IMMEDIATE transaction, so
+concurrent writers serialize and the chain stays linear under
+multi-process WAL. Rows from before the migration are backfilled
+deterministically on first open, so existing ledgers become
+fully chained end to end. `kum audit verify` recomputes the
+whole chain: intact (count + head hash) or the first broken
+link, named. Pulled forward from the enterprise backlog into
+the launch cut: tamper-evidence becomes math anyone holding the
+file can check, which turns "we keep an audit log" into a claim
+no commodity memory server makes. The SHA-256 is the vendored
+FIPS 180-4 implementation bundles already use (D-012 holds).
