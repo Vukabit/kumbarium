@@ -100,12 +100,19 @@ pub(crate) fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
 }
 
 pub(crate) fn show_entry(id: &str, full: bool) -> ExitCode {
-  let (_, state) = match open_stores() {
+  let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
   let full_id = match kumbarium_store::resolve_id(&state.library, id) {
     Ok(full_id) => full_id,
+    Err(kumbarium_store::StoreError::EntryNotFound(_)) => {
+      // Ids are building-wide names: fall through to the docket.
+      return match super::docket::show_task(&mut state, id) {
+        Ok(code) => code,
+        Err(e) => fail(&e),
+      };
+    }
     Err(err) => return fail(&err.to_string()),
   };
   let e = match kumbarium_store::get(&state.library, &full_id) {
@@ -269,6 +276,11 @@ pub(crate) fn history_cmd(id: &str, with_diff: bool, all: bool) -> ExitCode {
     Err(e) => return fail(&e),
   };
   let sty = style::Style::detect();
+  if kumbarium_store::resolve_id(&state.library, id).is_err() {
+    // Ids are building-wide names: a task chain renders through
+    // the docket's own history view.
+    return super::docket::task_history_cmd(id);
+  }
   let versions = match resolve_history(&state, id) {
     Ok(v) => v,
     Err(e) => return fail(&e),

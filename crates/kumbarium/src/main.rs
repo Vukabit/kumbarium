@@ -56,7 +56,7 @@ pub fn run() -> ExitCode {
     ["namespace", "add", path, rest @ ..] => {
       namespace_add(path, &rest.join(" "))
     }
-    ["namespace", "list"] => namespace_list(),
+    ["namespace", "list"] | ["namespace"] => namespace_list(),
     ["import", "claude", rest @ ..] => import_claude(rest),
     ["export"] => {
       let sty = style::Style::detect();

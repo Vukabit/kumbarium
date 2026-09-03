@@ -430,3 +430,23 @@ conventions) and nothing about being recalled (auto-split,
 links, tags, FTS ranking, confidence stay memory's retrieval
 semantics). Cherry-picking is not per-feature taste; it is this
 line.
+
+## D-034: the CLI grammar (2026-09-03)
+
+Audited the whole command surface against the post-v0.1.0
+roadmap and inked the rules it already obeyed
+(docs/design/cli-grammar.md): bare verbs address the general
+collection and every other shelf speaks through its own noun
+(the flagship keeps the short spellings forever); singular
+acts, plural lists, bare family nouns list; ids are
+building-wide names (show/history/review fall through shelves;
+the reader never needs to know where a ledger line came from);
+--all always includes the hidden, --apply is always the human
+signature; cross-shelf reads live at top level, per-shelf
+writes under nouns; the CLI is a human surface and machines use
+MCP, bundles, or the databases (no --json, ever); and a
+RESERVED_WORDS registry (current commands + docket subverbs +
+every roadmap noun) is enforced at namespace registration and,
+when built, at alias definition, so no future command ever
+negotiates with a squatter. Free-text table columns hanging-wrap
+at their column on a terminal; snapping to column 0 is a bug.

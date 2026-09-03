@@ -27,6 +27,79 @@ pub enum NamespaceError {
   BadCharacter(String),
 }
 
+/// Words the CLI grammar owns or will own (current commands,
+/// docket subverbs, and the roadmap's future section nouns). A
+/// single-segment namespace with one of these names would be
+/// unreachable from the CLI today or would block a future
+/// command tomorrow, so registration refuses them; multi-segment
+/// paths (`project/brief`) are always fine, the slash
+/// disambiguates.
+pub const RESERVED_WORDS: &[&str] = &[
+  "alias",
+  "aliases",
+  "approve",
+  "audit",
+  "backup",
+  "brief",
+  "bundle",
+  "bundles",
+  "config",
+  "confirm",
+  "daemon",
+  "dashboard",
+  "docket",
+  "done",
+  "drop",
+  "export",
+  "grade",
+  "grep",
+  "handoff",
+  "handoffs",
+  "help",
+  "history",
+  "import",
+  "inbox",
+  "incident",
+  "instructions",
+  "janitor",
+  "list",
+  "mem",
+  "memory",
+  "minutes",
+  "move",
+  "namespace",
+  "namespaces",
+  "paths",
+  "reject",
+  "retire",
+  "revert",
+  "review",
+  "roadmap",
+  "scorecard",
+  "scorecards",
+  "secret",
+  "secrets",
+  "section",
+  "sections",
+  "serve",
+  "shelf",
+  "shelves",
+  "show",
+  "status",
+  "task",
+  "tasks",
+  "unretire",
+  "version",
+];
+
+/// The reserved word squatted by a single-segment path, if any.
+pub fn reserved_word(path: &str) -> Option<&'static str> {
+  if path.contains('/') {
+    return None;
+  }
+  RESERVED_WORDS.iter().copied().find(|w| *w == path)
+}
+
 /// Normalize a namespace before validation: trim whitespace and
 /// lowercase. Lossless by construction: the grammar admits only
 /// lowercase, so no two registered paths can differ by case and

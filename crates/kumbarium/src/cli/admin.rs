@@ -10,6 +10,13 @@ pub(crate) fn namespace_add(path: &str, description: &str) -> ExitCode {
   if let Err(e) = kumbarium_librarian::validate_namespace(path) {
     return fail(&format!("invalid namespace {path:?}: {e}"));
   }
+  if let Some(word) = kumbarium_librarian::reserved_word(path) {
+    return fail(&format!(
+      "{word:?} is reserved by the CLI grammar (current or \
+       roadmap command); use a multi-segment path like \
+       project/{word}"
+    ));
+  }
   let (_, state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),

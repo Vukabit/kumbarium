@@ -179,13 +179,17 @@ matter"
 /// the collision surface (live near-matches already shelved in
 /// the target scope). Never the writer's self-description.
 pub(crate) fn review_cmd(id: &str) -> ExitCode {
-  let (_, state) = match open_stores() {
+  let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
   let sty = style::Style::detect();
   let full = match kumbarium_store::resolve_id(&state.library, id) {
     Ok(f) => f,
+    Err(kumbarium_store::StoreError::EntryNotFound(_)) => {
+      // Ids are building-wide: review the docket's queue too.
+      return review_task(&mut state, id);
+    }
     Err(e) => return fail(&e.to_string()),
   };
   let e = match kumbarium_store::get(&state.library, &full) {
@@ -390,5 +394,70 @@ fn judge_task(
       sty.id(kumbarium_docket::short_id(&full))
     );
   }
+  ExitCode::SUCCESS
+}
+
+/// Review a pending docket task: the judged view, provenance
+/// and severity prominent (an untrusted writer filing urgent is
+/// itself a signal).
+fn review_task(state: &mut tools::ServerState, id: &str) -> ExitCode {
+  let sty = style::Style::detect();
+  let conn = match state.docket() {
+    Ok(c) => c,
+    Err(e) => return fail(&e),
+  };
+  let full = match kumbarium_docket::resolve_id(conn, id) {
+    Ok(f) => f,
+    Err(kumbarium_docket::DocketError::TaskNotFound(_)) => {
+      return fail(&format!("no entry or task with id {id:?}"));
+    }
+    Err(e) => return fail(&e.to_string()),
+  };
+  let t = match kumbarium_docket::get(conn, &full) {
+    Ok(t) => t,
+    Err(e) => return fail(&e.to_string()),
+  };
+  if t.status != kumbarium_docket::Status::Pending {
+    return fail(&format!(
+      "task {} is {}, not pending; the desk judges only pending \
+       matters",
+      kumbarium_docket::short_id(&full),
+      t.status.as_str()
+    ));
+  }
+  println!("{}", sty.bold("pending task (the docket)"));
+  println!(
+    "id:         {} (short: {})",
+    t.id,
+    kumbarium_docket::short_id(&t.id)
+  );
+  println!("namespace:  {}", t.namespace);
+  println!(
+    "severity:   {} {}",
+    t.severity.as_str(),
+    sty.dim("(the filer's claim, not yours yet)")
+  );
+  println!("goal:       {}", t.goal.as_deref().unwrap_or("none"));
+  println!(
+    "submitted:  {} by {}",
+    local_display(&t.created_at),
+    t.agent_id
+  );
+  if !t.source.is_empty() {
+    println!("source:     {}", t.source);
+  }
+  println!("\n{}", t.content);
+  println!(
+    "\n{}",
+    sty.dim(
+      "a task poisons what an agent DOES; weigh the provenance \
+       before an urgent stranger jumps the queue"
+    )
+  );
+  println!(
+    "\njudge with: kum approve {} or kum reject {} [reason]",
+    kumbarium_docket::short_id(&t.id),
+    kumbarium_docket::short_id(&t.id)
+  );
   ExitCode::SUCCESS
 }

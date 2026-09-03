@@ -392,6 +392,13 @@ pub(crate) fn tasks_cmd(rest: &[&str]) -> ExitCode {
 matter"
     )
   );
+  // Matter column start: 8+2 + 6+1 + 19+2 + 3+2 + 20+1 = 64.
+  // Overflow hanging-wraps there on a terminal, exactly like
+  // `audit tail`; piped output stays single-line for grep.
+  const MATTER_COL: usize = 64;
+  let wrap_width = term_width()
+    .filter(|w| *w > MATTER_COL + 16)
+    .map(|w| w - MATTER_COL);
   for t in &tasks {
     let days = days_to_goal(t.goal.as_deref(), now);
     let goal_cell = goal_paint(&sty, days, t.goal.as_deref());
@@ -410,6 +417,11 @@ matter"
       kumbarium_docket::TaskState::Dropped => " [dropped]",
       kumbarium_docket::TaskState::Open => "",
     };
+    let matter = t.content.lines().next().unwrap_or("");
+    let chunks = match wrap_width {
+      Some(width) => wrap_words(matter, width),
+      None => vec![matter.to_string()],
+    };
     println!(
       "{}  {} {}{:pad$}  {:>3}  {:<20} {}{}",
       sty.id(kumbarium_docket::short_id(&t.id)),
@@ -418,9 +430,12 @@ matter"
       "",
       age_of(&t.created_at, now),
       t.namespace,
-      t.content.lines().next().unwrap_or(""),
+      chunks.first().map(String::as_str).unwrap_or(""),
       sty.dim(mark),
     );
+    for chunk in chunks.iter().skip(1) {
+      println!("{:MATTER_COL$}{chunk}", "");
+    }
   }
   ExitCode::SUCCESS
 }
@@ -466,20 +481,86 @@ pub(crate) fn roadmap_cmd(ns: Option<&str>) -> ExitCode {
       continue;
     }
     println!("{}", sty.bold(name));
+    // Content column start: 2 + 8+2 + 6+1 = 19; hanging wrap.
+    const CONTENT_COL: usize = 19;
+    let wrap_width = term_width()
+      .filter(|w| *w > CONTENT_COL + 16)
+      .map(|w| w - CONTENT_COL);
     for t in in_bucket {
       let goal = t
         .goal
         .as_deref()
         .map(|g| format!("  {g}"))
         .unwrap_or_default();
+      let content = t.content.lines().next().unwrap_or("");
+      let chunks = match wrap_width {
+        Some(width) => wrap_words(content, width),
+        None => vec![content.to_string()],
+      };
       println!(
-        "  {}  {} {}{}",
+        "  {}  {} {}",
         sty.id(kumbarium_docket::short_id(&t.id)),
         severity_paint(&sty, t.severity),
-        t.content.lines().next().unwrap_or(""),
-        sty.dim(&goal),
+        chunks.first().map(String::as_str).unwrap_or(""),
       );
+      for chunk in chunks.iter().skip(1) {
+        println!("{:CONTENT_COL$}{chunk}", "");
+      }
+      if !goal.is_empty() {
+        println!("{:CONTENT_COL$}{}", "", sty.dim(goal.trim_start()));
+      }
     }
   }
   ExitCode::SUCCESS
+}
+
+/// Render one task in full (`kum show` falling through to the
+/// docket: ids are building-wide names).
+pub(crate) fn show_task(
+  state: &mut tools::ServerState,
+  id: &str,
+) -> Result<ExitCode, String> {
+  let conn = state.docket()?;
+  let full = match kumbarium_docket::resolve_id(conn, id) {
+    Ok(f) => f,
+    Err(kumbarium_docket::DocketError::TaskNotFound(_)) => {
+      return Err(format!("no entry or task with id {id:?}"));
+    }
+    Err(e) => return Err(e.to_string()),
+  };
+  let t = kumbarium_docket::get(conn, &full).map_err(|e| e.to_string())?;
+  let sty = style::Style::detect();
+  println!("{}", sty.bold("task (the docket)"));
+  println!(
+    "id:         {} (short: {})",
+    t.id,
+    kumbarium_docket::short_id(&t.id)
+  );
+  println!("namespace:  {}", t.namespace);
+  println!("severity:   {}", t.severity.as_str());
+  println!("goal:       {}", t.goal.as_deref().unwrap_or("none"));
+  println!("state:      {}", t.state.as_str());
+  if t.status != kumbarium_docket::Status::Live {
+    println!("status:     {}", sty.yellow(t.status.as_str()));
+  }
+  println!(
+    "filed:      {} by {}",
+    local_display(&t.created_at),
+    t.agent_id
+  );
+  if let Some(done) = &t.done_at {
+    println!("judged:     {}", local_display(done));
+  }
+  if let Some(note) = &t.note {
+    println!("note:       {note}");
+  }
+  if let Some(next) = &t.superseded_by {
+    println!(
+      "superseded: by {} (kum task history {})",
+      kumbarium_docket::short_id(next),
+      kumbarium_docket::short_id(&t.id)
+    );
+  }
+  println!("\n{}", t.content);
+  Ok(ExitCode::SUCCESS)
 }
