@@ -1,0 +1,84 @@
+name: ci
+
+# The gate battery on the org self-hosted runners. Kumbarium is
+# pure cross-platform Rust, but portability is the end goal, so
+# clippy + tests run natively on all three OSes. The Linux
+# runners are ephemeral autoscaler spawns that inconsistently
+# ship rustup; a Linux-scoped self-heal step installs it first.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt:
+    # OS-independent -- run once. Nightly rustfmt.
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure rustup on PATH (Linux autoscaler runners)
+        shell: bash
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+              curl --proto '=https' --tlsv1.2 -sSf \
+                https://sh.rustup.rs \
+                | sh -s -- -y --default-toolchain none \
+                  --profile minimal
+            fi
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+      - run: >
+          rustup toolchain install nightly -c rustfmt
+          --profile minimal
+      - run: cargo +nightly fmt --all --check
+
+  lints:
+    # The Python gates + licenses: OS-independent, run once.
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/width_gate.py
+      - run: python3 scripts/no_scaffolding.py
+      - run: python3 scripts/cargo_hygiene.py
+      - name: licenses (cargo-deny, if installed)
+        run: python3 scripts/license_gate.py
+
+  gate:
+    # clippy + tests per OS, natively.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macOS, arch: ARM64 }
+          - { os: Windows, arch: X64 }
+          - { os: Linux, arch: X64 }
+    runs-on: [self-hosted, "${{ matrix.os }}", "${{ matrix.arch }}"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure rustup on PATH (Linux autoscaler runners)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+              curl --proto '=https' --tlsv1.2 -sSf \
+                https://sh.rustup.rs \
+                | sh -s -- -y --default-toolchain none \
+                  --profile minimal
+            fi
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+      - run: >
+          rustup toolchain install stable -c clippy
+          --profile minimal
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace

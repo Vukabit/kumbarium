@@ -1,0 +1,63 @@
+# Synthetic retrieval golden set. See README.md for the format.
+# Seed cases; grows toward ~30 as v0.1 retrieval lands.
+
+[[case]]
+name = "commit-style-preference"
+scope = "project/demo-app"
+query = "how should commits be formatted"
+expect = "commit-rule"
+
+[[case.entries]]
+key = "commit-rule"
+kind = "preference"
+ns = "global"
+content = """
+Commits are subject-only, type(scope) style, no trailers."""
+
+[[case.entries]]
+key = "distractor-1"
+kind = "decision"
+ns = "project/demo-app"
+content = """
+The demo app uses SQLite for its queue storage."""
+
+[[case]]
+name = "scope-firewall-sibling-project"
+scope = "project/demo-app"
+query = "which database does the project use"
+expect = "own-db"
+
+[[case.entries]]
+key = "own-db"
+kind = "decision"
+ns = "project/demo-app"
+content = """
+demo-app persists everything in SQLite, WAL mode."""
+
+[[case.entries]]
+key = "sibling-db"
+kind = "decision"
+ns = "project/other-app"
+content = """
+other-app stores its data in Postgres 16."""
+
+[[case]]
+name = "superseded-fact-loses"
+scope = "global"
+query = "what editor does the user prefer"
+expect = "editor-new"
+
+[[case.entries]]
+key = "editor-old"
+kind = "preference"
+ns = "global"
+superseded_by = "editor-new"
+content = """
+The user edits in VS Code."""
+
+[[case.entries]]
+key = "editor-new"
+kind = "preference"
+ns = "global"
+content = """
+The user edits in Neovim with a custom config."""

@@ -1,0 +1,12 @@
+# Kumbarium formatting. Enforced via `cargo +nightly fmt --check`
+# in the gate. The 80-column rule applies to ALL files in the
+# repo: rustfmt covers .rs (as a target, not a hard cap; it will
+# not split some long strings), and scripts/width_gate.py is the
+# hard 80 enforcer for everything.
+
+max_width = 80
+tab_spaces = 2
+hard_tabs = false
+edition = "2024"
+newline_style = "Unix"
+use_field_init_shorthand = true

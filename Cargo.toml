@@ -1,0 +1,41 @@
+# Kumbarium workspace. Crate map:
+#   kumbarium            the binary: MCP server + CLI + wiring
+#   kumbarium-util       vendored [redacted]-util fork (time/id/fs/lock)
+#   kumbarium-store      the Library: schema, migrations, FTS5, backups
+#   kumbarium-audit      audit db: event types, writer, export
+#   kumbarium-librarian  retrieval, ranking, scoring, curation traits
+
+[workspace]
+resolver = "3"
+members = [
+  "crates/kumbarium-util",
+  "crates/kumbarium-store",
+  "crates/kumbarium-audit",
+  "crates/kumbarium-librarian",
+  "crates/kumbarium",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# Vendored-util deps (inherited from the [redacted]-util fork).
+thiserror = "2"
+uuid = { version = "1", features = ["v7"] }
+tempfile = "3"
+fd-lock = "4"
+rustix = "1"
+
+# Storage. `bundled` compiles the SQLite amalgamation in (FTS5 on),
+# so the binary never depends on a system SQLite: portability.
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
+
+# Serialization + config + platform paths.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+directories = "6"
+
+# Dev.
+proptest = "1"

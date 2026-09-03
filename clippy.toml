@@ -1,0 +1,10 @@
+# Kumbarium clippy policy. `cargo clippy -- -D warnings` runs in
+# the gate; project-wide method bans land here as invariants
+# emerge (candidate: once the audit writer goes buffered, ban
+# direct `events` INSERTs outside kumbarium-audit).
+
+# std::process::exit skips destructors; the process lock and WAL
+# checkpointing rely on Drop running. main() returns ExitCode.
+[[disallowed-methods]]
+path = "std::process::exit"
+reason = "return ExitCode from main; exit() skips Drop"
