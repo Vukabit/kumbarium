@@ -447,10 +447,24 @@ fn audit_export() -> ExitCode {
   let target = p.exports_dir.join(format!("minutes-{stamp}Z.md"));
   match kumbarium_util::write_atomically(&target, minutes.as_bytes()) {
     Ok(()) => {
-      println!("{}", target.display());
+      println!("{}", shell_quote(&target.display().to_string()));
       ExitCode::SUCCESS
     }
     Err(e) => fail(&format!("writing minutes: {e}")),
+  }
+}
+
+/// Quote a path for copy-paste into a shell when it needs it
+/// (the macOS data dir contains a space); plain paths print
+/// bare so command substitution stays clean.
+fn shell_quote(path: &str) -> String {
+  let plain = path
+    .bytes()
+    .all(|b| b.is_ascii_alphanumeric() || b"/._-+:@%".contains(&b));
+  if plain {
+    path.to_string()
+  } else {
+    format!("'{}'", path.replace('\'', "'\\''"))
   }
 }
 
