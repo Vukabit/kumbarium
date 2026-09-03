@@ -97,6 +97,41 @@ Fields, reusing every convention the entries table proved:
   See the injection note below; the desk judges tasks with the
   same three verbs it already has.
 
+## Inheritance: the section contract
+
+What a section gets for free is everything about BEING
+GOVERNED; what it does not inherit is the collection's
+retrieval machinery. The line is principled, and every future
+shelf is held to it:
+
+Inherited (the skeleton):
+
+- identity + provenance, registered namespaces + chain
+  visibility, the witness, the desk (D-027 status verbatim),
+  supersession discipline with notes and history (D-020),
+  the id grammar (fragments, short forms), per-shelf backups,
+  and the CLI conventions (pad-then-paint, preview/--apply
+  where destructive, local-time display).
+
+NOT inherited (memory's retrieval semantics, deliberately):
+
+- auto-split: a task is one self-contained statement; a matter
+  too big to state is two matters or a design document that
+  belongs in memory. Oversized content errors with exactly that
+  guidance instead of splitting.
+- links and tags: the natural task edge is blocked_by, which is
+  the dependency-graph door (same door as subtasks, closed);
+  severity + goal + namespace are the facets.
+- FTS and relevance ranking: the docket is listed and filtered
+  deterministically, never queried by similarity; there is no
+  "query" for what is owed.
+- confidence and janitor scoring: confidence measures the
+  trustworthiness of claims about the world; a task has no
+  truth value. The janitor's docket role is findings (creep,
+  staleness), never a number.
+- retire / move / revert: open|done|dropped IS the lifecycle,
+  re-goal IS the undo.
+
 ## The injection note (why quarantine matters MORE here)
 
 A memory poisons what an agent believes; a task poisons what an
