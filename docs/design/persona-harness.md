@@ -113,3 +113,27 @@ realism tier; the robustness floor is always informational.
   in one arc (v2; the sim already storms systems-level
   concurrency), and any judgment of prose QUALITY of stored
   memories (grader checks presence and lifecycle, not style).
+
+## Fleet scenarios (v1.5): many agents, many repos
+
+The single-persona arc measures one agent's habits; the fleet
+fixture measures the FOUNDING CLAIM: knowledge crossing agents.
+One library, N agent personas, M mock projects, interleaved
+episodes. New expectation kinds:
+
+- cross-agent recall: agent A's episode stores a fact that is
+  cross-project by nature; a LATER episode of agent B (different
+  model, different project context) depends on it. Grader:
+  B's recall returned A's entry. This also behaviorally tests
+  NAMESPACE JUDGMENT: the flow only works if A chose `global`
+  over burying the fact in its project shelf.
+- firewall: across the whole run, no recall event scoped to
+  project X ever returned an entry living in sibling project Y.
+  Pure ledger query; zero tolerance.
+- provenance sanity: every entry's agent_id matches the persona
+  that ran the episode that created it.
+
+Double duty, by design: the fleet run's own audit minutes are
+the DEMO ARTIFACT: "three agents, three repos, one brain, every
+checkout on the record" is the launch narrative rendered by the
+witness itself, and lands in docs/reports/ like any other run.
