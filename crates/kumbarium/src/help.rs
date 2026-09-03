@@ -356,9 +356,15 @@ const PAGE_BUNDLE: &str = "\
 ## bundle: memories in motion
 
 ```
-kum bundle <namespace> [--out FILE]
+kum bundle <namespace> [--out DIR] [--stdout]
 kum import bundle <FILE> [--pending]
 ```
+
+Like `audit export`, a bundle lands in exports/ under a
+sortable ISO-stamped name (`bundle-<ns>-<stamp>Z.json`) and the
+path is printed. `--out <dir>` chooses the directory instead
+(created if missing; trailing slash irrelevant); `--stdout`
+streams the JSON with no file written.
 
 One shelf as one deterministic JSON file, SHA-256 hashed so a
 review conversation can name it and the importer can verify
@@ -378,8 +384,9 @@ from the inbox (D-028). `--pending` routes every imported head
 through the desk, for bundles from hands you do not know.
 
 ```
-kum bundle project/my-app --out my-app.bundle.json
-kum import bundle my-app.bundle.json
+kum bundle project/my-app
+kum bundle project/my-app --out ~/Desktop/files
+kum bundle project/my-app --stdout | jq .content_hash
 kum import bundle contributed.bundle.json --pending
 ```
 ";

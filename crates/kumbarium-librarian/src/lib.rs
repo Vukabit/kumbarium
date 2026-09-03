@@ -9,7 +9,8 @@ mod score;
 mod split;
 
 pub use namespace::{
-  MAX_DEPTH, NamespaceError, namespace_chain, validate_namespace,
+  MAX_DEPTH, NamespaceError, namespace_chain, normalize_namespace,
+  validate_namespace,
 };
 pub use score::Scores;
 pub use split::{SPLIT_TARGET, sanitize_note, split_for_storage};

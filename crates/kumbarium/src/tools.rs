@@ -416,7 +416,9 @@ fn recall(
   args: &Value,
 ) -> Result<Vec<String>, String> {
   let query = required_str(args, "query")?;
-  let scope = required_str(args, "scope")?;
+  let scope =
+    kumbarium_librarian::normalize_namespace(required_str(args, "scope")?);
+  let scope = scope.as_str();
   let limit = args
     .get("limit")
     .and_then(Value::as_u64)
@@ -586,8 +588,9 @@ fn confidence_basis(e: &kumbarium_store::Entry) -> String {
 }
 
 fn new_entry_args(args: &Value) -> Result<kumbarium_store::NewEntry, String> {
-  let namespace = required_str(args, "namespace")?;
-  kumbarium_librarian::validate_namespace(namespace)
+  let namespace =
+    kumbarium_librarian::normalize_namespace(required_str(args, "namespace")?);
+  kumbarium_librarian::validate_namespace(&namespace)
     .map_err(|e| format!("invalid namespace: {e}"))?;
   let kind_raw = required_str(args, "kind")?;
   let kind = kumbarium_store::Kind::parse(kind_raw).ok_or_else(|| {

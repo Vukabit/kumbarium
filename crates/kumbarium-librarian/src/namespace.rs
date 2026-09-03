@@ -27,6 +27,17 @@ pub enum NamespaceError {
   BadCharacter(String),
 }
 
+/// Normalize a namespace before validation: trim whitespace and
+/// lowercase. Lossless by construction: the grammar admits only
+/// lowercase, so no two registered paths can differ by case and
+/// folding can never merge distinct namespaces. Guards agents
+/// (and humans) who send `Project/Foo` from a not-found that the
+/// grammar itself created. Every surface that accepts a
+/// namespace normalizes first, registration included.
+pub fn normalize_namespace(path: &str) -> String {
+  path.trim().to_ascii_lowercase()
+}
+
 /// Validate a namespace path: 1..=MAX_DEPTH non-empty segments of
 /// `[a-z0-9._-]`, each at most 64 chars. TRUST BOUNDARY: call on
 /// any scope arriving from an agent before it reaches SQL or the
@@ -129,6 +140,14 @@ mod tests {
       validate_namespace(&long).unwrap_err(),
       NamespaceError::SegmentTooLong
     );
+  }
+
+  #[test]
+  fn normalization_folds_case_and_trims() {
+    assert_eq!(normalize_namespace(" Project/Foo "), "project/foo");
+    assert_eq!(normalize_namespace("GLOBAL"), "global");
+    // Post-normalization, the grammar accepts what it rejected.
+    assert!(validate_namespace(&normalize_namespace("Project/Foo")).is_ok());
   }
 
   #[test]

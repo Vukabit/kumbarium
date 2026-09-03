@@ -21,6 +21,7 @@ pub fn export(
   state: &ServerState,
   scope: &str,
 ) -> Result<(String, usize), String> {
+  let scope = &kumbarium_librarian::normalize_namespace(scope);
   kumbarium_librarian::validate_namespace(scope)
     .map_err(|e| format!("invalid namespace: {e}"))?;
   let known = kumbarium_store::namespace_id(&state.library, scope)

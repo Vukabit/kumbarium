@@ -52,8 +52,9 @@ pub fn run() -> ExitCode {
     }
     ["namespace", "list"] => namespace_list(),
     ["import", "claude", rest @ ..] => import_claude(rest),
-    ["bundle", scope] => bundle_cmd(scope, None),
-    ["bundle", scope, "--out", file] => bundle_cmd(scope, Some(file)),
+    ["bundle", scope] => bundle_cmd(scope, None, false),
+    ["bundle", scope, "--stdout"] => bundle_cmd(scope, None, true),
+    ["bundle", scope, "--out", dir] => bundle_cmd(scope, Some(dir), false),
     ["import", "bundle", file] => import_bundle_cmd(file, false),
     ["import", "bundle", file, "--pending"] => import_bundle_cmd(file, true),
     ["backup"] => backup_now(),
@@ -297,6 +298,7 @@ fn serve() -> ExitCode {
 }
 
 fn namespace_add(path: &str, description: &str) -> ExitCode {
+  let path = &kumbarium_librarian::normalize_namespace(path);
   if let Err(e) = kumbarium_librarian::validate_namespace(path) {
     return fail(&format!("invalid namespace {path:?}: {e}"));
   }
@@ -1309,6 +1311,7 @@ fn highlight(
 /// target with an auto-note, so history records the move rather
 /// than anything mutating in place.
 fn move_cmd(id: &str, namespace: &str) -> ExitCode {
+  let namespace = &kumbarium_librarian::normalize_namespace(namespace);
   if let Err(e) = kumbarium_librarian::validate_namespace(namespace) {
     return fail(&format!("invalid namespace: {e}"));
   }
@@ -1325,7 +1328,7 @@ fn move_cmd(id: &str, namespace: &str) -> ExitCode {
     Ok(e) => e,
     Err(err) => return fail(&err.to_string()),
   };
-  if e.namespace == namespace {
+  if &e.namespace == namespace {
     return fail("entry is already in that namespace");
   }
   let note = format!("moved from {}", e.namespace);
@@ -1798,10 +1801,14 @@ fn judge_cmd(id: &str, approving: bool, reason: Option<String>) -> ExitCode {
   ExitCode::SUCCESS
 }
 
-/// Export one shelf as a hashed bundle file (D-028): stdout by
-/// default (pipeable), or --out to a named file.
-fn bundle_cmd(scope: &str, out: Option<&str>) -> ExitCode {
-  let (_, state) = match open_stores() {
+/// Export one shelf as a hashed bundle file (D-028). Same shape
+/// as `audit export`: lands in exports/ under a sortable
+/// ISO-stamped name and prints the path; `--out <dir>` picks the
+/// directory (the generated name is not negotiable, trailing
+/// slash irrelevant); `--stdout` streams with no persistence.
+fn bundle_cmd(scope: &str, out_dir: Option<&str>, to_stdout: bool) -> ExitCode {
+  let scope = &kumbarium_librarian::normalize_namespace(scope);
+  let (p, state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
@@ -1809,19 +1816,47 @@ fn bundle_cmd(scope: &str, out: Option<&str>) -> ExitCode {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
-  match out {
-    Some(path) => {
-      if let Err(e) = kumbarium_util::write_atomically(
-        std::path::Path::new(path),
-        text.as_bytes(),
-      ) {
-        return fail(&format!("writing {path}: {e}"));
-      }
-      eprintln!("bundled {count} entries from {scope} into {path}");
-    }
-    None => print!("{text}"),
+  if to_stdout {
+    print!("{text}");
+    return ExitCode::SUCCESS;
   }
-  ExitCode::SUCCESS
+  let dir = match out_dir {
+    Some(raw) => expand_home(raw),
+    None => p.exports_dir.clone(),
+  };
+  if let Err(e) = std::fs::create_dir_all(&dir) {
+    return fail(&format!("creating {}: {e}", dir.display()));
+  }
+  let stamp = kumbarium_util::now_iso8601()
+    .get(..19)
+    .unwrap_or_default()
+    .replace(':', "-");
+  let name = format!("bundle-{}-{stamp}Z.json", scope.replace('/', "-"));
+  let target = dir.join(name);
+  match kumbarium_util::write_atomically(&target, text.as_bytes()) {
+    Ok(()) => {
+      eprintln!("bundled {count} entries from {scope}");
+      println!("{}", shell_quote(&target.display().to_string()));
+      ExitCode::SUCCESS
+    }
+    Err(e) => fail(&format!("writing bundle: {e}")),
+  }
+}
+
+/// Expand a leading `~/` (or bare `~`) so a quoted --out path
+/// still lands where the human meant.
+fn expand_home(raw: &str) -> std::path::PathBuf {
+  if let Some(rest) = raw.strip_prefix("~/")
+    && let Ok(home) = std::env::var("HOME")
+  {
+    return std::path::PathBuf::from(home).join(rest);
+  }
+  if raw == "~"
+    && let Ok(home) = std::env::var("HOME")
+  {
+    return std::path::PathBuf::from(home);
+  }
+  std::path::PathBuf::from(raw)
 }
 
 /// Union-merge a bundle file (D-028); --pending routes every
@@ -1897,8 +1932,10 @@ Usage:
   kumbarium namespace list            list namespaces
   kumbarium import claude [--apply]   import Claude Code
       [--dir <path>]... [--map name=namespace]...  memories
-  kumbarium bundle <ns> [--out FILE]  export a shelf as one
-                                      hashed JSON bundle
+  kumbarium bundle <ns>               export a shelf as one
+             [--out DIR] [--stdout]   hashed JSON bundle into
+                                      exports/ (or DIR); print
+                                      with --stdout instead
   kumbarium import bundle <FILE>      union-merge a bundle
                           [--pending] (forks go to the desk;
                                       --pending queues all)
