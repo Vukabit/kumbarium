@@ -467,7 +467,7 @@ def audit_rows(home):
 
 
 def entry_ns(home):
-  conn = db(os.path.join(home, "library.db"))
+  conn = db(os.path.join(home, "library", "memory.db"))
   out = {
     r["id"]: (r["path"], r["agent_id"], r["status"])
     for r in conn.execute(
@@ -480,7 +480,7 @@ def entry_ns(home):
 
 
 def live_like(home, token):
-  conn = db(os.path.join(home, "library.db"))
+  conn = db(os.path.join(home, "library", "memory.db"))
   rows = [
     dict(r)
     for r in conn.execute(

@@ -202,7 +202,7 @@ pub(crate) fn status_cmd() -> ExitCode {
   }
   println!("{}", sty.bold("maintenance"));
   for (name, dir) in [
-    ("library", p.backups_dir.join("library")),
+    ("memory", p.backups_dir.join("memory")),
     ("audit", p.backups_dir.join("audit")),
   ] {
     let line = match kumbarium_store::latest_backup_ms(&dir) {
@@ -214,8 +214,7 @@ pub(crate) fn status_cmd() -> ExitCode {
     };
     println!("  {name:<10} {line}");
   }
-  for (name, path) in [("library.db", &p.library_db), ("audit.db", &p.audit_db)]
-  {
+  for (name, path) in [("memory.db", &p.memory_db), ("audit.db", &p.audit_db)] {
     if let Ok(meta) = std::fs::metadata(path) {
       println!("  {name:<10} {} KB", meta.len() / 1024);
     }

@@ -14,9 +14,12 @@ pub enum PathsError {
   NoHome,
 }
 
-/// The resolved location map.
+/// The resolved location map. The data dir is the building:
+/// library/ holds one database per section shelf (D-033), the
+/// witness stays at the root watching all of them.
 pub struct Paths {
-  pub library_db: PathBuf,
+  pub memory_db: PathBuf,
+  pub docket_db: PathBuf,
   pub audit_db: PathBuf,
   pub lock_file: PathBuf,
   pub backups_dir: PathBuf,
@@ -34,7 +37,8 @@ pub fn resolve() -> Result<Paths, PathsError> {
   if let Some(home) = std::env::var_os("KUMBARIUM_HOME") {
     let home = std::path::PathBuf::from(home);
     return Ok(Paths {
-      library_db: home.join("library.db"),
+      memory_db: home.join("library").join("memory.db"),
+      docket_db: home.join("library").join("docket.db"),
       audit_db: home.join("audit.db"),
       lock_file: home.join("kumbarium.lock"),
       backups_dir: home.join("backups"),
@@ -50,7 +54,8 @@ pub fn resolve() -> Result<Paths, PathsError> {
   // are the same directory.
   let config = dirs.config_dir();
   Ok(Paths {
-    library_db: data.join("library.db"),
+    memory_db: data.join("library").join("memory.db"),
+    docket_db: data.join("library").join("docket.db"),
     audit_db: data.join("audit.db"),
     lock_file: data.join("kumbarium.lock"),
     backups_dir: data.join("backups"),
@@ -62,7 +67,8 @@ pub fn resolve() -> Result<Paths, PathsError> {
 
 impl fmt::Display for Paths {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    writeln!(f, "library:  {}", self.library_db.display())?;
+    writeln!(f, "memory:   {}", self.memory_db.display())?;
+    writeln!(f, "docket:   {}", self.docket_db.display())?;
     writeln!(f, "audit:    {}", self.audit_db.display())?;
     writeln!(f, "lock:     {}", self.lock_file.display())?;
     writeln!(f, "backups:  {}", self.backups_dir.display())?;
@@ -79,8 +85,9 @@ mod tests {
   #[test]
   fn everything_lives_under_the_two_roots() {
     let p = resolve().unwrap();
-    let data_root = p.library_db.parent().unwrap();
+    let data_root = p.memory_db.parent().unwrap().parent().unwrap();
     for path in [
+      &p.docket_db,
       &p.audit_db,
       &p.lock_file,
       &p.backups_dir,

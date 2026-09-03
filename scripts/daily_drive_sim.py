@@ -312,7 +312,9 @@ def main():
     for tool, xs in s.latencies.items():
       latencies.setdefault(tool, []).extend(xs)
 
-  lib_kb = os.path.getsize(os.path.join(home, "library.db")) // 1024
+  lib_kb = (
+    os.path.getsize(os.path.join(home, "library", "memory.db")) // 1024
+  )
   audit_kb = os.path.getsize(os.path.join(home, "audit.db")) // 1024
   elapsed = time.perf_counter() - wall
 
@@ -353,7 +355,7 @@ def main():
     "",
     "## Integrity and growth",
     "",
-    f"- library.db: {lib_kb} KB; audit.db: {audit_kb} KB",
+    f"- memory.db: {lib_kb} KB; audit.db: {audit_kb} KB",
     f"- backup: {backup_out.strip().splitlines()[0]}",
     "- status after run:",
     "",

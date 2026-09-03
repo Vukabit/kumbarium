@@ -173,11 +173,12 @@ pub(crate) type Stores = (paths::Paths, tools::ServerState);
 /// data directory on first run.
 pub(crate) fn open_stores() -> Result<Stores, String> {
   let p = paths::resolve().map_err(|e| e.to_string())?;
-  let data_dir = p.library_db.parent().ok_or("library path has no parent")?;
-  std::fs::create_dir_all(data_dir)
-    .map_err(|e| format!("creating data dir: {e}"))?;
-  let library = kumbarium_store::open(&p.library_db)
-    .map_err(|e| format!("opening library: {e}"))?;
+  let library_dir = p.memory_db.parent().ok_or("memory path has no parent")?;
+  std::fs::create_dir_all(library_dir)
+    .map_err(|e| format!("creating library dir: {e}"))?;
+  relocate_legacy(&p)?;
+  let library = kumbarium_store::open(&p.memory_db)
+    .map_err(|e| format!("opening memory shelf: {e}"))?;
   let audit = kumbarium_audit::open(&p.audit_db)
     .map_err(|e| format!("opening audit log: {e}"))?;
   // Config: missing file = defaults; malformed lines warn on
@@ -201,6 +202,40 @@ pub(crate) fn open_stores() -> Result<Stores, String> {
   Ok((p, state))
 }
 
+/// One-time relocation for pre-D-033 layouts: library.db moves
+/// to library/memory.db (WAL sidecars must be gone: rename only
+/// when no -wal file exists, i.e. no live connection checkpoint
+/// pending; a fresh open checkpoints and removes them, so the
+/// move happens on the first open AFTER the last old-binary
+/// process exits). The backups shelf renames with it.
+fn relocate_legacy(p: &paths::Paths) -> Result<(), String> {
+  let data_dir = p
+    .memory_db
+    .parent()
+    .and_then(|d| d.parent())
+    .ok_or("memory path has no data root")?;
+  let old_db = data_dir.join("library.db");
+  if old_db.exists() && !p.memory_db.exists() {
+    let wal = data_dir.join("library.db-wal");
+    if wal.exists() {
+      return Err(
+        "library.db has a live WAL sidecar; close other \
+         kumbarium processes and retry"
+          .into(),
+      );
+    }
+    std::fs::rename(&old_db, &p.memory_db)
+      .map_err(|e| format!("moving library.db to the shelf: {e}"))?;
+  }
+  let old_backups = p.backups_dir.join("library");
+  let new_backups = p.backups_dir.join("memory");
+  if old_backups.exists() && !new_backups.exists() {
+    std::fs::rename(&old_backups, &new_backups)
+      .map_err(|e| format!("moving backups shelf: {e}"))?;
+  }
+  Ok(())
+}
+
 /// Run backups for both databases if due (or forced). Guarded
 /// by the maintenance lock (D-015): if another process holds
 /// it, skip quietly; its holder is doing this work.
@@ -221,7 +256,7 @@ fn maintenance(
   let interval_ms = cfg.backup_interval_hours * 3_600_000;
   let jobs = [
     (
-      "library",
+      "memory",
       &state.library,
       kumbarium_store::Retention {
         recent: cfg.library_recent,
@@ -298,7 +333,7 @@ fn serve() -> ExitCode {
   eprintln!(
     "kumbarium {VERSION} serving MCP on stdio \
      (library: {})",
-    p.library_db.display()
+    p.memory_db.display()
   );
   let stdin = std::io::stdin();
   let mut stdout = std::io::stdout();
