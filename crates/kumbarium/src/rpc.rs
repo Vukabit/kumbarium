@@ -232,7 +232,7 @@ mod tests {
   }
 
   #[test]
-  fn tools_list_names_all_six_tools() {
+  fn tools_list_names_all_eight_tools() {
     let mut state = ServerState::in_memory();
     let out = drive(&mut state, &[request(1, "tools/list", json!({}))]);
     let names: Vec<&str> = out[0]["result"]["tools"]
@@ -249,6 +249,8 @@ mod tests {
         "recall",
         "confirm",
         "supersede",
+        "task_file",
+        "task_update",
         "forget"
       ]
     );
