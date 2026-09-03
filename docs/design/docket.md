@@ -71,9 +71,10 @@ them out of every fact surface forever would be a tax on both.
 
 Fields, reusing every convention the entries table proved:
 
-- id (UUIDv7), namespace_id, content (the matter, one
-  self-contained statement), agent_id + source (provenance),
-  created_at / updated_at.
+- id (UUIDv7), namespace (the validated PATH as text, checked
+  against the registry at the gate; see shelving), content (the
+  matter, one self-contained statement), agent_id + source
+  (provenance), created_at / updated_at.
 - `severity`: low | normal | high | urgent. Display order and
   color follow it everywhere.
 - `horizon`: now | next | later | someday. The roadmap axis.
