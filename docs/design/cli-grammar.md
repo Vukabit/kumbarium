@@ -22,8 +22,11 @@ ever renaming the daily drivers.
 timeline. Future sections inherit the pair for free (`kum
 secret add` / `kum secrets`). A verb that IS its own output
 takes no sub-word: `kum tasks list` and `kum inbox list` do not
-exist. Bare family nouns list (`kum namespace` = `kum namespace
-list`).
+exist. Bare family nouns answer usefully: with their list when
+one exists (`kum namespace` lists, `kum audit` tails), with
+their painted family map otherwise (`kum export`, `kum task`,
+`kum import`). An unknown command gets one line and a pointer,
+never the whole usage wall.
 
 ## Ids are building-wide names
 

@@ -91,6 +91,16 @@ pub fn run() -> ExitCode {
     ["task", "grade", id, rest @ ..] => task_grade_cmd(id, rest),
     ["task", "history", id] => task_history_cmd(id),
     ["task", ns, rest @ ..] => task_file_cmd(ns, rest),
+    ["task"] => {
+      let sty = style::Style::detect();
+      println!("{}", paint_cli_page(DOCKET_USAGE, &sty));
+      ExitCode::SUCCESS
+    }
+    ["import"] => {
+      let sty = style::Style::detect();
+      println!("{}", paint_cli_page(IMPORT_USAGE, &sty));
+      ExitCode::SUCCESS
+    }
     ["tasks", rest @ ..] => tasks_cmd(rest),
     ["roadmap"] => roadmap_cmd(None),
     ["roadmap", ns] => roadmap_cmd(Some(ns)),
@@ -166,14 +176,18 @@ pub fn run() -> ExitCode {
       )),
     },
     ["audit", "verify"] => audit_verify(),
+    ["audit"] => audit_tail(20, None),
     [] => {
       let sty = style::Style::detect();
       println!("{}", paint_cli_page(USAGE, &sty));
       ExitCode::SUCCESS
     }
     other => {
-      eprintln!("kumbarium: unknown command {other:?}");
-      eprintln!("{USAGE}");
+      // One line and a pointer, never the whole wall: a typo
+      // deserves a hint, not a punishment.
+      let word = other.first().copied().unwrap_or("");
+      eprintln!("kumbarium: unknown command {word:?}");
+      eprintln!("the map: kumbarium help");
       ExitCode::FAILURE
     }
   }

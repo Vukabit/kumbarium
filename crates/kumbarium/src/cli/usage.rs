@@ -107,6 +107,32 @@ pub(crate) fn paint_invocation(inv: &str, sty: &style::Style) -> String {
   out
 }
 
+pub(crate) const DOCKET_USAGE: &str = "\
+the docket: matters before the house
+
+  kumbarium task <ns> <matter...>     file a matter
+       [--severity S] [--goal DATE]
+  kumbarium tasks [ns] [--all]        the timeline
+  kumbarium roadmap [ns]              pivoted by goal horizon
+  kumbarium task done <id> [note]     record complete
+  kumbarium task drop <id> [note]     overtaken by events
+  kumbarium task grade <id>           re-judge severity or goal
+       [--severity S] [--goal DATE]
+  kumbarium task history <id>         the chain: every regrade
+                                      and goal slip
+
+more: kumbarium help docket";
+
+pub(crate) const IMPORT_USAGE: &str = "\
+imports enter through the desk's policy:
+
+  kumbarium import bundle <FILE>      union-merge a bundle
+                          [--pending] (forks go to the desk)
+  kumbarium import claude [--apply]   import Claude Code
+      [--dir <path>]... [--map name=namespace]...  memories
+
+more: kumbarium help export";
+
 pub(crate) const USAGE: &str = "\
 kumbarium: the place of remembering
 kum is the short alias; every command below answers to both.
