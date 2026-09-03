@@ -303,3 +303,39 @@ order keeps survival statistics honest: exposure is driven by
 what agents ask, never by what the janitor previously
 concluded. The librarian hands over the book and states its
 condition; it does not hide the shabby ones.
+
+## D-027: quarantine is a status, not a place (2026-09-03)
+
+The approvals primitive (docs/design/approvals-and-bundles.md)
+adds an entry `status`: live, pending, rejected. A pending
+entry keeps its TARGET namespace from day one; location is
+where a fact belongs, status is whether it circulates. No
+quarantine namespaces (the early `agent/<id>/quarantine`
+sketch is superseded): recall, list, grep, and chain search
+simply never surface a non-live entry, which keeps the
+firewall claim absolute instead of routing-dependent.
+Approve and reject are human-only and witnessed; approval
+never edits content (D-020 makes "you approved this at T"
+undeniable); a rejected entry is retained evidence of a
+judgment, never deleted. Write policy is per-agent config
+(default live at the personal tier, pending-by-default for
+teams and OSS); at the stdio tier this is a correctness
+mechanism whose enforcement hardens with authn at the daemon
+rung. The review surface must show content, provenance, and
+the collision surface (live near-matches in the target scope),
+never the writer's self-description.
+
+## D-028: bundles union-merge; forks land in the queue (2026-09-03)
+
+`kum bundle <scope>` exports one deterministic, hashed JSON
+file (entries with full provenance + edges, stable order);
+`kum import bundle` union-merges it. Ids already present are
+skipped (re-import is idempotent; same-id content divergence
+is a hard error, it can only mean tampering). Imports respect
+the approvals policy. The one hard case, forked supersession
+(both libraries superseded the same entry differently), never
+auto-resolves: the incoming rival head imports as pending with
+a `contradicts` edge to the live local head, and a human
+settles it from the inbox. Two live heads for one fact is the
+contradiction disease; the merge never chooses a winner, it
+routes the choice to the desk where judgment is witnessed.
