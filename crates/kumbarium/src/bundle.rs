@@ -194,8 +194,7 @@ pub fn import(
         // branch's head goes to the desk; the local head stays
         // live; a contradicts edge names the dispute (D-028).
         let rival_head = chain_head(&by_id, theirs);
-        let local_head =
-          local_chain_head(&state.library, local)?;
+        let local_head = local_chain_head(&state.library, local)?;
         kumbarium_store::quarantine(&state.library, &rival_head)
           .map_err(|e| e.to_string())?;
         kumbarium_store::link(

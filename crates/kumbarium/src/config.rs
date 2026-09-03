@@ -1,7 +1,8 @@
 //! The one config file for every tunable. Hand-rolled parser
 //! for the TOML SUBSET the config actually uses: `# comments`,
 //! `[sections]`, `key = <integer>` lines, and `key = "string"`
-//! lines (bare words accepted too; approvals policy needs them). Anything else in
+//! lines (bare words accepted too; approvals policy needs
+//! them). Anything else in
 //! the file earns a warning and the default value; a missing
 //! file is simply all defaults. Policy lives here and in the
 //! callers; mechanics (splitting, backups) stay in the crates
