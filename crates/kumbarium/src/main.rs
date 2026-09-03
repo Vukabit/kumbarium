@@ -1,6 +1,7 @@
 //! Kumbarium: the librarian process. `serve` speaks MCP over
 //! stdio (D-014); the rest is the human-facing CLI.
 
+mod import;
 mod paths;
 mod rpc;
 mod tools;
@@ -29,6 +30,7 @@ fn main() -> ExitCode {
       namespace_add(path, &rest.join(" "))
     }
     ["namespace", "list"] => namespace_list(),
+    ["import", "claude", rest @ ..] => import_claude(rest),
     [] => {
       println!("{USAGE}");
       ExitCode::SUCCESS
@@ -113,6 +115,52 @@ fn namespace_list() -> ExitCode {
   }
 }
 
+fn import_claude(rest: &[&str]) -> ExitCode {
+  let mut opts = import::Options {
+    dirs: Vec::new(),
+    apply: false,
+    map: Vec::new(),
+  };
+  let mut it = rest.iter();
+  while let Some(arg) = it.next() {
+    match *arg {
+      "--apply" => opts.apply = true,
+      "--dir" => match it.next() {
+        Some(d) => opts.dirs.push(d.into()),
+        None => return fail("--dir needs a path"),
+      },
+      "--map" => match it.next().and_then(|m| m.split_once('=')) {
+        Some((name, ns)) => {
+          opts.map.push((name.to_string(), ns.to_string()));
+        }
+        None => return fail("--map needs name=namespace"),
+      },
+      other => {
+        return fail(&format!("unknown import flag {other:?}"));
+      }
+    }
+  }
+  if opts.dirs.is_empty() {
+    opts.dirs = import::default_dirs();
+  }
+  if opts.dirs.is_empty() {
+    return fail("no Claude memory dirs found; pass --dir <path>");
+  }
+  let (_, mut state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  match import::run(&mut state, &opts) {
+    Ok(report) => {
+      for line in report {
+        println!("{line}");
+      }
+      ExitCode::SUCCESS
+    }
+    Err(e) => fail(&e),
+  }
+}
+
 fn fail(message: &str) -> ExitCode {
   eprintln!("kumbarium: {message}");
   ExitCode::FAILURE
@@ -125,5 +173,7 @@ Usage:
   kumbarium serve                     speak MCP over stdio
   kumbarium namespace add <path> [d]  register a namespace
   kumbarium namespace list            list namespaces
+  kumbarium import claude [--apply]   import Claude Code
+      [--dir <path>]... [--map name=namespace]...  memories
   kumbarium paths                     where persisted data lives
   kumbarium version                   print the version";

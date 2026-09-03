@@ -1,0 +1,201 @@
+//! Typed edges between entries (migration 0002). See that
+//! migration's header for the relation vocabulary and why
+//! supersession is NOT an edge.
+
+use rusqlite::{Connection, params};
+
+use crate::StoreError;
+
+/// Relation kinds. Mirrors the CHECK constraint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rel {
+  Continues,
+  RelatesTo,
+  Duplicates,
+  Contradicts,
+}
+
+impl Rel {
+  pub fn as_str(self) -> &'static str {
+    match self {
+      Rel::Continues => "continues",
+      Rel::RelatesTo => "relates_to",
+      Rel::Duplicates => "duplicates",
+      Rel::Contradicts => "contradicts",
+    }
+  }
+
+  pub fn parse(s: &str) -> Option<Rel> {
+    match s {
+      "continues" => Some(Rel::Continues),
+      "relates_to" => Some(Rel::RelatesTo),
+      "duplicates" => Some(Rel::Duplicates),
+      "contradicts" => Some(Rel::Contradicts),
+      _ => None,
+    }
+  }
+}
+
+/// One edge, as stored.
+#[derive(Debug, Clone)]
+pub struct Link {
+  pub from_id: String,
+  pub to_id: String,
+  pub rel: Rel,
+}
+
+/// Create an edge. Idempotent: linking twice is Ok. Both
+/// endpoints must exist; self-links are refused.
+pub fn link(
+  conn: &Connection,
+  from_id: &str,
+  to_id: &str,
+  rel: Rel,
+) -> Result<(), StoreError> {
+  if from_id == to_id {
+    return Err(StoreError::SelfLink(from_id.to_string()));
+  }
+  for id in [from_id, to_id] {
+    let exists: bool = conn.query_row(
+      "SELECT EXISTS(SELECT 1 FROM entries WHERE id = ?1)",
+      [id],
+      |row| row.get(0),
+    )?;
+    if !exists {
+      return Err(StoreError::EntryNotFound(id.to_string()));
+    }
+  }
+  conn.execute(
+    "INSERT OR IGNORE INTO entry_links
+       (from_id, to_id, rel, created_at)
+     VALUES (?1, ?2, ?3, ?4)",
+    params![from_id, to_id, rel.as_str(), kumbarium_util::now_iso8601()],
+  )?;
+  Ok(())
+}
+
+/// Remove an edge; Ok even if it was not there.
+pub fn unlink(
+  conn: &Connection,
+  from_id: &str,
+  to_id: &str,
+  rel: Rel,
+) -> Result<(), StoreError> {
+  conn.execute(
+    "DELETE FROM entry_links
+     WHERE from_id = ?1 AND to_id = ?2 AND rel = ?3",
+    params![from_id, to_id, rel.as_str()],
+  )?;
+  Ok(())
+}
+
+/// Every edge touching `id`, in either direction.
+pub fn links_of(conn: &Connection, id: &str) -> Result<Vec<Link>, StoreError> {
+  let mut stmt = conn.prepare(
+    "SELECT from_id, to_id, rel FROM entry_links
+     WHERE from_id = ?1 OR to_id = ?1
+     ORDER BY rel, from_id, to_id",
+  )?;
+  let rows = stmt
+    .query_map([id], |row| {
+      Ok((
+        row.get::<_, String>(0)?,
+        row.get::<_, String>(1)?,
+        row.get::<_, String>(2)?,
+      ))
+    })?
+    .collect::<Result<Vec<_>, _>>()?;
+  let mut links = Vec::new();
+  for (from_id, to_id, raw) in rows {
+    let rel = Rel::parse(&raw).ok_or_else(|| {
+      StoreError::Sqlite(rusqlite::Error::IntegralValueOutOfRange(2, 0))
+    })?;
+    links.push(Link {
+      from_id,
+      to_id,
+      rel,
+    });
+  }
+  Ok(links)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::{Kind, NewEntry, remember};
+
+  fn seeded() -> (Connection, String, String) {
+    let mut conn = crate::open_in_memory().unwrap();
+    let mk = |conn: &mut Connection, content: &str| {
+      remember(
+        conn,
+        &NewEntry {
+          namespace: "global".into(),
+          kind: Kind::Reference,
+          content: content.into(),
+          agent_id: "test".into(),
+          source: "".into(),
+          tags: vec![],
+        },
+      )
+      .unwrap()
+      .id
+    };
+    let a = mk(&mut conn, "part one of the design");
+    let b = mk(&mut conn, "part two of the design");
+    (conn, a, b)
+  }
+
+  #[test]
+  fn link_round_trips_both_directions() {
+    let (conn, a, b) = seeded();
+    link(&conn, &a, &b, Rel::Continues).unwrap();
+    let from_a = links_of(&conn, &a).unwrap();
+    let from_b = links_of(&conn, &b).unwrap();
+    assert_eq!(from_a.len(), 1);
+    assert_eq!(from_b.len(), 1);
+    assert_eq!(from_a[0].rel, Rel::Continues);
+    assert_eq!(from_a[0].to_id, b);
+    assert_eq!(from_b[0].from_id, a);
+  }
+
+  #[test]
+  fn linking_twice_is_idempotent() {
+    let (conn, a, b) = seeded();
+    link(&conn, &a, &b, Rel::RelatesTo).unwrap();
+    link(&conn, &a, &b, Rel::RelatesTo).unwrap();
+    assert_eq!(links_of(&conn, &a).unwrap().len(), 1);
+  }
+
+  #[test]
+  fn self_and_dangling_links_are_refused() {
+    let (conn, a, _) = seeded();
+    assert!(matches!(
+      link(&conn, &a, &a, Rel::RelatesTo),
+      Err(StoreError::SelfLink(_))
+    ));
+    assert!(matches!(
+      link(&conn, &a, "missing-id", Rel::RelatesTo),
+      Err(StoreError::EntryNotFound(_))
+    ));
+  }
+
+  #[test]
+  fn unlink_removes_only_the_named_edge() {
+    let (conn, a, b) = seeded();
+    link(&conn, &a, &b, Rel::Continues).unwrap();
+    link(&conn, &a, &b, Rel::RelatesTo).unwrap();
+    unlink(&conn, &a, &b, Rel::Continues).unwrap();
+    let left = links_of(&conn, &a).unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].rel, Rel::RelatesTo);
+  }
+
+  #[test]
+  fn forget_cleans_up_edges() {
+    let (mut conn, a, b) = seeded();
+    link(&conn, &a, &b, Rel::Continues).unwrap();
+    crate::forget(&mut conn, &b).unwrap();
+    assert!(links_of(&conn, &a).unwrap().is_empty());
+  }
+}

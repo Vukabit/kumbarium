@@ -121,3 +121,18 @@ not of a single PID. kumbarium.lock therefore guards
 MAINTENANCE operations only (backups, migrations beyond open,
 future janitor), never request serving. A single-daemon + HTTP
 shape stays open for later.
+
+## D-016: typed edges, not a linked list (2026-09-02)
+
+Relations between entries are one `entry_links` table
+(from, to, rel: continues / relates_to / duplicates /
+contradicts) rather than per-purpose pointer columns. A split
+memory's parts chain with 'continues' edges (the linked list is
+one row-type of the mechanism); imported [[wiki-links]] land as
+'relates_to'; the janitor's future findings have a home.
+`superseded_by` stays a COLUMN: load-bearing for recall
+filtering and enforced-linear. Recall renders a hit's edges as
+ids only; agents fetch siblings on demand (token budgeting, no
+auto-chain inflation). Shipped as migrations 0002 in BOTH dbs,
+the first real append-only migrations (audit's rebuilds the
+events table to widen the kind CHECK with 'link'/'import').

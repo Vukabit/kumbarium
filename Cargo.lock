@@ -254,6 +254,7 @@ dependencies = [
  "kumbarium-store",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "toml",
 ]

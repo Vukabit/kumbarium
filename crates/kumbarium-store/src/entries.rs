@@ -110,6 +110,23 @@ pub fn namespaces(
   Ok(rows)
 }
 
+/// Ids of live (non-superseded) entries whose source matches
+/// exactly. Importers use this for idempotency.
+pub fn find_by_source(
+  conn: &Connection,
+  source: &str,
+) -> Result<Vec<String>, StoreError> {
+  let mut stmt = conn.prepare(
+    "SELECT id FROM entries
+     WHERE source = ?1 AND superseded_by IS NULL
+     ORDER BY id",
+  )?;
+  let ids = stmt
+    .query_map([source], |row| row.get(0))?
+    .collect::<Result<Vec<String>, _>>()?;
+  Ok(ids)
+}
+
 /// The namespace's rowid, or None when unregistered.
 pub fn namespace_id(
   conn: &Connection,
@@ -255,6 +272,10 @@ pub fn forget(conn: &mut Connection, id: &str) -> Result<(), StoreError> {
   let tx = conn.transaction()?;
   tx.execute(
     "UPDATE entries SET superseded_by = NULL WHERE superseded_by = ?1",
+    [id],
+  )?;
+  tx.execute(
+    "DELETE FROM entry_links WHERE from_id = ?1 OR to_id = ?1",
     [id],
   )?;
   tx.execute("DELETE FROM entry_tags WHERE entry_id = ?1", [id])?;

@@ -1,4 +1,4 @@
-//! The four MCP tools wired to store + librarian + audit. Every
+//! The five MCP tools wired to store + librarian + audit. Every
 //! call is audited after the operation; an audit failure fails
 //! the call (audit completeness over availability, D-007's
 //! trade, even in the synchronous writer).
@@ -66,9 +66,51 @@ pub fn list() -> Value {
             "type": "string",
             "description": "Where this came from (session, \
   file, conversation)."
+          },
+          "links": {
+            "type": "array",
+            "description": "Edges from this new entry to \
+  existing entries (e.g. rel 'continues' for part N of a split \
+  memory, 'relates_to' for association).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "rel": {
+                  "type": "string",
+                  "enum": [
+                    "continues", "relates_to", "duplicates",
+                    "contradicts"
+                  ]
+                }
+              },
+              "required": ["id", "rel"]
+            }
           }
         },
         "required": ["namespace", "kind", "content"]
+      }
+    },
+    {
+      "name": "link",
+      "description": "Create a typed edge between two existing \
+  memories: 'continues' (sequence parts), 'relates_to' \
+  (association), 'duplicates' or 'contradicts' (flag for human \
+  review). Idempotent.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "from_id": { "type": "string" },
+          "to_id": { "type": "string" },
+          "rel": {
+            "type": "string",
+            "enum": [
+              "continues", "relates_to", "duplicates",
+              "contradicts"
+            ]
+          }
+        },
+        "required": ["from_id", "to_id", "rel"]
       }
     },
     {
@@ -143,6 +185,7 @@ pub fn call(
     "recall" => recall(state, args),
     "supersede" => supersede(state, args),
     "forget" => forget(state, args),
+    "link" => link(state, args),
     other => Err(format!("unknown tool {other:?}")),
   };
   match result {
@@ -159,18 +202,82 @@ fn remember(
   new.agent_id = state.agent_id.clone();
   let entry = kumbarium_store::remember(&mut state.library, &new)
     .map_err(describe_store_error)?;
+  let mut linked = 0usize;
+  if let Some(links) = args.get("links").and_then(Value::as_array) {
+    for spec in links {
+      let (to_id, rel) = link_spec(spec, "id")?;
+      kumbarium_store::link(&state.library, &entry.id, to_id, rel).map_err(
+        |e| {
+          format!(
+            "entry {} stored, but linking to {to_id} failed: {}",
+            entry.id,
+            describe_store_error(e)
+          )
+        },
+      )?;
+      linked += 1;
+    }
+  }
   audit(
     state,
     kumbarium_audit::EventKind::Remember,
     &new.namespace,
-    json!({ "id": entry.id, "kind": new.kind.as_str() }),
+    json!({
+      "id": entry.id,
+      "kind": new.kind.as_str(),
+      "links": linked,
+    }),
   )?;
   Ok(vec![format!(
-    "Remembered. id={} namespace={} kind={}",
+    "Remembered. id={} namespace={} kind={}{}",
     entry.id,
     entry.namespace,
-    entry.kind.as_str()
+    entry.kind.as_str(),
+    if linked > 0 {
+      format!(" links={linked}")
+    } else {
+      String::new()
+    }
   )])
+}
+
+fn link(state: &mut ServerState, args: &Value) -> Result<Vec<String>, String> {
+  let from_id = required_str(args, "from_id")?;
+  let (to_id, rel) = link_spec(args, "to_id")?;
+  kumbarium_store::link(&state.library, from_id, to_id, rel)
+    .map_err(describe_store_error)?;
+  let scope = kumbarium_store::get(&state.library, from_id)
+    .map(|e| e.namespace)
+    .unwrap_or_default();
+  audit(
+    state,
+    kumbarium_audit::EventKind::Link,
+    &scope,
+    json!({
+      "from_id": from_id,
+      "to_id": to_id,
+      "rel": rel.as_str(),
+    }),
+  )?;
+  Ok(vec![format!("Linked {from_id} {} {to_id}.", rel.as_str())])
+}
+
+/// Pull (target id, rel) out of a link object; `id_key` names
+/// the field holding the target ("id" on remember, "to_id" on
+/// the link tool).
+fn link_spec<'a>(
+  spec: &'a Value,
+  id_key: &str,
+) -> Result<(&'a str, kumbarium_store::Rel), String> {
+  let to_id = required_str(spec, id_key)?;
+  let rel_raw = required_str(spec, "rel")?;
+  let rel = kumbarium_store::Rel::parse(rel_raw).ok_or_else(|| {
+    format!(
+      "unknown rel {rel_raw:?}; one of continues, relates_to, \
+         duplicates, contradicts"
+    )
+  })?;
+  Ok((to_id, rel))
 }
 
 fn recall(
@@ -202,7 +309,7 @@ fn recall(
   }
   let mut blocks = vec![format!("{} memor(y/ies) found:", hits.len())];
   for (i, hit) in hits.iter().enumerate() {
-    blocks.push(render_hit(i + 1, hit));
+    blocks.push(render_hit(&state.library, i + 1, hit));
   }
   Ok(blocks)
 }
@@ -246,8 +353,29 @@ fn forget(
   Ok(vec![format!("Forgot {id} (permanently deleted).")])
 }
 
-fn render_hit(rank: usize, hit: &kumbarium_store::Hit) -> String {
+fn render_hit(
+  conn: &kumbarium_store::Connection,
+  rank: usize,
+  hit: &kumbarium_store::Hit,
+) -> String {
   let e = &hit.entry;
+  let edges = kumbarium_store::links_of(conn, &e.id).unwrap_or_default();
+  let links = edges
+    .iter()
+    .map(|l| {
+      if l.from_id == e.id {
+        format!("{} -> {}", l.rel.as_str(), l.to_id)
+      } else {
+        format!("{} <- {}", l.rel.as_str(), l.from_id)
+      }
+    })
+    .collect::<Vec<_>>()
+    .join("; ");
+  let links = if links.is_empty() {
+    String::new()
+  } else {
+    format!("\nlinks: {links}")
+  };
   // Provisional bm25 -> 0..=1 mapping until the librarian owns
   // full ranking: monotonic in match strength, never out of
   // range thanks to the clamp.
@@ -265,7 +393,7 @@ fn render_hit(rank: usize, hit: &kumbarium_store::Hit) -> String {
   };
   format!(
     "[{rank}] id={} namespace={} kind={}\n\
-     relevance={:.2} confidence={:.2} ({})\n{}{}",
+     relevance={:.2} confidence={:.2} ({})\n{}{}{}",
     e.id,
     e.namespace,
     e.kind.as_str(),
@@ -273,7 +401,8 @@ fn render_hit(rank: usize, hit: &kumbarium_store::Hit) -> String {
     scores.confidence,
     scores.confidence_basis,
     e.content,
-    tags
+    tags,
+    links
   )
 }
 

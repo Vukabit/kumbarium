@@ -16,6 +16,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-# The golden-eval runner (tests/golden_evals.rs).
+# The golden-eval runner (tests/golden_evals.rs) + importer
+# fixture dirs.
 serde.workspace = true
+tempfile.workspace = true
 toml.workspace = true

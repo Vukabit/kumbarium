@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod entries;
+mod links;
 
 use std::path::Path;
 
@@ -14,15 +15,22 @@ use std::path::Path;
 pub use rusqlite::Connection;
 
 pub use entries::{
-  Entry, Hit, Kind, NewEntry, confirm, forget, get, namespace_id, namespaces,
-  recall, register_namespace, remember, supersede,
+  Entry, Hit, Kind, NewEntry, confirm, find_by_source, forget, get,
+  namespace_id, namespaces, recall, register_namespace, remember, supersede,
 };
+pub use links::{Link, Rel, link, links_of, unlink};
 
 /// Numbered migrations, applied in order inside one transaction
 /// each. Append-only: a shipped migration is never edited; schema
 /// changes are a new numbered file.
-const MIGRATIONS: &[(i64, &str, &str)] =
-  &[(1, "0001_init", include_str!("../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+  (1, "0001_init", include_str!("../migrations/0001_init.sql")),
+  (
+    2,
+    "0002_entry_links",
+    include_str!("../migrations/0002_entry_links.sql"),
+  ),
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -40,6 +48,8 @@ pub enum StoreError {
   AlreadySuperseded(String),
   #[error("entry content is empty")]
   EmptyContent,
+  #[error("cannot link entry {0:?} to itself")]
+  SelfLink(String),
 }
 
 /// Open (creating if absent) the Library at `path`, applying WAL
@@ -114,7 +124,7 @@ mod tests {
   #[test]
   fn fresh_store_reaches_latest_schema() {
     let conn = open_in_memory().unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 1);
+    assert_eq!(schema_version(&conn).unwrap(), 2);
   }
 
   #[test]
@@ -122,7 +132,7 @@ mod tests {
     let conn = open_in_memory().unwrap();
     // A second pass sees itself at latest and applies nothing.
     migrate(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 1);
+    assert_eq!(schema_version(&conn).unwrap(), 2);
   }
 
   #[test]

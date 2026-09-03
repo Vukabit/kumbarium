@@ -232,7 +232,7 @@ mod tests {
   }
 
   #[test]
-  fn tools_list_names_all_four_tools() {
+  fn tools_list_names_all_five_tools() {
     let mut state = ServerState::in_memory();
     let out = drive(&mut state, &[request(1, "tools/list", json!({}))]);
     let names: Vec<&str> = out[0]["result"]["tools"]
@@ -241,7 +241,7 @@ mod tests {
       .iter()
       .map(|t| t["name"].as_str().unwrap())
       .collect();
-    assert_eq!(names, ["remember", "recall", "supersede", "forget"]);
+    assert_eq!(names, ["remember", "link", "recall", "supersede", "forget"]);
   }
 
   #[test]
@@ -370,6 +370,66 @@ mod tests {
       .to_string();
     let out = drive(&mut state, &[call(1, "forget", json!({ "id": new_id }))]);
     assert_eq!(out[0]["result"]["isError"], false);
+  }
+
+  #[test]
+  fn links_flow_through_remember_and_render_in_recall() {
+    let mut state = ServerState::in_memory();
+    let out = drive(
+      &mut state,
+      &[call(
+        1,
+        "remember",
+        json!({
+          "namespace": "global",
+          "kind": "reference",
+          "content": "part one of the split design memory",
+        }),
+      )],
+    );
+    let part_one = text_of(&out[0])
+      .split("id=")
+      .nth(1)
+      .unwrap()
+      .split_whitespace()
+      .next()
+      .unwrap()
+      .to_string();
+    let out = drive(
+      &mut state,
+      &[
+        call(
+          1,
+          "remember",
+          json!({
+            "namespace": "global",
+            "kind": "reference",
+            "content": "part two of the split design memory",
+            "links": [{ "id": part_one, "rel": "continues" }],
+          }),
+        ),
+        call(
+          2,
+          "recall",
+          json!({ "query": "split design", "scope": "global" }),
+        ),
+        call(
+          3,
+          "link",
+          json!({
+            "from_id": part_one,
+            "to_id": "not-a-real-id",
+            "rel": "relates_to",
+          }),
+        ),
+      ],
+    );
+    assert!(text_of(&out[0]).contains("links=1"));
+    let recall_text = text_of(&out[1]);
+    assert!(recall_text.contains("links: continues ->"));
+    assert!(recall_text.contains("links: continues <-"));
+    // Dangling link through the link tool is a tool error.
+    assert_eq!(out[2]["result"]["isError"], true);
   }
 
   #[test]

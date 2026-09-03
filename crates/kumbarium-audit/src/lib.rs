@@ -15,8 +15,14 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
-const MIGRATIONS: &[(i64, &str, &str)] =
-  &[(1, "0001_init", include_str!("../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+  (1, "0001_init", include_str!("../migrations/0001_init.sql")),
+  (
+    2,
+    "0002_event_kinds",
+    include_str!("../migrations/0002_event_kinds.sql"),
+  ),
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuditError {
@@ -36,6 +42,8 @@ pub enum EventKind {
   Supersede,
   Forget,
   EvalRun,
+  Link,
+  Import,
 }
 
 impl EventKind {
@@ -46,6 +54,8 @@ impl EventKind {
       EventKind::Supersede => "supersede",
       EventKind::Forget => "forget",
       EventKind::EvalRun => "eval_run",
+      EventKind::Link => "link",
+      EventKind::Import => "import",
     }
   }
 }
