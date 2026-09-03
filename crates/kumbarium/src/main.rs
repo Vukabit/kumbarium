@@ -53,7 +53,8 @@ pub fn run() -> ExitCode {
     ["namespace", "list"] => namespace_list(),
     ["import", "claude", rest @ ..] => import_claude(rest),
     ["export"] => {
-      println!("{EXPORTS}");
+      let sty = style::Style::detect();
+      println!("{}", paint_cli_page(EXPORTS, &sty));
       ExitCode::SUCCESS
     }
     ["export", "minutes", rest @ ..] => export_minutes_cmd(rest),
@@ -129,8 +130,10 @@ pub fn run() -> ExitCode {
       ExitCode::SUCCESS
     }
     ["help"] | ["--help"] | ["-h"] => {
-      println!("{USAGE}\n\ntopics: kumbarium help <topic>");
-      println!("  {}", help::TOPICS);
+      let sty = style::Style::detect();
+      println!("{}", paint_cli_page(USAGE, &sty));
+      println!("\n{}", sty.bold("topics: kumbarium help <topic>"));
+      println!("  {}", sty.dim(help::TOPICS));
       ExitCode::SUCCESS
     }
     ["help", topic] => match help::page(topic) {
@@ -146,7 +149,8 @@ pub fn run() -> ExitCode {
     },
     ["audit", "verify"] => audit_verify(),
     [] => {
-      println!("{USAGE}");
+      let sty = style::Style::detect();
+      println!("{}", paint_cli_page(USAGE, &sty));
       ExitCode::SUCCESS
     }
     other => {
@@ -876,6 +880,95 @@ fn export_stamp() -> String {
     .get(..19)
     .unwrap_or_default()
     .replace(':', "-")
+}
+
+/// Paint a usage-shaped page for a terminal: section headers
+/// bold, subcommands cyan, <placeholders> yellow, [flags] dim,
+/// prose dim, descriptions untouched. Zero-width when piped
+/// (Style no-ops), so alignment and byte-identity both hold.
+fn paint_cli_page(text: &str, sty: &style::Style) -> String {
+  text
+    .lines()
+    .map(|line| paint_cli_line(line, sty))
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+fn paint_cli_line(line: &str, sty: &style::Style) -> String {
+  if line.is_empty() {
+    return String::new();
+  }
+  if !line.starts_with(' ') {
+    if let Some(rest) = line.strip_prefix("kumbarium:") {
+      return format!("{}{}", sty.bold("kumbarium:"), sty.dim(rest));
+    }
+    return if line.ends_with(':') {
+      sty.bold(line)
+    } else {
+      sty.dim(line)
+    };
+  }
+  // Indented row: the invocation field ends at the first run of
+  // two spaces after it starts; everything beyond is prose and
+  // stays unpainted. Deeply indented lines that do not begin
+  // with a flag or placeholder are description continuations,
+  // prose through and through.
+  let indent_len = line.len() - line.trim_start().len();
+  let (indent, body) = line.split_at(indent_len);
+  if indent_len > 6 && !body.starts_with(['[', '<']) {
+    return line.to_string();
+  }
+  let gap = body
+    .as_bytes()
+    .windows(2)
+    .position(|w| w == b"  ")
+    .unwrap_or(body.len());
+  let (inv, desc) = body.split_at(gap);
+  format!("{indent}{}{desc}", paint_invocation(inv, sty))
+}
+
+fn paint_invocation(inv: &str, sty: &style::Style) -> String {
+  let mut out = String::new();
+  let mut rest = inv;
+  while !rest.is_empty() {
+    if let Some(r) = rest.strip_prefix(' ') {
+      out.push(' ');
+      rest = r;
+      continue;
+    }
+    if rest.starts_with('(') {
+      // Prose continuation; nothing command-like follows.
+      out.push_str(rest);
+      break;
+    }
+    if rest.starts_with('[') {
+      let mut end = rest.find(']').map(|i| i + 1).unwrap_or(rest.len());
+      while rest[end..].starts_with('.') {
+        end += 1;
+      }
+      out.push_str(&sty.dim(&rest[..end]));
+      rest = &rest[end..];
+      continue;
+    }
+    if rest.starts_with('<') {
+      let end = rest.find('>').map(|i| i + 1).unwrap_or(rest.len());
+      out.push_str(&sty.yellow(&rest[..end]));
+      rest = &rest[end..];
+      continue;
+    }
+    let end = rest.find(' ').unwrap_or(rest.len());
+    let word = &rest[..end];
+    let painted = if word == "kumbarium" || word.ends_with(':') {
+      sty.dim(word)
+    } else if word.chars().all(|c| c.is_ascii_uppercase()) {
+      sty.yellow(word)
+    } else {
+      sty.cyan(word)
+    };
+    out.push_str(&painted);
+    rest = &rest[end..];
+  }
+  out
 }
 
 /// Quote a path for copy-paste when a HUMAN is reading (the
@@ -2091,29 +2184,37 @@ const USAGE: &str = "\
 kumbarium: the place of remembering
 
 Usage:
+
+wire agents up:
   kumbarium serve                     speak MCP over stdio
-  kumbarium namespace add <path> [d]  register a namespace
-  kumbarium namespace list            list namespaces
-  kumbarium import claude [--apply]   import Claude Code
-      [--dir <path>]... [--map name=namespace]...  memories
-  kumbarium export                    list the loading dock
-  kumbarium export minutes [--raw]    audit minutes markdown
-  kumbarium export bundle <ns>        a shelf, hashed JSON
-      shared: [--out DIR] [--stdout] [--show] [--open]
-  kumbarium import bundle <FILE>      union-merge a bundle
-                          [--pending] (forks go to the desk;
-                                      --pending queues all)
+  kumbarium instructions [--snippet]  agent setup: MCP
+                                      registration + root-file
+                                      instruction block
+
+the collection:
   kumbarium list [ns] [--all]         browse entries
   kumbarium show <id> [--full]        one entry (--full stitches
                                       a split set in order)
+  kumbarium grep <pat> [ns] [--all]   literal search, rg-style
   kumbarium history <id> [--diff]     a fact's version chain
                      [--all]          (--all expands collapsed
                                       noted-small versions)
   kumbarium confirm <id>              record a fact proved true
+  kumbarium move <id> <namespace>     relocate (as supersession)
+
+lifecycle, human sign-off:
+  kumbarium retire <id>               hide from suggestions
+  kumbarium unretire <id>             restore to suggestions
+  kumbarium revert <id> [--apply]     restore an old version
+                                      (preview only until the
+                                      --apply sign-off; CLI
+                                      only, agents cannot)
   kumbarium janitor [--apply]         confidence pass over the
                                       ledger (preview until the
                                       --apply sign-off; CLI
                                       only, agents cannot)
+
+the circulation desk:
   kumbarium inbox                     pending entries awaiting
                                       approval (the desk queue)
   kumbarium review <id>               a pending entry in full:
@@ -2121,28 +2222,36 @@ Usage:
                                       the collision surface
   kumbarium approve <id>              promote to circulation
   kumbarium reject <id> [reason]      decline, kept on record
-  kumbarium retire <id>               hide from suggestions
-  kumbarium unretire <id>             restore to suggestions
-  kumbarium revert <id> [--apply]     restore an old version
-                                      (preview only until the
-                                      --apply sign-off; CLI
-                                      only, agents cannot)
-  kumbarium status                    library health at a glance
-  kumbarium grep <pat> [ns] [--all]   literal search, rg-style
-  kumbarium move <id> <namespace>     relocate (as supersession)
+
+the loading dock:
+  kumbarium export                    list the loading dock
+  kumbarium export minutes [--raw]    audit minutes markdown
+  kumbarium export bundle <ns>        a shelf, hashed JSON
+      shared: [--out DIR] [--stdout] [--show] [--open]
+  kumbarium import bundle <FILE>      union-merge a bundle
+                          [--pending] (forks go to the desk;
+                                      --pending queues all)
+  kumbarium import claude [--apply]   import Claude Code
+      [--dir <path>]... [--map name=namespace]...  memories
+
+the witness:
   kumbarium audit tail [n]            recent audit events
              [--scope <ns>]           (optionally one scope)
   kumbarium audit verify              recompute the ledger's
                                       hash chain; tampering
                                       names its first break
+
+upkeep:
+  kumbarium namespace add <path> [d]  register a namespace
+  kumbarium namespace list            list namespaces
+  kumbarium status                    library health at a glance
   kumbarium backup                    snapshot both dbs now
   kumbarium config [--init|--open]    effective tunables
                                       (--init writes template,
                                       --open edits it)
   kumbarium paths                     where persisted data lives
+
+meta:
   kumbarium version                   print the version
   kumbarium help [topic]              manual pages with grammar
-                                      and examples
-  kumbarium instructions [--snippet]  agent setup: MCP
-                                      registration + root-file
-                                      instruction block";
+                                      and examples";
