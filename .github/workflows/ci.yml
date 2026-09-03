@@ -23,7 +23,7 @@ jobs:
     # OS-independent -- run once. Nightly rustfmt.
     runs-on: [self-hosted, Linux, X64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Ensure rustup on PATH (Linux autoscaler runners)
         shell: bash
         run: |
@@ -45,7 +45,7 @@ jobs:
     # The Python gates + licenses: OS-independent, run once.
     runs-on: [self-hosted, Linux, X64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: python3 scripts/width_gate.py
       - run: python3 scripts/no_scaffolding.py
       - run: python3 scripts/cargo_hygiene.py
@@ -63,7 +63,7 @@ jobs:
           - { os: Linux, arch: X64 }
     runs-on: [self-hosted, "${{ matrix.os }}", "${{ matrix.arch }}"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Ensure rustup on PATH (Linux autoscaler runners)
         if: runner.os == 'Linux'
         shell: bash
