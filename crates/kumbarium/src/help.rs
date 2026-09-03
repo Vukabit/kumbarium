@@ -279,9 +279,11 @@ across all agents and sessions.
   whole; oversized memories are split and linked for you.
 - When a recalled fact proves CORRECT in use, `confirm` it
   (evidence for the staleness and confidence signals).
-- When a recalled fact proves stale or wrong, `supersede` it
-  (add a short `note` like 'typo fix' for trivial changes);
-  `forget` only wrong-or-sensitive content.
+- When a fact proves stale or wrong (a user correction counts),
+  update it with `supersede`, never with a fresh `remember`:
+  first `recall` the stale entry, then supersede the id it
+  returned (add a short `note` like 'typo fix' for trivial
+  changes). `forget` only wrong-or-sensitive content.
 - Namespaces are registered by the user (`kumbarium namespace
   add`); never assume one exists, ask instead.
 ";
