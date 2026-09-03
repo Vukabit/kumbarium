@@ -19,14 +19,8 @@ pub use entries::{
 /// Numbered migrations, applied in order inside one transaction
 /// each. Append-only: a shipped migration is never edited; schema
 /// changes are a new numbered file.
-const MIGRATIONS: &[(i64, &str, &str)] = &[
-  (1, "0001_init", include_str!("../migrations/0001_init.sql")),
-  (
-    2,
-    "0002_fts_porter",
-    include_str!("../migrations/0002_fts_porter.sql"),
-  ),
-];
+const MIGRATIONS: &[(i64, &str, &str)] =
+  &[(1, "0001_init", include_str!("../migrations/0001_init.sql"))];
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -118,7 +112,7 @@ mod tests {
   #[test]
   fn fresh_store_reaches_latest_schema() {
     let conn = open_in_memory().unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 2);
+    assert_eq!(schema_version(&conn).unwrap(), 1);
   }
 
   #[test]
@@ -126,7 +120,7 @@ mod tests {
     let conn = open_in_memory().unwrap();
     // A second pass sees itself at latest and applies nothing.
     migrate(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 2);
+    assert_eq!(schema_version(&conn).unwrap(), 1);
   }
 
   #[test]

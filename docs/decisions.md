@@ -68,14 +68,14 @@ until then, no async in the tree.
 
 ## D-011: porter stemming + OR recall (2026-09-02)
 
-Migration 0002 rebuilds the FTS index with the porter tokenizer
-(queries phrase things differently than stored content). Recall
-sanitizes every token into a quoted phrase (agent input can never
-raise an FTS syntax error) and joins with OR: bm25 still ranks
-multi-term matches first, but one missing word cannot blank a
-result. Known limit, by design: zero-term-overlap semantic
-queries miss entirely; the eval set keeps such cases as the
-measure of whether embeddings later earn their place.
+The FTS index uses the porter tokenizer (queries phrase things
+differently than stored content). Recall sanitizes every token
+into a quoted phrase (agent input can never raise an FTS syntax
+error) and joins with OR: bm25 still ranks multi-term matches
+first, but one missing word cannot blank a result. Known limit,
+by design: zero-term-overlap semantic queries miss entirely; the
+eval set keeps such cases as the measure of whether embeddings
+later earn their place.
 
 ## D-012: minimal-dependency stance (2026-09-02)
 
@@ -85,3 +85,13 @@ rising. The standing stance: vendor exactly what
 we need, nothing more. Weighs directly on the MCP SDK choice
 (D-009): hand-rolling the stdio JSON-RPC transport is on the
 table.
+
+## D-013: migrations squash to a v0.1 baseline (2026-09-02)
+
+Append-only migration discipline binds from the FIRST database
+anyone would be sad to lose, which is the author's own library the
+day daily-driving starts (the MCP server landing), NOT public
+launch. Until that day, squashing into one 0001_init baseline is
+allowed and was done here (0002_fts_porter folded in). After
+that day: shipped migrations are frozen, changes are new
+numbered files, no exceptions.

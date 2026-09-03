@@ -48,11 +48,15 @@ CREATE TABLE entry_tags (
 ) WITHOUT ROWID;
 
 -- Full-text index over entry content (external content table);
--- the triggers below keep it in lockstep with `entries`.
+-- the triggers below keep it in lockstep with `entries`. Porter
+-- stemming: queries phrase things differently than stored
+-- content ("formatting" vs "formatted"), and both stem to one
+-- root.
 CREATE VIRTUAL TABLE entries_fts USING fts5 (
   content,
   content = 'entries',
-  content_rowid = 'rowid'
+  content_rowid = 'rowid',
+  tokenize = 'porter unicode61'
 );
 
 CREATE TRIGGER entries_fts_insert AFTER INSERT ON entries BEGIN
