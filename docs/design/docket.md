@@ -90,7 +90,7 @@ Fields, reusing every convention the entries table proved:
   events; a short note says why.
 - `superseded_by` + `note`: edits are supersessions, exactly
   like memory. Rewording a task, re-grading its severity, or
-  moving its horizon mints a new version chained to the old;
+  moving its goal mints a new version chained to the old;
   history and diffs come free from the same discipline (D-020
   applies: content immutable, judgment witnessed).
 - `status`: live | pending | rejected (D-027 reused verbatim).
