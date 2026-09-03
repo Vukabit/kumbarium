@@ -541,7 +541,8 @@ pub(crate) fn show_task(
   let full = match kumbarium_docket::resolve_id(conn, id) {
     Ok(f) => f,
     Err(kumbarium_docket::DocketError::TaskNotFound(_)) => {
-      return Err(format!("no entry or task with id {id:?}"));
+      // Third shelf in the chain (D-034).
+      return super::handoff::show_handoff(state, id);
     }
     Err(e) => return Err(e.to_string()),
   };

@@ -122,7 +122,12 @@ pub(crate) fn inbox_cmd() -> ExitCode {
     Ok(conn) => kumbarium_docket::pending_tasks(conn).unwrap_or_default(),
     Err(_) => Vec::new(),
   };
-  if pending.is_empty() && pending_tasks.is_empty() {
+  let pending_briefs = match state.handoff() {
+    Ok(conn) => kumbarium_handoff::pending_handoffs(conn).unwrap_or_default(),
+    Err(_) => Vec::new(),
+  };
+  if pending.is_empty() && pending_tasks.is_empty() && pending_briefs.is_empty()
+  {
     println!("inbox empty: nothing awaiting approval");
     return ExitCode::SUCCESS;
   }
@@ -164,6 +169,28 @@ matter"
         t.agent_id,
         t.namespace,
         t.severity.as_str(),
+        excerpt
+      );
+    }
+  }
+  if !pending_briefs.is_empty() {
+    println!(
+      "\n{}",
+      sty.dim(
+        "pending briefings (NEVER served until approved):\nid        \
+submitted (local)    agent                namespace            \
+briefing"
+      )
+    );
+    for h in &pending_briefs {
+      let first = h.content.lines().next().unwrap_or("");
+      let excerpt: String = first.chars().take(40).collect();
+      println!(
+        "{}  {}  {:<20} {:<20} {}",
+        sty.id(&format!("{:<8}", kumbarium_handoff::short_id(&h.id))),
+        sty.dim(&local_display(&h.created_at)),
+        h.agent_id,
+        h.namespace,
         excerpt
       );
     }
@@ -348,6 +375,10 @@ fn judge_task(
   };
   let full = match kumbarium_docket::resolve_id(conn, id) {
     Ok(f) => f,
+    Err(kumbarium_docket::DocketError::TaskNotFound(_)) => {
+      // Third shelf in the desk's chain (D-034).
+      return super::handoff::judge_handoff(state, id, approving, reason);
+    }
     Err(e) => return fail(&e.to_string()),
   };
   let task = match kumbarium_docket::get(conn, &full) {
@@ -409,7 +440,7 @@ fn review_task(state: &mut tools::ServerState, id: &str) -> ExitCode {
   let full = match kumbarium_docket::resolve_id(conn, id) {
     Ok(f) => f,
     Err(kumbarium_docket::DocketError::TaskNotFound(_)) => {
-      return fail(&format!("no entry or task with id {id:?}"));
+      return review_handoff(state, id);
     }
     Err(e) => return fail(&e.to_string()),
   };
@@ -458,6 +489,61 @@ fn review_task(state: &mut tools::ServerState, id: &str) -> ExitCode {
     "\njudge with: kum approve {} or kum reject {} [reason]",
     kumbarium_docket::short_id(&t.id),
     kumbarium_docket::short_id(&t.id)
+  );
+  ExitCode::SUCCESS
+}
+
+/// Review a pending briefing: the sharpest injection surface,
+/// so provenance leads (D-036).
+fn review_handoff(state: &mut tools::ServerState, id: &str) -> ExitCode {
+  let sty = style::Style::detect();
+  let conn = match state.handoff() {
+    Ok(c) => c,
+    Err(e) => return fail(&e),
+  };
+  let full = match kumbarium_handoff::resolve_id(conn, id) {
+    Ok(f) => f,
+    Err(kumbarium_handoff::HandoffError::HandoffNotFound(_)) => {
+      return fail(&format!("no entry, task, or handoff with id {id:?}"));
+    }
+    Err(e) => return fail(&e.to_string()),
+  };
+  let h = match kumbarium_handoff::get(conn, &full) {
+    Ok(h) => h,
+    Err(e) => return fail(&e.to_string()),
+  };
+  if h.status != kumbarium_handoff::Status::Pending {
+    return fail(&format!(
+      "briefing {} is {}, not pending",
+      kumbarium_handoff::short_id(&full),
+      h.status.as_str()
+    ));
+  }
+  println!("{}", sty.bold("pending briefing (the handoff shelf)"));
+  println!(
+    "submitted:  {} by {}",
+    local_display(&h.created_at),
+    h.agent_id
+  );
+  println!("namespace:  {}", h.namespace);
+  println!(
+    "id:         {} (short: {})",
+    h.id,
+    kumbarium_handoff::short_id(&h.id)
+  );
+  println!("\n{}", h.content);
+  println!(
+    "\n{}",
+    sty.dim(
+      "a briefing poisons a session's OPENING FRAME at maximum \
+       trust; approving makes this THE standing note the next \
+       session receives automatically"
+    )
+  );
+  println!(
+    "\njudge with: kum approve {} or kum reject {} [reason]",
+    kumbarium_handoff::short_id(&h.id),
+    kumbarium_handoff::short_id(&h.id)
   );
   ExitCode::SUCCESS
 }

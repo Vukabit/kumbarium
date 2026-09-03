@@ -6,7 +6,7 @@
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
 instructions status grep move janitor approvals export docket \
-alias";
+alias handoff";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -31,6 +31,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "export" | "bundle" | "bundles" | "minutes" => PAGE_EXPORT,
     "docket" | "task" | "tasks" | "roadmap" => PAGE_DOCKET,
     "alias" | "aliases" => PAGE_ALIAS,
+    "handoff" | "handoffs" => PAGE_HANDOFF,
     _ => return None,
   })
 }
@@ -298,6 +299,10 @@ across all agents and sessions.
   first `recall` the stale entry, then supersede the id it
   returned (add a short `note` like 'typo fix' for trivial
   changes). `forget` only wrong-or-sensitive content.
+- Before ENDING substantive work, leave the briefing with
+  `handoff_write`: what is mid-flight, decided-but-unfinished,
+  sharp edges. The next session receives it automatically with
+  its first recall; write it for them.
 - The DOCKET is the shared task list. At the start of work,
   open matters for your scope are work owed: mention them
   before starting new work. File matters worth doing later
@@ -360,6 +365,34 @@ Entry counts (live / superseded / retired), split sets, live
 entries per namespace, audit event count and latest, backup
 ages, database sizes. The first command to run when wondering
 what state things are in.
+";
+
+const PAGE_HANDOFF: &str = "\
+## handoffs: the standing briefings
+
+```
+kum handoff <ns> <note...>    leave the briefing (supersedes)
+kum handoff <ns>              read the standing briefing
+kum handoffs                  every shelf's standing briefing
+```
+
+Exactly one standing briefing per shelf: what is mid-flight,
+decided-but-unfinished, and sharp-edged, for the NEXT session.
+Writing replaces the previous one; the chain is the scope's
+session diary (`kum history <id>` on any briefing reads it).
+
+Served first, literally: the first recall an agent session
+makes in a scope receives the standing briefing prepended,
+named and dated, and the recall event records handoff_served,
+so receipt is provable. There is no read tool to forget to
+call.
+
+A briefing poisons a session's OPENING FRAME at maximum trust,
+so the desk applies with the most teeth: a quarantined writer's
+briefing lands pending and is NEVER served; approval makes it
+THE standing note (superseding the live one, so one head
+survives the desk). Agents write via `handoff_write` before
+ending substantive work.
 ";
 
 const PAGE_ALIAS: &str = "\

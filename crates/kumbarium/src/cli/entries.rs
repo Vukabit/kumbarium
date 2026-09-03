@@ -277,9 +277,21 @@ pub(crate) fn history_cmd(id: &str, with_diff: bool, all: bool) -> ExitCode {
   };
   let sty = style::Style::detect();
   if kumbarium_store::resolve_id(&state.library, id).is_err() {
-    // Ids are building-wide names: a task chain renders through
-    // the docket's own history view.
-    return super::docket::task_history_cmd(id);
+    // Ids are building-wide names: task chains render through
+    // the docket's view, briefing chains as the session diary.
+    let (_, mut st) = match open_stores() {
+      Ok(v) => v,
+      Err(e) => return fail(&e),
+    };
+    let on_docket = st
+      .docket()
+      .ok()
+      .map(|c| kumbarium_docket::resolve_id(c, id).is_ok())
+      .unwrap_or(false);
+    if on_docket {
+      return super::docket::task_history_cmd(id);
+    }
+    return super::handoff::handoff_history_cmd(&mut st, id);
   }
   let versions = match resolve_history(&state, id) {
     Ok(v) => v,

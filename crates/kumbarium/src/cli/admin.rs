@@ -66,12 +66,12 @@ pub(crate) fn audit_tail(n: usize, scope: Option<&str>) -> ExitCode {
       println!(
         "{}",
         sty.dim(
-          "at (local)           kind        agent                \
+          "at (local)           kind          agent                \
 scope                detail"
         )
       );
       // Columns before detail: 19+2 + 9+1 + 20+1 + 20+1 = 73.
-      const DETAIL_COL: usize = 75;
+      const DETAIL_COL: usize = 77;
       let wrap_width = term_width()
         .filter(|w| *w > DETAIL_COL + 16)
         .map(|w| w - DETAIL_COL);
@@ -84,7 +84,7 @@ scope                detail"
         println!(
           "{}  {} {:<20} {:<20} {}",
           sty.dim(&local_display(&e.at)),
-          sty.event(&format!("{:<11}", e.kind)),
+          sty.event(&format!("{:<13}", e.kind)),
           e.agent_id,
           e.scope,
           chunks.first().map(String::as_str).unwrap_or("")
@@ -228,6 +228,9 @@ pub(crate) fn status_cmd() -> ExitCode {
   if p.docket_db.exists() {
     shelves.push(("docket", p.backups_dir.join("docket")));
   }
+  if p.handoff_db.exists() {
+    shelves.push(("handoff", p.backups_dir.join("handoff")));
+  }
   for (name, dir) in shelves {
     let line = match kumbarium_store::latest_backup_ms(&dir) {
       Some(ms) => {
@@ -241,6 +244,7 @@ pub(crate) fn status_cmd() -> ExitCode {
   for (name, path) in [
     ("memory.db", &p.memory_db),
     ("docket.db", &p.docket_db),
+    ("handoff.db", &p.handoff_db),
     ("audit.db", &p.audit_db),
   ] {
     if let Ok(meta) = std::fs::metadata(path) {

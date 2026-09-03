@@ -20,6 +20,7 @@ use cli::desk::*;
 use cli::dock::*;
 use cli::docket::*;
 use cli::entries::*;
+use cli::handoff::*;
 use cli::term::*;
 use cli::usage::*;
 
@@ -103,6 +104,8 @@ pub fn run() -> ExitCode {
       ExitCode::SUCCESS
     }
     ["tasks", rest @ ..] => tasks_cmd(rest),
+    ["handoff", ns, rest @ ..] => handoff_cmd(ns, rest),
+    ["handoff"] | ["handoffs"] => handoffs_cmd(),
     ["roadmap"] => roadmap_cmd(None),
     ["roadmap", ns] => roadmap_cmd(Some(ns)),
     ["janitor"] => janitor_cmd(false),
@@ -347,6 +350,24 @@ fn maintenance(
   if let Some(conn) = &docket_conn {
     jobs.push((
       "docket",
+      conn,
+      kumbarium_store::Retention {
+        recent: cfg.library_recent,
+        dailies: cfg.library_dailies,
+        weeklies: cfg.library_weeklies,
+      },
+    ));
+  }
+  let handoff_conn = match p.handoff_db.exists() {
+    true => Some(
+      kumbarium_handoff::open(&p.handoff_db)
+        .map_err(|e| format!("opening handoff shelf: {e}"))?,
+    ),
+    false => None,
+  };
+  if let Some(conn) = &handoff_conn {
+    jobs.push((
+      "handoff",
       conn,
       kumbarium_store::Retention {
         recent: cfg.library_recent,

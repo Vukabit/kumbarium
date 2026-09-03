@@ -184,6 +184,13 @@ the docket:
   kumbarium task history <id>         a matter's chain: every
                                       regrade and goal slip
 
+handoffs, the standing briefings:
+  kumbarium handoff <ns> <note...>    leave the briefing for
+                                      the next session (the
+                                      previous one chains)
+  kumbarium handoff <ns>              read the standing one
+  kumbarium handoffs                  every shelf's briefing
+
 the circulation desk:
   kumbarium inbox                     pending entries awaiting
                                       approval (the desk queue)
