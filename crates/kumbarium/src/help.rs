@@ -5,7 +5,7 @@
 
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
-instructions status grep move janitor";
+instructions status grep move janitor approvals";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -26,6 +26,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "move" => PAGE_MOVE,
     "namespaces" | "scopes" => PAGE_NAMESPACES,
     "janitor" => PAGE_JANITOR,
+    "approvals" | "inbox" | "review" | "approve" | "reject" => PAGE_APPROVALS,
     _ => return None,
   })
 }
@@ -59,7 +60,10 @@ Slash paths, 1-3 segments of `[a-z0-9._-]`, registered by you
 
 - `global`: cross-project facts
 - `project/<name>`: one project's facts
-- `agent/<id>/quarantine`: an untrusted writer's pen
+
+Quarantine is NOT a namespace: an untrusted writer's entries
+land in their target namespace with pending status instead
+(D-027; see `kum help approvals`).
 
 Recall searches a scope's CHAIN: itself, its ancestors, then
 `global`; never a sibling. `project/web.app` searches
@@ -337,6 +341,38 @@ Entry counts (live / superseded / retired), split sets, live
 entries per namespace, audit event count and latest, backup
 ages, database sizes. The first command to run when wondering
 what state things are in.
+";
+
+const PAGE_APPROVALS: &str = "\
+## approvals: the circulation desk
+
+```
+kum inbox                    pending entries, oldest first
+kum review <id>              one pending entry, judged view
+kum approve <id>             promote to circulation
+kum reject <id> [reason]     decline, kept on record
+```
+
+Quarantine is a STATUS, not a place (D-027): a pending entry
+keeps its target namespace but never surfaces in recall, list,
+grep, or chain search until a human approves it. Who lands in
+quarantine is write policy in config:
+
+```
+[approvals]
+default_mode = \"live\"       or \"pending\" (teams, OSS)
+pending_agents = \"a, b\"     always-quarantined writers
+```
+
+`kum review` shows content, provenance, and the COLLISION
+SURFACE: live near-matches already shelved in the target scope,
+so approval happens with eyes open. Approve and reject are
+human-only and witnessed (the ledger records who judged, when,
+seeing what); a rejected entry is kept as evidence of the
+judgment, never deleted (`forget` is the separate tool for
+wrong-or-sensitive content). Blame lands where judgment
+happened: provenance shows who submitted, the approval event
+shows who promoted.
 ";
 
 const PAGE_JANITOR: &str = "\

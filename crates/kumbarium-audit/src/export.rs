@@ -209,6 +209,22 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
         Some(line)
       }
       "forget" => Some(format!("forgot {}", short(s("id")?))),
+      "approve" => Some(format!(
+        "approved {} (submitted by {})",
+        short(s("id")?),
+        s("submitter")?
+      )),
+      "reject" => {
+        let mut line = format!(
+          "rejected {} (submitted by {})",
+          short(s("id")?),
+          s("submitter")?
+        );
+        if let Some(reason) = s("reason") {
+          line.push_str(&format!(" {reason:?}"));
+        }
+        Some(line)
+      }
       "confirm" => Some(format!("confirmed {}", short(s("id")?))),
       "retire" => Some(format!("retired {}", short(s("id")?))),
       "unretire" => Some(format!("restored {}", short(s("id")?))),
