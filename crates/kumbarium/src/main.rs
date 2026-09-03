@@ -2,6 +2,7 @@
 //! stdio (D-014); the rest is the human-facing CLI.
 
 mod diff;
+mod help;
 mod import;
 mod markdown;
 mod paths;
@@ -66,6 +67,22 @@ pub fn run() -> ExitCode {
     ["audit", "tail", n] => match n.parse() {
       Ok(n) => audit_tail(n),
       Err(_) => fail("audit tail takes a number"),
+    },
+    ["help"] | ["--help"] | ["-h"] => {
+      println!("{USAGE}\n\ntopics: kumbarium help <topic>");
+      println!("  {}", help::TOPICS);
+      ExitCode::SUCCESS
+    }
+    ["help", topic] => match help::page(topic) {
+      Some(md) => {
+        let sty = style::Style::detect();
+        println!("{}", markdown::render(md, &sty));
+        ExitCode::SUCCESS
+      }
+      None => fail(&format!(
+        "no help topic {topic:?}; topics: {}",
+        help::TOPICS
+      )),
     },
     ["audit", "export"] => audit_export(false),
     ["audit", "export", "--stdout"] => audit_export(true),
@@ -765,4 +782,6 @@ Usage:
                                       exports/ (or streamed)
   kumbarium backup                    snapshot both dbs now
   kumbarium paths                     where persisted data lives
-  kumbarium version                   print the version";
+  kumbarium version                   print the version
+  kumbarium help [topic]              manual pages with grammar
+                                      and examples";
