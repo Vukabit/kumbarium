@@ -419,7 +419,7 @@ fn audit_tail(n: usize) -> ExitCode {
           sty.dim(&e.at),
           sty.event(&format!("{:<9}", e.kind)),
           e.agent_id,
-          e.detail
+          kumbarium_audit::describe_event(&e.kind, &e.detail)
         );
       }
       ExitCode::SUCCESS

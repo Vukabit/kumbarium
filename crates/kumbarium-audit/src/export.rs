@@ -89,10 +89,104 @@ pub fn render_minutes(events: &[StoredEvent]) -> String {
     };
     out.push_str(&format!(
       "- {t} {} by {}{}: {}\n",
-      e.kind, e.agent_id, scope, e.detail
+      e.kind,
+      e.agent_id,
+      scope,
+      describe_event(&e.kind, &e.detail)
     ));
   }
   out
+}
+
+/// One deterministic prose line for an event's detail payload;
+/// unknown kinds or shapes fall back to the raw JSON, so rows
+/// written by future schema versions still render.
+pub fn describe_event(kind: &str, detail: &str) -> String {
+  let Ok(v) = serde_json::from_str::<serde_json::Value>(detail) else {
+    return detail.to_string();
+  };
+  let s = |key: &str| v.get(key).and_then(|x| x.as_str());
+  let n = |key: &str| v.get(key).and_then(|x| x.as_u64());
+  let described = (|| -> Option<String> {
+    match kind {
+      "recall" => {
+        let query = s("query")?;
+        let ids: Vec<&str> = v
+          .get("returned")?
+          .as_array()?
+          .iter()
+          .filter_map(|x| x.as_str())
+          .map(short)
+          .collect();
+        if ids.is_empty() {
+          Some(format!("recalled nothing for {query:?}"))
+        } else {
+          Some(format!(
+            "recalled {} for {query:?}: {}",
+            plural(ids.len(), "memory", "memories"),
+            ids.join(", ")
+          ))
+        }
+      }
+      "remember" => {
+        let mut line = format!("remembered {}", short(s("id")?));
+        if let Some(kind) = s("kind") {
+          line.push_str(&format!(" ({kind}"));
+          if let Some(parts) = n("parts").filter(|p| *p > 1) {
+            line.push_str(&format!(", {parts} parts"));
+          }
+          if let Some(links) = n("links").filter(|l| *l > 0) {
+            line.push_str(&format!(", {links} links"));
+          }
+          line.push(')');
+        }
+        Some(line)
+      }
+      "supersede" => {
+        let mut line = format!(
+          "superseded {} with {}",
+          short(s("old_id")?),
+          short(s("new_id")?)
+        );
+        if let Some(to) = s("revert_to") {
+          line.push_str(&format!(" (revert to {})", short(to)));
+        }
+        if let Some(parts) = n("parts").filter(|p| *p > 1) {
+          line.push_str(&format!(" ({parts} parts)"));
+        }
+        Some(line)
+      }
+      "forget" => Some(format!("forgot {}", short(s("id")?))),
+      "link" => Some(format!(
+        "linked {} {} {}",
+        short(s("from_id")?),
+        s("rel")?,
+        short(s("to_id")?)
+      )),
+      "import" => Some(format!(
+        "imported {} of {} planned memories, {} edges",
+        n("imported")?,
+        n("planned")?,
+        n("edges")?
+      )),
+      _ => None,
+    }
+  })();
+  described.unwrap_or_else(|| detail.to_string())
+}
+
+/// Last 8 hex chars: the display short form. Kept local; this
+/// crate must not depend on the store.
+fn short(id: &str) -> &str {
+  id.get(id.len().saturating_sub(8)..).unwrap_or(id)
+}
+
+fn plural(n: usize, one: &str, many: &str) -> String {
+  if n == 1 {
+    format!("1 {one}")
+  } else {
+    format!("{n} {many}")
+  }
 }
 
 /// (day, hh:mm:ss) halves of a strict ISO timestamp; total for
@@ -148,6 +242,43 @@ mod tests {
     let remember_pos = a.find("remember by").unwrap();
     let recall_pos = a.find("recall by").unwrap();
     assert!(remember_pos < recall_pos, "oldest first");
+  }
+
+  #[test]
+  fn described_events_read_as_prose() {
+    let id_a = "01a06550-ec55-7470-88d9-e009dfeb4d7c";
+    let id_b = "01a0652e-7e50-7661-a7f6-94d4d0b96f52";
+    let recall = format!(
+      "{{\"query\":\"commit style\",\"returned\":[\"{id_a}\",\
+       \"{id_b}\"]}}"
+    );
+    assert_eq!(
+      describe_event("recall", &recall),
+      "recalled 2 memories for \"commit style\": dfeb4d7c, \
+       d0b96f52"
+    );
+    assert_eq!(
+      describe_event("recall", "{\"query\":\"x\",\"returned\":[]}"),
+      "recalled nothing for \"x\""
+    );
+    let sup = format!(
+      "{{\"old_id\":\"{id_a}\",\"new_id\":\"{id_b}\",\
+       \"parts\":4}}"
+    );
+    assert_eq!(
+      describe_event("supersede", &sup),
+      "superseded dfeb4d7c with d0b96f52 (4 parts)"
+    );
+    assert_eq!(
+      describe_event("import", "{\"planned\":5,\"imported\":5,\"edges\":10}"),
+      "imported 5 of 5 planned memories, 10 edges"
+    );
+    // Unknown kind or shape: raw JSON survives untouched.
+    assert_eq!(describe_event("eval_run", "{\"n\":1}"), "{\"n\":1}");
+    assert_eq!(
+      describe_event("recall", "{\"nope\":true}"),
+      "{\"nope\":true}"
+    );
   }
 
   #[test]
