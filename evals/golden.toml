@@ -26,6 +26,10 @@ name = "scope-firewall-sibling-project"
 scope = "project/demo-app"
 query = "which database does the project use"
 expect = "own-db"
+# Zero lexical overlap between query and content: beyond FTS
+# reach (D-011). Informational until embeddings land; the runner
+# reports it but does not fail on it.
+semantic = true
 
 [[case.entries]]
 key = "own-db"

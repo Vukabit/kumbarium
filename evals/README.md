@@ -15,4 +15,10 @@ Rules:
 
 `golden.toml` format: each `[[case]]` seeds `entries` into a
 fresh in-memory store, issues `query` in `scope`, and asserts
-the entry tagged `expect` ranks first.
+the entry tagged `expect` ranks first. A case marked
+`semantic = true` is beyond lexical FTS reach (zero term
+overlap, D-011): the runner reports its outcome but does not
+fail on it; these cases are the yardstick for whether embeddings
+later earn their place. The runner is
+`crates/kumbarium/tests/golden_evals.rs` (runs in `cargo test`,
+so gate.sh and CI both execute it).

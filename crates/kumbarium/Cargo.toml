@@ -12,3 +12,11 @@ publish = false
 [dependencies]
 directories.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+# The golden-eval runner (tests/golden_evals.rs) drives store +
+# librarian together, the way the MCP server will.
+kumbarium-librarian = { path = "../kumbarium-librarian" }
+kumbarium-store = { path = "../kumbarium-store" }
+serde.workspace = true
+toml.workspace = true

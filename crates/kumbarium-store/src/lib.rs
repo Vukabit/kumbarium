@@ -9,7 +9,9 @@ mod entries;
 
 use std::path::Path;
 
-use rusqlite::Connection;
+// Part of this crate's public API: open()/open_in_memory()
+// return it, so callers get the type without a rusqlite dep.
+pub use rusqlite::Connection;
 
 pub use entries::{
   Entry, Hit, Kind, NewEntry, confirm, forget, get, namespace_id, recall,
