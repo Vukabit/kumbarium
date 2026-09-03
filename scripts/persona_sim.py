@@ -255,6 +255,11 @@ class ClaudeCLI:
         },
         fh,
       )
+    # Each episode gets its own empty cwd: the real repo (and any
+    # cwd-keyed CLI state) must not leak into the exam. Proven
+    # leak without this: agents read committed sim reports in
+    # docs/reports/ and cited fixture tokens from them.
+    epdir = tempfile.mkdtemp(dir=home, prefix="episode-")
     transcript = []
     session_id = None
     for turn in turns:
@@ -270,7 +275,8 @@ class ClaudeCLI:
       if session_id:
         cmd += ["--resume", session_id]
       run = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=300
+        cmd, capture_output=True, text=True, timeout=300,
+        cwd=epdir,
       )
       try:
         reply = json.loads(run.stdout)
@@ -289,7 +295,9 @@ class ClaudeCLI:
 
   def plain(self, system, prompt):
     # --strict-mcp-config with no --mcp-config: the user-sim
-    # must never see the operator's real MCP servers.
+    # must never see the operator's real MCP servers. Fresh empty
+    # cwd per call: no repo reads, no cwd-keyed CLI state shared
+    # across rewrites.
     run = subprocess.run(
       [
         "claude", "-p", prompt,
@@ -301,6 +309,7 @@ class ClaudeCLI:
       capture_output=True,
       text=True,
       timeout=180,
+      cwd=tempfile.mkdtemp(prefix="kumbarium-usersim-"),
     )
     try:
       reply = json.loads(run.stdout)
