@@ -193,3 +193,23 @@ destructiveness ladder: forget > revert [preview+--apply] >
 retire [instant, undoable]). Agents get no retire surface until
 the approvals primitive lands, at which point agent proposals
 and janitor staleness findings feed the same review queue.
+
+## D-020: no in-place edit; notes label, diffs decide (2026-09-03)
+
+Content is immutable for EVERY writer, no exceptions: "edit
+that plays into version control" is supersession by another
+name, and true in-place mutation would let a writer rewrite
+what the audit proved was said, un-building the witness. The
+mistake-too-small-for-history category is rejected on
+principle: writers do not get to judge their own changes
+beneath history. The legibility itch is solved read-side:
+supersede takes an optional NOTE (sanitized: one line, 80
+chars) stored on the new version; history collapses a version
+only when it is noted AND its measured diff is small
+(COLLAPSE_MAX_CHANGED_LINES), with --all expanding. The note
+informs, the diff decides: mislabeling a large change as
+"typo fix" gains nothing, which is the whole abuse answer.
+Enum-limited notes rejected as fake enforcement. Future
+janitor flags note-churn patterns for human review. Metadata
+(tags, links, confidence, retirement, confirmation) stays
+mutable in place: none of it changes what was said.

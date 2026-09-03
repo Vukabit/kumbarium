@@ -151,6 +151,9 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
         if let Some(to) = s("revert_to") {
           line.push_str(&format!(" (revert to {})", short(to)));
         }
+        if let Some(note) = s("note") {
+          line.push_str(&format!(" {note:?}"));
+        }
         if let Some(parts) = n("parts").filter(|p| *p > 1) {
           line.push_str(&format!(" ({parts} parts)"));
         }

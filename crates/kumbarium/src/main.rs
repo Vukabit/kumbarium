@@ -57,8 +57,11 @@ pub fn run() -> ExitCode {
     ["list", ns, "--all"] => list_entries(Some(ns), true),
     ["show", id] => show_entry(id, false),
     ["show", id, "--full"] => show_entry(id, true),
-    ["history", id] => history_cmd(id, false),
-    ["history", id, "--diff"] => history_cmd(id, true),
+    ["history", id, rest @ ..] => {
+      let with_diff = rest.contains(&"--diff");
+      let all = rest.contains(&"--all");
+      history_cmd(id, with_diff, all)
+    }
     ["revert", id] => revert_cmd(id, false),
     ["revert", id, "--apply"] => revert_cmd(id, true),
     ["retire", id] => retire_cmd(id, true),
@@ -394,6 +397,9 @@ fn show_entry(id: &str, full: bool) -> ExitCode {
   if let Some(at) = &e.retired_at {
     println!("retired:    {}", sty.yellow(&local_display(at)));
   }
+  if let Some(note) = &e.note {
+    println!("note:       {}", sty.dim(note));
+  }
   if !e.tags.is_empty() {
     println!("tags:       {}", e.tags.join(", "));
   }
@@ -588,7 +594,12 @@ fn retire_cmd(id: &str, retiring: bool) -> ExitCode {
   ExitCode::SUCCESS
 }
 
-fn history_cmd(id: &str, with_diff: bool) -> ExitCode {
+/// A version collapses in the default view when it carries a
+/// note AND its measured diff is small: the note informs, the
+/// diff decides, so a mislabeled big change can never hide.
+const COLLAPSE_MAX_CHANGED_LINES: usize = 4;
+
+fn history_cmd(id: &str, with_diff: bool, all: bool) -> ExitCode {
   let (_, state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
@@ -599,6 +610,27 @@ fn history_cmd(id: &str, with_diff: bool) -> ExitCode {
     Err(e) => return fail(&e),
   };
   let n = versions.len();
+  // Collapse-eligible: noted AND measurably small vs its
+  // predecessor. The diff decides; the note only informs.
+  let changed: Vec<usize> = versions
+    .iter()
+    .enumerate()
+    .map(|(i, e)| {
+      if i == 0 {
+        usize::MAX
+      } else {
+        diff::lines(&versions[i - 1].content, &e.content)
+          .iter()
+          .filter(|(c, _)| *c != ' ')
+          .count()
+      }
+    })
+    .collect();
+  let collapsed = |i: usize| -> bool {
+    !all
+      && versions[i].note.is_some()
+      && changed[i] <= COLLAPSE_MAX_CHANGED_LINES
+  };
   println!(
     "{}",
     sty.dim(
@@ -606,20 +638,51 @@ fn history_cmd(id: &str, with_diff: bool) -> ExitCode {
        bytes"
     )
   );
+  let mut hidden = 0usize;
   for (i, e) in versions.iter().enumerate().rev() {
+    if collapsed(i) {
+      hidden += 1;
+      println!(
+        "{}",
+        sty.dim(&format!(
+          "v{:<2}        {}  {:?} ({} lines changed)",
+          i + 1,
+          kumbarium_store::short_id(&e.id),
+          e.note.as_deref().unwrap_or(""),
+          changed[i]
+        ))
+      );
+      continue;
+    }
     let live = if i + 1 == n { " (live)" } else { "" };
     let ver = format!("v{}{live}", i + 1);
     let local = local_display(&e.created_at);
     let day = local.get(..10).unwrap_or(&local);
+    let note = match &e.note {
+      Some(note) => sty.dim(&format!("  {note:?}")),
+      None => String::new(),
+    };
     println!(
-      "{ver:<11}{}  {day}  {:<20}  {}",
+      "{ver:<11}{}  {day}  {:<20}  {}{note}",
       sty.id(kumbarium_store::short_id(&e.id)),
       e.agent_id,
       e.content.len()
     );
   }
+  if hidden > 0 {
+    println!(
+      "{}",
+      sty.dim(&format!(
+        "({hidden} noted small version(s) collapsed; --all \
+         expands)"
+      ))
+    );
+  }
   if with_diff {
-    for pair in versions.windows(2) {
+    for (pair_i, pair) in versions.windows(2).enumerate() {
+      if collapsed(pair_i + 1) {
+        continue;
+      }
       println!(
         "\n{}",
         sty.bold(&format!(
@@ -688,7 +751,14 @@ fn revert_cmd(id: &str, apply: bool) -> ExitCode {
     source: target.source.clone(),
     tags: target.tags.clone(),
   };
-  let ids = match tools::store_split(&mut state, &new, Some(&head.id)) {
+  let revert_note =
+    format!("revert to {}", kumbarium_store::short_id(&target.id));
+  let ids = match tools::store_split(
+    &mut state,
+    &new,
+    Some(&head.id),
+    Some(&revert_note),
+  ) {
     Ok(ids) => ids,
     Err(e) => return fail(&e),
   };
@@ -701,6 +771,7 @@ fn revert_cmd(id: &str, apply: bool) -> ExitCode {
       "new_id": ids[0],
       "revert_to": target.id,
       "parts": ids.len(),
+      "note": revert_note,
     }),
   };
   if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
@@ -840,6 +911,8 @@ Usage:
   kumbarium show <id> [--full]        one entry (--full stitches
                                       a split set in order)
   kumbarium history <id> [--diff]     a fact's version chain
+                     [--all]          (--all expands collapsed
+                                      noted-small versions)
   kumbarium retire <id>               hide from suggestions
   kumbarium unretire <id>             restore to suggestions
   kumbarium revert <id> [--apply]     restore an old version

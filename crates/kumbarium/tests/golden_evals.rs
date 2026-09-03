@@ -78,8 +78,9 @@ fn seed_case(
       let new_seed = by_key
         .get(new_key.as_str())
         .unwrap_or_else(|| panic!("bad superseded_by {new_key:?}"));
-      let new = kumbarium_store::supersede(conn, &old.id, &new_entry(new_seed))
-        .unwrap();
+      let new =
+        kumbarium_store::supersede(conn, &old.id, &new_entry(new_seed), None)
+          .unwrap();
       ids.insert(seed.key.clone(), old.id);
       ids.insert(new_key.clone(), new.id);
     }

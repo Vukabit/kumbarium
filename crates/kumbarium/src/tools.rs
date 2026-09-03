@@ -160,7 +160,14 @@ pub fn list() -> Value {
           "tags": {
             "type": "array", "items": { "type": "string" }
           },
-          "source": { "type": "string" }
+          "source": { "type": "string" },
+          "note": {
+            "type": "string",
+            "description": "One-line label for this version \
+  ('typo fix'). Display metadata only: small noted changes \
+  collapse in history, but collapse is decided by the measured \
+  diff, never the note."
+          }
         },
         "required": ["old_id", "namespace", "kind", "content"]
       }
@@ -206,7 +213,7 @@ fn remember(
 ) -> Result<Vec<String>, String> {
   let mut new = new_entry_args(args)?;
   new.agent_id = state.agent_id.clone();
-  let ids = store_split(state, &new, None)?;
+  let ids = store_split(state, &new, None, None)?;
   let head = ids[0].clone();
   let mut linked = 0usize;
   if let Some(links) = args.get("links").and_then(Value::as_array) {
@@ -249,6 +256,7 @@ pub(crate) fn store_split(
   state: &mut ServerState,
   new: &kumbarium_store::NewEntry,
   supersedes: Option<&str>,
+  note: Option<&str>,
 ) -> Result<Vec<String>, String> {
   let parts = kumbarium_librarian::split_for_storage(
     &new.content,
@@ -261,9 +269,12 @@ pub(crate) fn store_split(
       ..new.clone()
     };
     let stored = match (ids.is_empty(), supersedes) {
-      (true, Some(old_id)) => {
-        kumbarium_store::supersede(&mut state.library, old_id, &part_entry)
-      }
+      (true, Some(old_id)) => kumbarium_store::supersede(
+        &mut state.library,
+        old_id,
+        &part_entry,
+        note,
+      ),
       _ => kumbarium_store::remember(&mut state.library, &part_entry),
     }
     .map_err(describe_store_error)?;
@@ -399,7 +410,11 @@ fn supersede(
   let old_id = resolve(state, required_str(args, "old_id")?)?;
   let mut new = new_entry_args(args)?;
   new.agent_id = state.agent_id.clone();
-  let ids = store_split(state, &new, Some(&old_id))?;
+  let note = args
+    .get("note")
+    .and_then(Value::as_str)
+    .and_then(kumbarium_librarian::sanitize_note);
+  let ids = store_split(state, &new, Some(&old_id), note.as_deref())?;
   audit(
     state,
     kumbarium_audit::EventKind::Supersede,
@@ -408,6 +423,7 @@ fn supersede(
       "old_id": old_id,
       "new_id": ids[0],
       "parts": ids.len(),
+      "note": note,
     }),
   )?;
   Ok(vec![format!(

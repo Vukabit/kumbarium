@@ -38,6 +38,7 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     "0003_retire",
     include_str!("../migrations/0003_retire.sql"),
   ),
+  (4, "0004_note", include_str!("../migrations/0004_note.sql")),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -142,7 +143,7 @@ mod tests {
   #[test]
   fn fresh_store_reaches_latest_schema() {
     let conn = open_in_memory().unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 3);
+    assert_eq!(schema_version(&conn).unwrap(), 4);
   }
 
   #[test]
@@ -150,7 +151,7 @@ mod tests {
     let conn = open_in_memory().unwrap();
     // A second pass sees itself at latest and applies nothing.
     migrate(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 3);
+    assert_eq!(schema_version(&conn).unwrap(), 4);
   }
 
   #[test]

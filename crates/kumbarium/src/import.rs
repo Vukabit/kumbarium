@@ -138,7 +138,7 @@ pub fn run(
     };
     // The shared write path: oversized content splits into
     // continues-chained parts here exactly as agent writes do.
-    let ids = super::tools::store_split(state, &new, None)
+    let ids = super::tools::store_split(state, &new, None, None)
       .map_err(|e| format!("{}: {e}", p.file.name))?;
     total_parts += ids.len();
     id_by_name.insert(p.file.name.clone(), ids[0].clone());

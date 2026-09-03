@@ -13,6 +13,26 @@
 /// split identically.
 pub const SPLIT_TARGET: usize = 1500;
 
+/// Sanitize a supersession note for storage/display: one line,
+/// control characters stripped, at most 80 chars; None when
+/// nothing survives. The note is a LABEL only: history collapse
+/// is gated on the measured diff, never on the note.
+pub fn sanitize_note(raw: &str) -> Option<String> {
+  let cleaned: String = raw
+    .chars()
+    .filter(|c| !c.is_control())
+    .collect::<String>()
+    .trim()
+    .chars()
+    .take(80)
+    .collect();
+  if cleaned.is_empty() {
+    None
+  } else {
+    Some(cleaned)
+  }
+}
+
 /// Split `content` into storage parts of at most `max` bytes
 /// each (except an indivisible oversized paragraph). Paragraphs
 /// are packed greedily in order; a markdown heading starts a
@@ -54,6 +74,17 @@ pub fn split_for_storage(content: &str, max: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn notes_sanitize_to_one_bounded_line() {
+    assert_eq!(
+      sanitize_note("  typo fix\n\x07 "),
+      Some("typo fix".to_string())
+    );
+    assert_eq!(sanitize_note("\n\t  "), None);
+    let long = "x".repeat(200);
+    assert_eq!(sanitize_note(&long).unwrap().len(), 80);
+  }
 
   #[test]
   fn small_content_stays_whole() {

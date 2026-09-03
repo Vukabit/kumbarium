@@ -67,6 +67,7 @@ pub struct Entry {
   pub last_accessed_at: Option<String>,
   pub last_confirmed_at: Option<String>,
   pub retired_at: Option<String>,
+  pub note: Option<String>,
   pub tags: Vec<String>,
 }
 
@@ -159,7 +160,7 @@ pub fn entries_in(
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id,
             e.source, e.confidence, e.superseded_by,
             e.created_at, e.updated_at, e.last_accessed_at,
-            e.last_confirmed_at, e.retired_at
+            e.last_confirmed_at, e.retired_at, e.note
      FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
      WHERE 1=1",
   );
@@ -319,7 +320,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<Entry, StoreError> {
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id, e.source,
             e.confidence, e.superseded_by, e.created_at,
             e.updated_at, e.last_accessed_at, e.last_confirmed_at,
-            e.retired_at
+            e.retired_at, e.note
      FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
      WHERE e.id = ?1",
   )?;
@@ -357,7 +358,7 @@ pub fn recall(
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id, e.source,
             e.confidence, e.superseded_by, e.created_at,
             e.updated_at, e.last_accessed_at, e.last_confirmed_at,
-            e.retired_at, bm25(entries_fts) AS rank
+            e.retired_at, e.note, bm25(entries_fts) AS rank
      FROM entries_fts
      JOIN entries e ON e.rowid = entries_fts.rowid
      JOIN namespaces ns ON ns.id = e.namespace_id
@@ -372,7 +373,7 @@ pub fn recall(
   args.extend(namespaces.iter().cloned());
   let mut stmt = conn.prepare(&sql)?;
   let rows = stmt.query_map(params_from_iter(args.iter()), |row| {
-    Ok((row_to_entry(row)?, row.get::<_, f64>(13)?))
+    Ok((row_to_entry(row)?, row.get::<_, f64>(14)?))
   })?;
   let mut hits = Vec::new();
   for row in rows {
@@ -392,6 +393,7 @@ pub fn supersede(
   conn: &mut Connection,
   old_id: &str,
   new: &NewEntry,
+  note: Option<&str>,
 ) -> Result<Entry, StoreError> {
   let tx = conn.transaction()?;
   let prior: Option<Option<String>> = tx
@@ -415,13 +417,20 @@ pub fn supersede(
     Some(None) => {}
   }
   let entry = insert_entry(&tx, new)?;
+  if let Some(note) = note {
+    tx.execute(
+      "UPDATE entries SET note = ?1 WHERE id = ?2",
+      params![note, entry.id],
+    )?;
+  }
   tx.execute(
     "UPDATE entries SET superseded_by = ?1, updated_at = ?2
      WHERE id = ?3",
     params![entry.id, kumbarium_util::now_iso8601(), old_id],
   )?;
   tx.commit()?;
-  Ok(entry)
+  // Re-fetch: the in-tx snapshot predates the note write.
+  get(conn, &entry.id)
 }
 
 /// Hard-delete an entry (the explicit-removal escape hatch for
@@ -518,6 +527,7 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<Entry, rusqlite::Error> {
     last_accessed_at: row.get(10)?,
     last_confirmed_at: row.get(11)?,
     retired_at: row.get(12)?,
+    note: row.get(13)?,
     tags: Vec::new(),
   })
 }
@@ -705,6 +715,7 @@ mod tests {
       &mut conn,
       &old.id,
       &entry_in("project/demo-app", "the user edits in Neovim"),
+      None,
     )
     .unwrap();
     let old_back = get(&conn, &old.id).unwrap();
@@ -723,18 +734,21 @@ mod tests {
       &mut conn,
       &old.id,
       &entry_in("project/demo-app", "second fact"),
+      None,
     )
     .unwrap();
     let err = supersede(
       &mut conn,
       &old.id,
       &entry_in("project/demo-app", "third fact"),
+      None,
     );
     assert!(matches!(err, Err(StoreError::AlreadySuperseded(_))));
     let err = supersede(
       &mut conn,
       "01912d68-783e-7cde-8f1a-4b2c9e0f3a71",
       &entry_in("project/demo-app", "orphan"),
+      None,
     );
     assert!(matches!(err, Err(StoreError::EntryNotFound(_))));
   }
@@ -751,6 +765,7 @@ mod tests {
       &mut conn,
       &old.id,
       &entry_in("project/demo-app", "replacement fact"),
+      None,
     )
     .unwrap();
     forget(&mut conn, &new.id).unwrap();
@@ -855,12 +870,14 @@ mod tests {
       &mut conn,
       &v1.id,
       &entry_in("project/demo-app", "version two of the fact"),
+      None,
     )
     .unwrap();
     let v3 = supersede(
       &mut conn,
       &v2.id,
       &entry_in("project/demo-app", "version three of the fact"),
+      None,
     )
     .unwrap();
     let expect = [v1.id.clone(), v2.id.clone(), v3.id.clone()];
