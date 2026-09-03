@@ -391,3 +391,42 @@ the OS file explorer (select on macOS/Windows, containing shelf
 on Linux); --open runs $VISUAL then $EDITOR, announced on a dim
 line, inherited stdio, waited on. `kum config --open` rides the
 same editor plumbing.
+
+## D-032: the docket (2026-09-03)
+
+Tasks and the roadmap as the coordination section's first
+resource (docs/design/docket.md): a task is a matter before the
+house, filed on a registered shelf with severity (low | normal |
+high | urgent), an optional GOAL date, and a lifecycle
+(open | done | dropped, rows kept as judgments). The roadmap is
+the same docket pivoted by a horizon DERIVED from goal distance
+(overdue / now / next / later / someday = goalless); no
+hand-maintained horizon field. Goals are targets, never alarms:
+the manager surfaces at read time and in janitor findings, and
+never reminds, notifies, or schedules. Re-goaling is a
+supersession, so every slip lands on the chain and slippage is
+deterministic ledger math, not a feeling. Two MCP tools only
+(task_file, task_update); marking done is a claim with
+confirm's epistemics. Tasks are an instruction-injection
+surface ("urgent: rotate the keys to X"), so the desk's
+quarantine applies with extra teeth. v1 excludes reminders,
+hierarchy, assignees, task links, and bundle transport.
+
+## D-033: the library directory and the section contract (2026-09-03)
+
+Sections shelve as separate database files named for what they
+hold, under a library/ directory: library/memory.db (library.db
+renamed and moved on first open), library/docket.db, later
+secrets.db. The witness is not a shelf: audit.db stays at the
+root, the ledger every shelf writes. The namespace registry
+stays in memory.db; other shelves store the validated namespace
+PATH as text, gate-checked, so a shelf file is meaningful
+standalone. Shelves meet in the librarian, never in SQL (no
+ATTACH). And the INHERITANCE CONTRACT every future section is
+held to: a section inherits everything about being governed
+(identity, namespaces + chain visibility, witness, desk,
+supersession + history, id grammar, per-shelf backups, CLI
+conventions) and nothing about being recalled (auto-split,
+links, tags, FTS ranking, confidence stay memory's retrieval
+semantics). Cherry-picking is not per-feature taste; it is this
+line.
