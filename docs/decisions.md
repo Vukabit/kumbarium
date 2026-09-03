@@ -467,3 +467,23 @@ cannot loop. The standing doctrine line this writes: CONFIG
 DECIDES VALUES, NEVER EXECUTABLES. The CLI's only external
 spawns remain --show and --open, driven by OS convention and an
 explicit human flag, never by config content.
+
+## D-036: handoffs, served first literally (2026-09-03)
+
+The coordination section's second resource
+(docs/design/handoffs.md): exactly one standing briefing per
+namespace, where writing IS superseding (the chain is the
+scope's session diary) and reading is a MECHANISM, not an
+instruction: the first recall a session makes in a scope
+returns the standing handoff prepended, named and dated, and
+the recall event records handoff_served, so receipt of the
+briefing is provable per the charter. One new MCP tool
+(handoff_write); no read tool. A handoff poisons a session's
+opening frame at the moment of maximum trust, so the desk
+applies with the most teeth yet: pending briefings are NEVER
+served, and even trusted ones carry provenance on their face.
+Its own shelf (library/handoff.db, D-033); narrative content,
+no severity or state machine (a handoff is a note, not a
+matter); no per-agent notes, no TTL, no structured fields
+(prose with judgment beats forms filled from habit). Janitor
+v2 gains stale-handoff findings.
