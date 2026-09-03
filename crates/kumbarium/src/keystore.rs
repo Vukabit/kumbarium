@@ -7,13 +7,23 @@
 //! suppressed) REFUSES, because a suppressed keystore is what a
 //! downgrade attack looks like.
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::process::Command;
 
 use kumbarium_secrets::KEY_LEN;
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const SERVICE: &str = "kumbarium-master";
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const ACCOUNT: &str = "kumbarium";
 
+// On targets without keystore wiring yet, only Absent is ever
+// constructed; the other variants are the cross-platform
+// contract, not dead code.
+#[cfg_attr(
+  not(any(target_os = "macos", target_os = "linux")),
+  allow(dead_code)
+)]
 pub enum Keystore {
   Present([u8; KEY_LEN]),
   Absent,
@@ -41,6 +51,7 @@ pub fn master_key() -> Keystore {
   }
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn decode_hex(hex: &str) -> Option<[u8; KEY_LEN]> {
   let hex = hex.trim();
   if hex.len() != KEY_LEN * 2 {
@@ -54,10 +65,12 @@ fn decode_hex(hex: &str) -> Option<[u8; KEY_LEN]> {
   Some(key)
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn encode_hex(key: &[u8; KEY_LEN]) -> String {
   key.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn mint() -> Option<[u8; KEY_LEN]> {
   let mut key = [0u8; KEY_LEN];
   getrandom::getrandom(&mut key).ok()?;
