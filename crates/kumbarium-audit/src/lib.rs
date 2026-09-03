@@ -11,9 +11,13 @@
 
 #![forbid(unsafe_code)]
 
+mod export;
+
 use std::path::Path;
 
 use rusqlite::Connection;
+
+pub use export::{StoredEvent, events_asc, render_minutes, tail};
 
 const MIGRATIONS: &[(i64, &str, &str)] = &[
   (1, "0001_init", include_str!("../migrations/0001_init.sql")),

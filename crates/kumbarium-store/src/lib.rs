@@ -17,8 +17,9 @@ pub use rusqlite::Connection;
 
 pub use backup::{Retention, backup, latest_backup_ms, prune};
 pub use entries::{
-  Entry, Hit, Kind, NewEntry, confirm, find_by_source, forget, get,
-  namespace_id, namespaces, recall, register_namespace, remember, supersede,
+  Entry, Hit, Kind, NewEntry, confirm, entries_in, find_by_source, forget, get,
+  namespace_id, namespaces, predecessor_of, recall, register_namespace,
+  remember, supersede,
 };
 pub use links::{Link, Rel, link, links_of, unlink};
 

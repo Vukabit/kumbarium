@@ -110,6 +110,62 @@ pub fn namespaces(
   Ok(rows)
 }
 
+/// Browse entries, newest first: all namespaces or exactly one
+/// (no chain here; browsing is namespace-scoped, recall chains).
+/// Superseded entries are hidden unless `include_superseded`.
+pub fn entries_in(
+  conn: &Connection,
+  namespace: Option<&str>,
+  include_superseded: bool,
+) -> Result<Vec<Entry>, StoreError> {
+  let mut sql = String::from(
+    "SELECT e.id, ns.path, e.kind, e.content, e.agent_id,
+            e.source, e.confidence, e.superseded_by,
+            e.created_at, e.updated_at, e.last_accessed_at,
+            e.last_confirmed_at
+     FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
+     WHERE 1=1",
+  );
+  if namespace.is_some() {
+    sql.push_str(" AND ns.path = ?1");
+  }
+  if !include_superseded {
+    sql.push_str(" AND e.superseded_by IS NULL");
+  }
+  sql.push_str(" ORDER BY e.created_at DESC");
+  let mut stmt = conn.prepare(&sql)?;
+  let rows = match namespace {
+    Some(ns) => stmt.query_map([ns], row_to_entry)?,
+    None => stmt.query_map([], row_to_entry)?,
+  }
+  .collect::<Result<Vec<_>, _>>()?;
+  let mut entries = Vec::new();
+  for entry in rows {
+    entries.push(with_tags(conn, entry)?);
+  }
+  Ok(entries)
+}
+
+/// The id of the entry this one superseded (walks the chain
+/// BACKWARD one step): the entry whose superseded_by is `id`.
+pub fn predecessor_of(
+  conn: &Connection,
+  id: &str,
+) -> Result<Option<String>, StoreError> {
+  let found = conn
+    .query_row(
+      "SELECT id FROM entries WHERE superseded_by = ?1",
+      [id],
+      |row| row.get(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+      rusqlite::Error::QueryReturnedNoRows => Ok(None),
+      other => Err(other),
+    })?;
+  Ok(found)
+}
+
 /// Ids of live (non-superseded) entries whose source matches
 /// exactly. Importers use this for idempotency.
 pub fn find_by_source(

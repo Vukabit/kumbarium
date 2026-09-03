@@ -32,6 +32,17 @@ fn main() -> ExitCode {
     ["namespace", "list"] => namespace_list(),
     ["import", "claude", rest @ ..] => import_claude(rest),
     ["backup"] => backup_now(),
+    ["list"] => list_entries(None, false),
+    ["list", "--all"] => list_entries(None, true),
+    ["list", ns] => list_entries(Some(ns), false),
+    ["list", ns, "--all"] => list_entries(Some(ns), true),
+    ["show", id] => show_entry(id),
+    ["audit", "tail"] => audit_tail(20),
+    ["audit", "tail", n] => match n.parse() {
+      Ok(n) => audit_tail(n),
+      Err(_) => fail("audit tail takes a number"),
+    },
+    ["audit", "export"] => audit_export(),
     [] => {
       println!("{USAGE}");
       ExitCode::SUCCESS
@@ -202,6 +213,149 @@ fn namespace_list() -> ExitCode {
   }
 }
 
+fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let entries =
+    match kumbarium_store::entries_in(&state.library, namespace, all) {
+      Ok(entries) => entries,
+      Err(e) => return fail(&e.to_string()),
+    };
+  if entries.is_empty() {
+    println!("no entries");
+    return ExitCode::SUCCESS;
+  }
+  for e in &entries {
+    let day = e.created_at.get(..10).unwrap_or(&e.created_at);
+    let dead = if e.superseded_by.is_some() {
+      " [superseded]"
+    } else {
+      ""
+    };
+    let preview: String = e
+      .content
+      .lines()
+      .next()
+      .unwrap_or("")
+      .chars()
+      .take(56)
+      .collect();
+    println!(
+      "{}  {day}  {:<13} {:<20} {preview}{dead}",
+      e.id,
+      e.kind.as_str(),
+      e.namespace
+    );
+  }
+  println!("({} entries)", entries.len());
+  ExitCode::SUCCESS
+}
+
+fn show_entry(id: &str) -> ExitCode {
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let e = match kumbarium_store::get(&state.library, id) {
+    Ok(e) => e,
+    Err(err) => return fail(&err.to_string()),
+  };
+  println!("id:         {}", e.id);
+  println!("namespace:  {}", e.namespace);
+  println!("kind:       {}", e.kind.as_str());
+  println!("agent:      {}", e.agent_id);
+  if !e.source.is_empty() {
+    println!("source:     {}", e.source);
+  }
+  println!("confidence: {:.2}", e.confidence);
+  println!("created:    {}", e.created_at);
+  println!("updated:    {}", e.updated_at);
+  if let Some(at) = &e.last_accessed_at {
+    println!("accessed:   {at}");
+  }
+  if let Some(at) = &e.last_confirmed_at {
+    println!("confirmed:  {at}");
+  }
+  if !e.tags.is_empty() {
+    println!("tags:       {}", e.tags.join(", "));
+  }
+  if let Some(new) = &e.superseded_by {
+    println!("superseded by: {new}");
+  }
+  match kumbarium_store::predecessor_of(&state.library, id) {
+    Ok(Some(old)) => println!("supersedes: {old}"),
+    Ok(None) => {}
+    Err(err) => return fail(&err.to_string()),
+  }
+  match kumbarium_store::links_of(&state.library, id) {
+    Ok(links) => {
+      for l in links {
+        if l.from_id == e.id {
+          println!("link:       {} -> {}", l.rel.as_str(), l.to_id);
+        } else {
+          println!("link:       {} <- {}", l.rel.as_str(), l.from_id);
+        }
+      }
+    }
+    Err(err) => return fail(&err.to_string()),
+  }
+  println!("\n{}", e.content);
+  ExitCode::SUCCESS
+}
+
+fn audit_tail(n: usize) -> ExitCode {
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  match kumbarium_audit::tail(&state.audit, n) {
+    Ok(events) => {
+      for e in events {
+        let scope = if e.scope.is_empty() {
+          String::new()
+        } else {
+          format!(" {}", e.scope)
+        };
+        println!(
+          "{}  {:<9} {:<20}{scope}  {}",
+          e.at, e.kind, e.agent_id, e.detail
+        );
+      }
+      ExitCode::SUCCESS
+    }
+    Err(e) => fail(&e.to_string()),
+  }
+}
+
+fn audit_export() -> ExitCode {
+  let (p, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let events = match kumbarium_audit::events_asc(&state.audit) {
+    Ok(events) => events,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let minutes = kumbarium_audit::render_minutes(&events);
+  if let Err(e) = std::fs::create_dir_all(&p.exports_dir) {
+    return fail(&format!("creating exports dir: {e}"));
+  }
+  let stamp = kumbarium_util::now_iso8601()
+    .get(..19)
+    .unwrap_or_default()
+    .replace(':', "-");
+  let target = p.exports_dir.join(format!("minutes-{stamp}Z.md"));
+  match kumbarium_util::write_atomically(&target, minutes.as_bytes()) {
+    Ok(()) => {
+      println!("{}", target.display());
+      ExitCode::SUCCESS
+    }
+    Err(e) => fail(&format!("writing minutes: {e}")),
+  }
+}
+
 fn import_claude(rest: &[&str]) -> ExitCode {
   let mut opts = import::Options {
     dirs: Vec::new(),
@@ -262,6 +416,10 @@ Usage:
   kumbarium namespace list            list namespaces
   kumbarium import claude [--apply]   import Claude Code
       [--dir <path>]... [--map name=namespace]...  memories
+  kumbarium list [ns] [--all]         browse entries
+  kumbarium show <id>                 one entry, full detail
+  kumbarium audit tail [n]            recent audit events
+  kumbarium audit export              minutes markdown to exports/
   kumbarium backup                    snapshot both dbs now
   kumbarium paths                     where persisted data lives
   kumbarium version                   print the version";
