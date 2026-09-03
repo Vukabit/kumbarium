@@ -7,6 +7,7 @@
 #   kumbarium-janitor    confidence pass: survival math over the ledger
 #   kumbarium-docket     tasks and the roadmap: the coordination shelf
 #   kumbarium-handoff    standing briefings: what is mid-flight per shelf
+#   kumbarium-secrets    the restricted stacks: sealed credential custody
 
 [workspace]
 resolver = "3"
@@ -18,6 +19,7 @@ members = [
   "crates/kumbarium-janitor",
   "crates/kumbarium-docket",
   "crates/kumbarium-handoff",
+  "crates/kumbarium-secrets",
   "crates/kumbarium",
 ]
 
@@ -41,6 +43,13 @@ rusqlite = { version = "0.37", features = ["bundled", "backup"] }
 # Already transitive via rusqlite; direct use is the one-line
 # SIGPIPE reset in the CLI.
 libc = "0.2"
+
+# The vetted floor (D-039): the only cryptography dependencies
+# admitted, for the restricted stacks. XChaCha20-Poly1305 +
+# zeroize-on-drop; nothing above the floor enters by this door.
+chacha20poly1305 = "0.10"
+getrandom = "0.2"
+zeroize = { version = "1", features = ["derive"] }
 
 # Serialization + config + platform paths.
 serde = { version = "1", features = ["derive"] }

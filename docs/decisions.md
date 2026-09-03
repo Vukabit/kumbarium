@@ -532,3 +532,23 @@ chacha20poly1305, master key in the platform keystore reached
 by shelling the OS tool; refuse-don't-downgrade where no
 keystore exists) versus plaintext-at-rest on the OS user
 boundary. A doctrine amendment is the human's to make.
+
+## D-039: hand-rolled on a vetted floor (2026-09-03)
+
+The D-012 amendment, signed: cryptography that must resist
+adversaries is the one domain where hand-rolling inverts into
+malpractice, so the restricted stacks admit a vetted floor and
+nothing above it: `chacha20poly1305` (XChaCha20-Poly1305,
+192-bit fresh-random nonce, RNG failure fails closed) and
+`zeroize`, RustCrypto, pinned, permissive. The clause is a port
+of [redacted]'s own settled doctrine, where reimplementing an
+audited protocol stack VIOLATES the hand-roll principle. The
+floor stays a floor: no KEMs, no signatures, no TLS crates
+enter by this door; every future crypto dependency re-argues
+its case at this bar. Sealed blobs lead with a version byte
+(unknown versions fail closed); the master key lives in the
+platform keystore reached by shelling the OS tool, with the
+Present/Absent/Blocked tri-state: absent substrate falls back
+loudly behind an explicit human flag, a blocked keystore
+REFUSES, because suppression is what downgrade attacks look
+like.
