@@ -685,7 +685,7 @@ def run_fixture(path, provider, binary, snippet, user_provider):
     [binary, "status"], env=env, capture_output=True, text=True
   ).stdout
   minutes = subprocess.run(
-    [binary, "audit", "export", "--stdout", "--raw"],
+    [binary, "export", "minutes", "--stdout", "--raw"],
     env=env,
     capture_output=True,
     text=True,

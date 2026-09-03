@@ -52,9 +52,12 @@ pub fn run() -> ExitCode {
     }
     ["namespace", "list"] => namespace_list(),
     ["import", "claude", rest @ ..] => import_claude(rest),
-    ["bundle", scope] => bundle_cmd(scope, None, false),
-    ["bundle", scope, "--stdout"] => bundle_cmd(scope, None, true),
-    ["bundle", scope, "--out", dir] => bundle_cmd(scope, Some(dir), false),
+    ["export"] => {
+      println!("{EXPORTS}");
+      ExitCode::SUCCESS
+    }
+    ["export", "minutes", rest @ ..] => export_minutes_cmd(rest),
+    ["export", "bundle", scope, rest @ ..] => export_bundle_cmd(scope, rest),
     ["import", "bundle", file] => import_bundle_cmd(file, false),
     ["import", "bundle", file, "--pending"] => import_bundle_cmd(file, true),
     ["backup"] => backup_now(),
@@ -87,6 +90,7 @@ pub fn run() -> ExitCode {
     ["status"] => status_cmd(),
     ["config"] => config_cmd(false),
     ["config", "--init"] => config_cmd(true),
+    ["config", "--open"] => config_open(),
     ["grep", pattern] => grep_cmd(pattern, None, false),
     ["grep", pattern, "--all"] => grep_cmd(pattern, None, true),
     ["grep", pattern, ns] => grep_cmd(pattern, Some(ns), false),
@@ -141,11 +145,6 @@ pub fn run() -> ExitCode {
       )),
     },
     ["audit", "verify"] => audit_verify(),
-    ["audit", "export", rest @ ..] => {
-      let to_stdout = rest.contains(&"--stdout");
-      let raw = rest.contains(&"--raw");
-      audit_export(to_stdout, raw)
-    }
     [] => {
       println!("{USAGE}");
       ExitCode::SUCCESS
@@ -625,7 +624,179 @@ fn audit_verify() -> ExitCode {
   }
 }
 
-fn audit_export(to_stdout: bool, raw: bool) -> ExitCode {
+const EXPORTS: &str = "\
+the loading dock: everything leaving the library goes here
+(imports enter through `kumbarium import`; minutes have no
+import, the ledger admits events only by witnessing them)
+
+  kumbarium export minutes [--raw]    audit minutes markdown
+  kumbarium export bundle <ns>        a shelf, hashed JSON
+
+shared flags:
+  --out DIR    export into DIR (default: the exports/ shelf)
+  --stdout     stream instead; nothing persisted
+  --show       reveal the file in the OS file explorer
+  --open       open the file in $VISUAL / $EDITOR";
+
+/// Flags every exporter speaks identically (the export spine).
+#[derive(Default)]
+struct ExportOpts {
+  out: Option<String>,
+  stdout: bool,
+  show: bool,
+  open: bool,
+  raw: bool,
+}
+
+fn parse_export_opts(rest: &[&str]) -> Result<ExportOpts, String> {
+  let mut opts = ExportOpts::default();
+  let mut it = rest.iter();
+  while let Some(arg) = it.next() {
+    match *arg {
+      "--stdout" => opts.stdout = true,
+      "--show" => opts.show = true,
+      "--open" => opts.open = true,
+      "--raw" => opts.raw = true,
+      "--out" => match it.next() {
+        Some(dir) => opts.out = Some((*dir).to_string()),
+        None => return Err("--out needs a directory".into()),
+      },
+      other => {
+        return Err(format!("unknown export flag {other:?}"));
+      }
+    }
+  }
+  if opts.stdout && (opts.show || opts.open) {
+    return Err(
+      "--stdout persists nothing; --show and --open need a file".into(),
+    );
+  }
+  Ok(opts)
+}
+
+/// Persist one export artifact and finish the shared flags:
+/// resolve the directory (--out or the artifact's shelf), write
+/// atomically under the sortable stamped name, print the path,
+/// then reveal and/or open on request.
+fn deliver_export(
+  shelf: std::path::PathBuf,
+  name: String,
+  content: &str,
+  opts: &ExportOpts,
+) -> ExitCode {
+  let dir = match &opts.out {
+    Some(raw) => expand_home(raw),
+    None => shelf,
+  };
+  if let Err(e) = std::fs::create_dir_all(&dir) {
+    return fail(&format!("creating {}: {e}", dir.display()));
+  }
+  let target = dir.join(name);
+  if let Err(e) = kumbarium_util::write_atomically(&target, content.as_bytes())
+  {
+    return fail(&format!("writing export: {e}"));
+  }
+  println!("{}", shell_quote(&target.display().to_string()));
+  if opts.show
+    && let Err(e) = reveal(&target)
+  {
+    return fail(&e);
+  }
+  if opts.open
+    && let Err(e) = open_in_editor(&target)
+  {
+    return fail(&e);
+  }
+  ExitCode::SUCCESS
+}
+
+/// Reveal a file in the platform's file explorer. macOS and
+/// Windows select the file itself; Linux has no portable
+/// reveal-and-select, so the containing shelf opens instead.
+fn reveal(path: &std::path::Path) -> Result<(), String> {
+  #[cfg(target_os = "macos")]
+  let mut cmd = {
+    let mut c = std::process::Command::new("open");
+    c.arg("-R").arg(path);
+    c
+  };
+  #[cfg(target_os = "windows")]
+  let mut cmd = {
+    let mut c = std::process::Command::new("explorer");
+    c.arg(format!("/select,{}", path.display()));
+    c
+  };
+  #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+  let mut cmd = {
+    let mut c = std::process::Command::new("xdg-open");
+    c.arg(path.parent().unwrap_or(path));
+    c
+  };
+  let status = cmd
+    .status()
+    .map_err(|e| format!("launching file explorer: {e}"))?;
+  if status.success() {
+    Ok(())
+  } else {
+    Err("file explorer exited nonzero".into())
+  }
+}
+
+/// Open a file in $VISUAL (then $EDITOR), announcing which one
+/// won before handing over the terminal. The editor inherits
+/// stdio and is waited on, so terminal editors behave.
+fn open_in_editor(path: &std::path::Path) -> Result<(), String> {
+  let sty = style::Style::detect();
+  let found = ["VISUAL", "EDITOR"].iter().find_map(|var| {
+    std::env::var(var)
+      .ok()
+      .filter(|v| !v.trim().is_empty())
+      .map(|v| (*var, v))
+  });
+  let Some((var, editor)) = found else {
+    return Err("no $VISUAL or $EDITOR set; use --show instead".into());
+  };
+  println!("{}\n", sty.dim(&format!("${var} = {editor}")));
+  // The variable may carry flags ("code --wait"): first token is
+  // the binary, the rest pass through.
+  let mut parts = editor.split_whitespace();
+  let bin = parts.next().ok_or("empty editor value")?;
+  let status = std::process::Command::new(bin)
+    .args(parts)
+    .arg(path)
+    .status()
+    .map_err(|e| format!("launching {editor:?}: {e}"))?;
+  if status.success() {
+    Ok(())
+  } else {
+    Err(format!("{editor} exited nonzero"))
+  }
+}
+
+/// Open config.toml in the editor (the most-edited file in the
+/// system deserves a door).
+fn config_open() -> ExitCode {
+  let p = match paths::resolve() {
+    Ok(p) => p,
+    Err(e) => return fail(&e.to_string()),
+  };
+  if !p.config_file.exists() {
+    return fail(
+      "no config file yet; write the template first: \
+       kumbarium config --init",
+    );
+  }
+  match open_in_editor(&p.config_file) {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(e) => fail(&e),
+  }
+}
+
+fn export_minutes_cmd(rest: &[&str]) -> ExitCode {
+  let opts = match parse_export_opts(rest) {
+    Ok(o) => o,
+    Err(e) => return fail(&e),
+  };
   let (p, state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
@@ -641,7 +812,7 @@ fn audit_export(to_stdout: bool, raw: bool) -> ExitCode {
     let time = at.get(11..19).unwrap_or("");
     format!("{day} {time}")
   };
-  let minutes = if raw {
+  let minutes = if opts.raw {
     kumbarium_audit::render_minutes(
       &events,
       &utc_display,
@@ -654,7 +825,7 @@ fn audit_export(to_stdout: bool, raw: bool) -> ExitCode {
       "Times are local to the exporting machine.",
     )
   };
-  if to_stdout {
+  if opts.stdout {
     // On a TTY, hanging-wrap table rows at the detail column
     // (8+2 + 9+1 + 20+1 + 20+1 = 62) so overflow stays
     // readable; piped/redirected output is byte-identical to
@@ -691,24 +862,20 @@ fn audit_export(to_stdout: bool, raw: bool) -> ExitCode {
     }
     return ExitCode::SUCCESS;
   }
-  // Artifact types get their own shelf under exports/ (audit/,
-  // bundles/; future exporters add siblings).
-  let dir = p.exports_dir.join("audit");
-  if let Err(e) = std::fs::create_dir_all(&dir) {
-    return fail(&format!("creating exports dir: {e}"));
-  }
-  let stamp = kumbarium_util::now_iso8601()
+  deliver_export(
+    p.exports_dir.join("audit"),
+    format!("minutes-{}Z.md", export_stamp()),
+    &minutes,
+    &opts,
+  )
+}
+
+/// The sortable second-resolution stamp every export name uses.
+fn export_stamp() -> String {
+  kumbarium_util::now_iso8601()
     .get(..19)
     .unwrap_or_default()
-    .replace(':', "-");
-  let target = dir.join(format!("minutes-{stamp}Z.md"));
-  match kumbarium_util::write_atomically(&target, minutes.as_bytes()) {
-    Ok(()) => {
-      println!("{}", shell_quote(&target.display().to_string()));
-      ExitCode::SUCCESS
-    }
-    Err(e) => fail(&format!("writing minutes: {e}")),
-  }
+    .replace(':', "-")
 }
 
 /// Quote a path for copy-paste when a HUMAN is reading (the
@@ -1804,12 +1971,16 @@ fn judge_cmd(id: &str, approving: bool, reason: Option<String>) -> ExitCode {
   ExitCode::SUCCESS
 }
 
-/// Export one shelf as a hashed bundle file (D-028). Same shape
-/// as `audit export`: lands in exports/ under a sortable
-/// ISO-stamped name and prints the path; `--out <dir>` picks the
-/// directory (the generated name is not negotiable, trailing
-/// slash irrelevant); `--stdout` streams with no persistence.
-fn bundle_cmd(scope: &str, out_dir: Option<&str>, to_stdout: bool) -> ExitCode {
+/// Export one shelf as a hashed bundle file (D-028), through
+/// the shared export spine.
+fn export_bundle_cmd(scope: &str, rest: &[&str]) -> ExitCode {
+  let opts = match parse_export_opts(rest) {
+    Ok(o) => o,
+    Err(e) => return fail(&e),
+  };
+  if opts.raw {
+    return fail("--raw applies to minutes only");
+  }
   let scope = &kumbarium_librarian::normalize_namespace(scope);
   let (p, state) = match open_stores() {
     Ok(v) => v,
@@ -1819,31 +1990,21 @@ fn bundle_cmd(scope: &str, out_dir: Option<&str>, to_stdout: bool) -> ExitCode {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
-  if to_stdout {
+  if opts.stdout {
     print!("{text}");
     return ExitCode::SUCCESS;
   }
-  let dir = match out_dir {
-    Some(raw) => expand_home(raw),
-    None => p.exports_dir.join("bundles"),
-  };
-  if let Err(e) = std::fs::create_dir_all(&dir) {
-    return fail(&format!("creating {}: {e}", dir.display()));
-  }
-  let stamp = kumbarium_util::now_iso8601()
-    .get(..19)
-    .unwrap_or_default()
-    .replace(':', "-");
-  let name = format!("bundle-{}-{stamp}Z.json", scope.replace('/', "-"));
-  let target = dir.join(name);
-  match kumbarium_util::write_atomically(&target, text.as_bytes()) {
-    Ok(()) => {
-      eprintln!("bundled {count} entries from {scope}");
-      println!("{}", shell_quote(&target.display().to_string()));
-      ExitCode::SUCCESS
-    }
-    Err(e) => fail(&format!("writing bundle: {e}")),
-  }
+  eprintln!("bundled {count} entries from {scope}");
+  deliver_export(
+    p.exports_dir.join("bundles"),
+    format!(
+      "bundle-{}-{}Z.json",
+      scope.replace('/', "-"),
+      export_stamp()
+    ),
+    &text,
+    &opts,
+  )
 }
 
 /// Expand a leading `~/` (or bare `~`) so a quoted --out path
@@ -1935,10 +2096,10 @@ Usage:
   kumbarium namespace list            list namespaces
   kumbarium import claude [--apply]   import Claude Code
       [--dir <path>]... [--map name=namespace]...  memories
-  kumbarium bundle <ns>               export a shelf as one
-             [--out DIR] [--stdout]   hashed JSON bundle into
-                                      exports/ (or DIR); print
-                                      with --stdout instead
+  kumbarium export                    list the loading dock
+  kumbarium export minutes [--raw]    audit minutes markdown
+  kumbarium export bundle <ns>        a shelf, hashed JSON
+      shared: [--out DIR] [--stdout] [--show] [--open]
   kumbarium import bundle <FILE>      union-merge a bundle
                           [--pending] (forks go to the desk;
                                       --pending queues all)
@@ -1971,15 +2132,13 @@ Usage:
   kumbarium move <id> <namespace>     relocate (as supersession)
   kumbarium audit tail [n]            recent audit events
              [--scope <ns>]           (optionally one scope)
-  kumbarium audit export [--stdout]   minutes markdown to
-                         [--raw]      exports/ or streamed
-                                      (--raw keeps stored UTC)
   kumbarium audit verify              recompute the ledger's
                                       hash chain; tampering
                                       names its first break
   kumbarium backup                    snapshot both dbs now
-  kumbarium config [--init]           effective tunables
-                                      (--init writes template)
+  kumbarium config [--init|--open]    effective tunables
+                                      (--init writes template,
+                                      --open edits it)
   kumbarium paths                     where persisted data lives
   kumbarium version                   print the version
   kumbarium help [topic]              manual pages with grammar

@@ -5,7 +5,7 @@
 
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
-instructions status grep move janitor approvals bundle";
+instructions status grep move janitor approvals export";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -27,7 +27,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "namespaces" | "scopes" => PAGE_NAMESPACES,
     "janitor" => PAGE_JANITOR,
     "approvals" | "inbox" | "review" | "approve" | "reject" => PAGE_APPROVALS,
-    "bundle" | "bundles" => PAGE_BUNDLE,
+    "export" | "bundle" | "bundles" | "minutes" => PAGE_EXPORT,
     _ => return None,
   })
 }
@@ -217,18 +217,16 @@ const PAGE_AUDIT: &str = "\
 
 ```
 kum audit tail [n] [--scope <ns>]
-kum audit export [--stdout] [--raw]
 kum audit verify
 ```
 
+Minutes leave through the loading dock: `kum export minutes`
+(see `kum help export`).
+
 Every librarian transaction is an event: who (agent identity),
 when, what, in which scope. `tail` shows the most recent n
-(default 20) as prose. `export` renders deterministic
-meeting-minutes markdown to exports/audit/ and prints the path
-(quoted on a terminal, bare into pipes); `--stdout` streams the
-markdown instead, for piping. Times render local by default;
-`--raw` keeps the stored UTC form (machine-comparable across
-exporting machines). Storage is always strict ISO-8601 UTC.
+(default 20) as prose. Storage is always strict ISO-8601 UTC;
+rendering localizes.
 
 The ledger is HASH-CHAINED (D-029): each event stores
 sha256(previous hash + its own fields), so `verify` recomputes
@@ -238,9 +236,8 @@ math anyone holding the file can check, not a promise.
 
 ```
 kum audit tail 50
-kum audit export --stdout | less
 kum audit verify
-command cat \"$(kum audit export)\"
+kum export minutes --stdout | less
 ```
 ";
 
@@ -352,19 +349,34 @@ ages, database sizes. The first command to run when wondering
 what state things are in.
 ";
 
-const PAGE_BUNDLE: &str = "\
-## bundle: memories in motion
+const PAGE_EXPORT: &str = "\
+## export: the loading dock
 
 ```
-kum bundle <namespace> [--out DIR] [--stdout]
+kum export                     list what can leave
+kum export minutes [--raw]     audit minutes markdown
+kum export bundle <namespace>  a shelf as one hashed JSON file
 kum import bundle <FILE> [--pending]
 ```
 
-Like `audit export`, a bundle lands in exports/bundles/ under
-a sortable ISO-stamped name (`bundle-<ns>-<stamp>Z.json`) and the
-path is printed. `--out <dir>` chooses the directory instead
-(created if missing; trailing slash irrelevant); `--stdout`
-streams the JSON with no file written.
+Everything leaving the library goes through one verb with one
+flag contract; imports enter through `kum import`, where the
+approvals policy waits. Minutes have no import on purpose: the
+ledger admits events only by witnessing them.
+
+Shared flags on every exporter:
+
+- `--out DIR`: export into DIR (created if missing, `~/` ok,
+  trailing slash irrelevant) instead of the artifact's shelf
+  under exports/. The sortable stamped name is not negotiable.
+- `--stdout`: stream instead; nothing persisted.
+- `--show`: reveal the file in the OS file explorer (macOS and
+  Windows select it; Linux opens the containing shelf).
+- `--open`: open the file in $VISUAL / $EDITOR (announced on a
+  dim line first).
+
+Minutes render local time by default; `--raw` keeps stored UTC
+(machine-comparable across exporting machines).
 
 One shelf as one deterministic JSON file, SHA-256 hashed so a
 review conversation can name it and the importer can verify
@@ -384,9 +396,10 @@ from the inbox (D-028). `--pending` routes every imported head
 through the desk, for bundles from hands you do not know.
 
 ```
-kum bundle project/my-app
-kum bundle project/my-app --out ~/Desktop/files
-kum bundle project/my-app --stdout | jq .content_hash
+kum export bundle project/my-app --show
+kum export bundle project/my-app --out ~/Desktop/files
+kum export bundle project/my-app --stdout | jq .content_hash
+kum export minutes --open
 kum import bundle contributed.bundle.json --pending
 ```
 ";

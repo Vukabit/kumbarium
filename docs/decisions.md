@@ -372,3 +372,22 @@ open() normalizes them one time: a db at legacy latest collapses
 its schema_version rows to (1, '0001_init'); anything mid-legacy
 errors loudly instead of guessing (it cannot exist, since every
 open migrates to latest).
+
+## D-031: the loading dock (2026-09-03)
+
+Everything leaving the library goes through one verb: `kum
+export minutes | bundle <ns>`, sharing one flag contract
+(--out DIR, --stdout, --show, --open) implemented once in an
+export spine, so exporters cannot drift apart and every future
+artifact (dossiers, briefs, scorecards) is a new row in `kum
+export`, never a new top-level verb. Imports enter through `kum
+import`, where the approvals policy waits; the remaining
+asymmetry is doctrinal: minutes have no import, because the
+ledger admits events only by witnessing them. The old spellings
+(`kum audit export`, bare `kum bundle`) are REMOVED, not
+aliased: pre-launch is the one free rename window, and a single
+spelling keeps the man page the whole truth. --show reveals in
+the OS file explorer (select on macOS/Windows, containing shelf
+on Linux); --open runs $VISUAL then $EDITOR, announced on a dim
+line, inherited stdio, waited on. `kum config --open` rides the
+same editor plumbing.
