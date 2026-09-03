@@ -109,6 +109,7 @@ pub(crate) fn paint_invocation(inv: &str, sty: &style::Style) -> String {
 
 pub(crate) const USAGE: &str = "\
 kumbarium: the place of remembering
+kum is the short alias; every command below answers to both.
 
 Usage:
 
