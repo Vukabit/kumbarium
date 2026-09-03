@@ -356,8 +356,8 @@ mod tests {
     assert!(a.contains("time      kind"), "tabular header per day");
     assert!(a.contains("remember    test-agent"));
     assert!(a.ends_with("```\n"), "day table fence closed");
-    let remember_pos = a.find("remember  test-agent").unwrap();
-    let recall_pos = a.find("recall    test-agent").unwrap();
+    let remember_pos = a.find("remember    test-agent").unwrap();
+    let recall_pos = a.find("recall      test-agent").unwrap();
     assert!(remember_pos < recall_pos, "oldest first");
   }
 
