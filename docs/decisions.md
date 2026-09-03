@@ -65,3 +65,23 @@ until then, no async in the tree.
 
 `crates/kumbarium` may println; that is its job. Library crates
 (kumbarium-*) stay in scope for the gate.
+
+## D-011: porter stemming + OR recall (2026-09-02)
+
+Migration 0002 rebuilds the FTS index with the porter tokenizer
+(queries phrase things differently than stored content). Recall
+sanitizes every token into a quoted phrase (agent input can never
+raise an FTS syntax error) and joins with OR: bm25 still ranks
+multi-term matches first, but one missing word cannot blank a
+result. Known limit, by design: zero-term-overlap semantic
+queries miss entirely; the eval set keeps such cases as the
+measure of whether embeddings later earn their place.
+
+## D-012: minimal-dependency stance (2026-09-02)
+
+Permissive licenses only (deny.toml enforces) AND as few deps as
+possible: prefer building our own code; supply-chain attacks are
+rising. The standing stance: vendor exactly what
+we need, nothing more. Weighs directly on the MCP SDK choice
+(D-009): hand-rolling the stdio JSON-RPC transport is on the
+table.

@@ -5,15 +5,28 @@
 
 #![forbid(unsafe_code)]
 
+mod entries;
+
 use std::path::Path;
 
 use rusqlite::Connection;
 
+pub use entries::{
+  Entry, Hit, Kind, NewEntry, confirm, forget, get, namespace_id, recall,
+  register_namespace, remember, supersede,
+};
+
 /// Numbered migrations, applied in order inside one transaction
 /// each. Append-only: a shipped migration is never edited; schema
 /// changes are a new numbered file.
-const MIGRATIONS: &[(i64, &str, &str)] =
-  &[(1, "0001_init", include_str!("../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+  (1, "0001_init", include_str!("../migrations/0001_init.sql")),
+  (
+    2,
+    "0002_fts_porter",
+    include_str!("../migrations/0002_fts_porter.sql"),
+  ),
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -21,6 +34,16 @@ pub enum StoreError {
   Sqlite(#[from] rusqlite::Error),
   #[error("migration {0} failed: {1}")]
   Migration(i64, rusqlite::Error),
+  #[error("namespace {0:?} is not registered")]
+  NamespaceNotRegistered(String),
+  #[error("namespace {0:?} is already registered")]
+  NamespaceExists(String),
+  #[error("no entry with id {0:?}")]
+  EntryNotFound(String),
+  #[error("entry {0:?} is already superseded")]
+  AlreadySuperseded(String),
+  #[error("entry content is empty")]
+  EmptyContent,
 }
 
 /// Open (creating if absent) the Library at `path`, applying WAL
@@ -95,7 +118,7 @@ mod tests {
   #[test]
   fn fresh_store_reaches_latest_schema() {
     let conn = open_in_memory().unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 1);
+    assert_eq!(schema_version(&conn).unwrap(), 2);
   }
 
   #[test]
@@ -103,7 +126,7 @@ mod tests {
     let conn = open_in_memory().unwrap();
     // A second pass sees itself at latest and applies nothing.
     migrate(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 1);
+    assert_eq!(schema_version(&conn).unwrap(), 2);
   }
 
   #[test]
