@@ -286,22 +286,64 @@ fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
        content"
     )
   );
+  // Set-aware order: entries arrive newest-first; the first time
+  // a continues-set appears, all its visible members are emitted
+  // together in chain order, so a group sits at its newest
+  // member's position and parts always read 1..n.
+  let first_line = |content: &str| -> String {
+    content
+      .lines()
+      .next()
+      .unwrap_or("")
+      .chars()
+      .take(48)
+      .collect()
+  };
+  let by_id: std::collections::HashMap<&str, &kumbarium_store::Entry> =
+    entries.iter().map(|e| (e.id.as_str(), e)).collect();
+  let mut emitted: std::collections::HashSet<&str> =
+    std::collections::HashSet::new();
   for e in &entries {
-    let day = e.created_at.get(..10).unwrap_or(&e.created_at);
-    let dead = if e.superseded_by.is_some() {
-      sty.red(" [superseded]")
-    } else if e.retired_at.is_some() {
-      sty.yellow(" [retired]")
+    if emitted.contains(e.id.as_str()) {
+      continue;
+    }
+    let chain = kumbarium_store::continues_chain(&state.library, &e.id)
+      .map(|(chain, _)| chain)
+      .unwrap_or_else(|_| vec![e.id.clone()]);
+    let n = chain.len();
+    let set_title = if n > 1 {
+      kumbarium_store::get(&state.library, &chain[0])
+        .map(|head| first_line(&head.content))
+        .ok()
     } else {
-      String::new()
+      None
     };
-    let (title, part) = list_title(&state, e);
-    println!(
-      "{}  {day}  {} {:<20} {title}{part}{dead}",
-      sty.id(kumbarium_store::short_id(&e.id)),
-      sty.kind(&format!("{:<13}", e.kind.as_str())),
-      e.namespace
-    );
+    for (i, id) in chain.iter().enumerate() {
+      let Some(m) = by_id.get(id.as_str()) else {
+        continue;
+      };
+      emitted.insert(m.id.as_str());
+      let day = m.created_at.get(..10).unwrap_or(&m.created_at);
+      let dead = if m.superseded_by.is_some() {
+        sty.red(" [superseded]")
+      } else if m.retired_at.is_some() {
+        sty.yellow(" [retired]")
+      } else {
+        String::new()
+      };
+      let part = if n > 1 {
+        sty.dim(&format!(" ({}/{n})", i + 1))
+      } else {
+        String::new()
+      };
+      let title = set_title.clone().unwrap_or_else(|| first_line(&m.content));
+      println!(
+        "{}  {day}  {} {:<20} {title}{part}{dead}",
+        sty.id(kumbarium_store::short_id(&m.id)),
+        sty.kind(&format!("{:<13}", m.kind.as_str())),
+        m.namespace
+      );
+    }
   }
   println!(
     "{}",
@@ -312,38 +354,6 @@ fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
     ))
   );
   ExitCode::SUCCESS
-}
-
-/// The list row's title cell: the entry's first content line,
-/// except set members show their HEAD part's first line plus a
-/// position marker, so a split memory reads as one title across
-/// its rows.
-fn list_title(
-  state: &tools::ServerState,
-  e: &kumbarium_store::Entry,
-) -> (String, String) {
-  let first = |content: &str| -> String {
-    content
-      .lines()
-      .next()
-      .unwrap_or("")
-      .chars()
-      .take(48)
-      .collect()
-  };
-  let Ok((chain, _)) = kumbarium_store::continues_chain(&state.library, &e.id)
-  else {
-    return (first(&e.content), String::new());
-  };
-  if chain.len() < 2 {
-    return (first(&e.content), String::new());
-  }
-  let pos = chain.iter().position(|c| *c == e.id).unwrap_or(0) + 1;
-  let part = format!(" ({pos}/{})", chain.len());
-  let title = kumbarium_store::get(&state.library, &chain[0])
-    .map(|head| first(&head.content))
-    .unwrap_or_else(|_| first(&e.content));
-  (title, part)
 }
 
 fn show_entry(id: &str, full: bool) -> ExitCode {
