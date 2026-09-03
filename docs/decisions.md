@@ -213,3 +213,27 @@ Enum-limited notes rejected as fake enforcement. Future
 janitor flags note-churn patterns for human review. Metadata
 (tags, links, confidence, retirement, confirmation) stays
 mutable in place: none of it changes what was said.
+
+## D-021: config is a hand-rolled TOML subset (2026-09-03)
+
+One config.toml for every tunable (backup interval + retention
+tiers, split target, collapse threshold, recall limit), parsed
+by ~60 in-tree lines supporting exactly what the config uses:
+comments, [sections], integer keys. The toml crate stays a
+dev-only dependency: supply-chain weight is judged on what
+SHIPS. Missing file = defaults; malformed or unknown lines warn
+on stderr and keep defaults (an agent's server must still
+start); insane values clamp. `kum config` shows effective
+values and their source; `--init` writes the commented
+template and refuses to overwrite.
+
+## D-022: supersession rewires the link graph (2026-09-03)
+
+Found by dogfooding per-part supersession: the replacement
+entry must take the old version's place in EVERY edge
+(continues-set membership and associations), and the
+superseded version keeps none; its identity in history is the
+supersession chain itself. Without this, superseding one part
+of a split set left the set stitching through the dead
+version. Edges are metadata (mutable per D-020), so migrating
+them mutates nothing that was said.

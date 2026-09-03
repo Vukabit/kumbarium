@@ -468,6 +468,24 @@ pub fn supersede(
       params![note, entry.id],
     )?;
   }
+  // The replacement takes the old version's place in the link
+  // graph: continues-set membership and associations follow the
+  // LIVE fact; the superseded version's identity in history is
+  // the supersession chain itself. OR IGNORE + sweep handles an
+  // edge the new entry already carries.
+  tx.execute(
+    "UPDATE OR IGNORE entry_links SET from_id = ?1
+     WHERE from_id = ?2",
+    params![entry.id, old_id],
+  )?;
+  tx.execute(
+    "UPDATE OR IGNORE entry_links SET to_id = ?1 WHERE to_id = ?2",
+    params![entry.id, old_id],
+  )?;
+  tx.execute(
+    "DELETE FROM entry_links WHERE from_id = ?1 OR to_id = ?1",
+    [old_id],
+  )?;
   tx.execute(
     "UPDATE entries SET superseded_by = ?1, updated_at = ?2
      WHERE id = ?3",

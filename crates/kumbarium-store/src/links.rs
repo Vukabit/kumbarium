@@ -311,6 +311,36 @@ mod tests {
   }
 
   #[test]
+  fn supersession_rewires_set_membership() {
+    let (mut conn, a, b) = seeded();
+    // b continues a; then supersede b: the replacement must take
+    // b's place in the set, and b must keep no edges.
+    link(&conn, &b, &a, Rel::Continues).unwrap();
+    let b2 = crate::supersede(
+      &mut conn,
+      &b,
+      &NewEntry {
+        namespace: "global".into(),
+        kind: Kind::Reference,
+        content: "part two, corrected".into(),
+        agent_id: "test".into(),
+        source: "".into(),
+        tags: vec![],
+      },
+      Some("typo fix"),
+    )
+    .unwrap()
+    .id;
+    let (chain, branched) = continues_chain(&conn, &a).unwrap();
+    assert_eq!(chain, [a.clone(), b2.clone()]);
+    assert!(!branched);
+    assert!(
+      links_of(&conn, &b).unwrap().is_empty(),
+      "superseded version keeps no edges"
+    );
+  }
+
+  #[test]
   fn forget_cleans_up_edges() {
     let (mut conn, a, b) = seeded();
     link(&conn, &a, &b, Rel::Continues).unwrap();
