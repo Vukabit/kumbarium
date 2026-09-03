@@ -91,7 +91,7 @@ impl Style {
   pub fn event(&self, kind: &str) -> String {
     let code = match kind.trim_end() {
       "recall" => BLUE,
-      "remember" | "import" => GREEN,
+      "remember" | "import" | "confirm" => GREEN,
       "supersede" => YELLOW,
       "forget" => RED,
       "link" => CYAN,

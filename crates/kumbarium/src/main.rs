@@ -65,6 +65,7 @@ pub fn run() -> ExitCode {
     }
     ["revert", id] => revert_cmd(id, false),
     ["revert", id, "--apply"] => revert_cmd(id, true),
+    ["confirm", id] => confirm_cmd(id),
     ["retire", id] => retire_cmd(id, true),
     ["unretire", id] => retire_cmd(id, false),
     ["status"] => status_cmd(),
@@ -1405,6 +1406,38 @@ fn config_cmd(init: bool) -> ExitCode {
   ExitCode::SUCCESS
 }
 
+/// Record confirmation evidence from the CLI (same semantics
+/// as the MCP tool: stamps last_confirmed_at, never touches the
+/// confidence number; the janitor judges that later).
+fn confirm_cmd(id: &str) -> ExitCode {
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let full = match kumbarium_store::resolve_id(&state.library, id) {
+    Ok(f) => f,
+    Err(e) => return fail(&e.to_string()),
+  };
+  if let Err(e) = kumbarium_store::confirm(&state.library, &full) {
+    return fail(&e.to_string());
+  }
+  let scope = kumbarium_store::get(&state.library, &full)
+    .map(|e| e.namespace)
+    .unwrap_or_default();
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    kind: kumbarium_audit::EventKind::Confirm,
+    scope,
+    detail: serde_json::json!({ "id": full }),
+  };
+  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+    return fail(&format!("confirmed, but audit append failed: {e}"));
+  }
+  println!("confirmed {}", sty.id(kumbarium_store::short_id(&full)));
+  ExitCode::SUCCESS
+}
+
 fn fail(message: &str) -> ExitCode {
   eprintln!("kumbarium: {message}");
   ExitCode::FAILURE
@@ -1425,6 +1458,7 @@ Usage:
   kumbarium history <id> [--diff]     a fact's version chain
                      [--all]          (--all expands collapsed
                                       noted-small versions)
+  kumbarium confirm <id>              record a fact proved true
   kumbarium retire <id>               hide from suggestions
   kumbarium unretire <id>             restore to suggestions
   kumbarium revert <id> [--apply]     restore an old version

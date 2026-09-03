@@ -256,7 +256,8 @@ kum serve
 Speaks MCP over stdio: newline-delimited JSON-RPC 2.0. Not for
 humans; agents' clients spawn it (`claude mcp add kumbarium --
 ~/.cargo/bin/kumbarium serve`). Tools: remember, link, recall,
-supersede, forget. Every call is audited under the identity the
+confirm, supersede, forget. Every call is audited under the
+identity the
 client declared at initialize. stdout carries protocol only;
 diagnostics go to stderr.
 ";
@@ -276,6 +277,8 @@ across all agents and sessions.
   standing constraints. Project facts go in the project
   namespace; cross-project facts in `global`. Send content
   whole; oversized memories are split and linked for you.
+- When a recalled fact proves CORRECT in use, `confirm` it
+  (evidence for the staleness and confidence signals).
 - When a recalled fact proves stale or wrong, `supersede` it
   (add a short `note` like 'typo fix' for trivial changes);
   `forget` only wrong-or-sensitive content.

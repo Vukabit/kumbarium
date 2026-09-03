@@ -209,6 +209,7 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
         Some(line)
       }
       "forget" => Some(format!("forgot {}", short(s("id")?))),
+      "confirm" => Some(format!("confirmed {}", short(s("id")?))),
       "retire" => Some(format!("retired {}", short(s("id")?))),
       "unretire" => Some(format!("restored {}", short(s("id")?))),
       "link" => Some(format!(

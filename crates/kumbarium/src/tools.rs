@@ -140,6 +140,19 @@ pub fn list() -> Value {
       }
     },
     {
+      "name": "confirm",
+      "description": "Record that a recalled memory proved \
+  correct in use (you followed it and it worked). Evidence only: \
+  it stamps last_confirmed_at and feeds the staleness and future \
+  confidence signals; it does NOT change the confidence number. \
+  The id may be any unique fragment.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
       "name": "supersede",
       "description": "Replace an outdated memory with a \
   corrected one. The old entry is chained forward, never \
@@ -201,6 +214,7 @@ pub fn call(
     "supersede" => supersede(state, args),
     "forget" => forget(state, args),
     "link" => link(state, args),
+    "confirm" => confirm(state, args),
     other => Err(format!("unknown tool {other:?}")),
   };
   match result {
@@ -431,6 +445,27 @@ fn supersede(
   Ok(vec![format!(
     "Superseded {old_id}. {}",
     render_stored("Stored", &ids, &new, 0)
+  )])
+}
+
+fn confirm(
+  state: &mut ServerState,
+  args: &Value,
+) -> Result<Vec<String>, String> {
+  let id = resolve(state, required_str(args, "id")?)?;
+  kumbarium_store::confirm(&state.library, &id)
+    .map_err(describe_store_error)?;
+  let scope = kumbarium_store::get(&state.library, &id)
+    .map(|e| e.namespace)
+    .unwrap_or_default();
+  audit(
+    state,
+    kumbarium_audit::EventKind::Confirm,
+    &scope,
+    json!({ "id": id }),
+  )?;
+  Ok(vec![format!(
+    "Confirmed {id}: evidence recorded (last_confirmed_at)."
   )])
 }
 

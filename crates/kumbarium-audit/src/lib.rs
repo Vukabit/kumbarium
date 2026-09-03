@@ -33,6 +33,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     "0003_retire_kinds",
     include_str!("../migrations/0003_retire_kinds.sql"),
   ),
+  (
+    4,
+    "0004_confirm_kind",
+    include_str!("../migrations/0004_confirm_kind.sql"),
+  ),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -57,6 +62,7 @@ pub enum EventKind {
   Import,
   Retire,
   Unretire,
+  Confirm,
 }
 
 impl EventKind {
@@ -71,6 +77,7 @@ impl EventKind {
       EventKind::Import => "import",
       EventKind::Retire => "retire",
       EventKind::Unretire => "unretire",
+      EventKind::Confirm => "confirm",
     }
   }
 }

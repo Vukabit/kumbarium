@@ -232,7 +232,7 @@ mod tests {
   }
 
   #[test]
-  fn tools_list_names_all_five_tools() {
+  fn tools_list_names_all_six_tools() {
     let mut state = ServerState::in_memory();
     let out = drive(&mut state, &[request(1, "tools/list", json!({}))]);
     let names: Vec<&str> = out[0]["result"]["tools"]
@@ -241,7 +241,17 @@ mod tests {
       .iter()
       .map(|t| t["name"].as_str().unwrap())
       .collect();
-    assert_eq!(names, ["remember", "link", "recall", "supersede", "forget"]);
+    assert_eq!(
+      names,
+      [
+        "remember",
+        "link",
+        "recall",
+        "confirm",
+        "supersede",
+        "forget"
+      ]
+    );
   }
 
   #[test]
