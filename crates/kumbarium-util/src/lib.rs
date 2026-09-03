@@ -7,11 +7,13 @@
 #![forbid(unsafe_code)]
 
 mod fs;
+mod hash;
 mod id;
 mod lock;
 mod time;
 
 pub use fs::{ReadError, WriteError, read_bytes, write_atomically};
+pub use hash::sha256_hex;
 pub use id::{generate_id, is_valid_id};
 pub use lock::{LockError, ProcessLock};
 pub use time::{format_iso8601_ms, now_iso8601, now_ms, parse_iso8601_ms};
