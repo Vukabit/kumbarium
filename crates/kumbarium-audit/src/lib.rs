@@ -36,8 +36,14 @@ pub enum ChainStatus {
   },
 }
 
-const MIGRATIONS: &[(i64, &str, &str)] =
-  &[(1, "0001_init", include_str!("../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+  (1, "0001_init", include_str!("../migrations/0001_init.sql")),
+  (
+    2,
+    "0002_docket_kinds",
+    include_str!("../migrations/0002_docket_kinds.sql"),
+  ),
+];
 
 /// The version pre-squash ledgers sit at: their schema is
 /// byte-identical to the squashed 0001, only the version rows
@@ -70,6 +76,10 @@ pub enum EventKind {
   Janitor,
   Approve,
   Reject,
+  TaskFile,
+  TaskUpdate,
+  TaskDone,
+  TaskDrop,
 }
 
 impl EventKind {
@@ -88,6 +98,10 @@ impl EventKind {
       EventKind::Janitor => "janitor",
       EventKind::Approve => "approve",
       EventKind::Reject => "reject",
+      EventKind::TaskFile => "task_file",
+      EventKind::TaskUpdate => "task_update",
+      EventKind::TaskDone => "task_done",
+      EventKind::TaskDrop => "task_drop",
     }
   }
 }
@@ -345,16 +359,24 @@ fn migrate(conn: &Connection) -> Result<(), AuditError> {
 /// cannot exist (every open migrates to latest); if one appears
 /// it errors loudly rather than guessing.
 fn normalize_legacy_versions(conn: &Connection) -> Result<(), AuditError> {
-  let max: i64 = conn.query_row(
-    "SELECT COALESCE(MAX(version), 0) FROM schema_version",
-    [],
-    |row| row.get(0),
-  )?;
-  if max <= 1 {
+  // Legacy is identified by NAME, never by version arithmetic:
+  // a new-era ledger legitimately sits at version 2+ as
+  // append-only migrations land, and must pass through here
+  // untouched. Only a row carrying the pre-squash latest name
+  // marks a ledger from before D-030.
+  let legacy: bool = conn
+    .query_row(
+      "SELECT 1 FROM schema_version
+       WHERE version = ?1 AND name = '0007_hash_chain'",
+      [LEGACY_LATEST],
+      |_| Ok(true),
+    )
+    .or_else(|e| match e {
+      rusqlite::Error::QueryReturnedNoRows => Ok(false),
+      other => Err(other),
+    })?;
+  if !legacy {
     return Ok(());
-  }
-  if max != LEGACY_LATEST {
-    return Err(AuditError::Migration(max, rusqlite::Error::InvalidQuery));
   }
   conn.execute("DELETE FROM schema_version", [])?;
   conn.execute(
@@ -503,11 +525,12 @@ mod squash_tests {
     let conn = open_in_memory().unwrap();
     conn.execute("DELETE FROM schema_version", []).unwrap();
     for v in 1..=7 {
+      let name = if v == 7 { "0007_hash_chain" } else { "legacy" };
       conn
         .execute(
           "INSERT INTO schema_version (version, name, applied_at)
-           VALUES (?1, 'legacy', '2026-09-03T00:00:00.000Z')",
-          rusqlite::params![v],
+           VALUES (?1, ?2, '2026-09-03T00:00:00.000Z')",
+          rusqlite::params![v, name],
         )
         .unwrap();
     }
@@ -519,6 +542,9 @@ mod squash_tests {
         |r| Ok((r.get(0)?, r.get(1)?)),
       )
       .unwrap();
-    assert_eq!((max, rows), (1, 1));
+    // Collapses to the squash row, then post-squash migrations
+    // apply on top; stays correct as append-only history grows.
+    let latest = MIGRATIONS.last().unwrap().0;
+    assert_eq!((max, rows), (latest, MIGRATIONS.len() as i64));
   }
 }

@@ -240,6 +240,36 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
         n("planned")?,
         n("edges")?
       )),
+      "task_file" => {
+        let mut line =
+          format!("filed {} task {}", s("severity")?, short(s("id")?));
+        if let Some(goal) = s("goal") {
+          line.push_str(&format!(" (goal {goal})"));
+        }
+        Some(line)
+      }
+      "task_update" => {
+        let mut line = format!(
+          "regraded task {} to {}",
+          short(s("old_id")?),
+          short(s("new_id")?)
+        );
+        if let Some(goal) = s("goal") {
+          line.push_str(&format!(" (goal {goal})"));
+        }
+        if let Some(sev) = s("severity") {
+          line.push_str(&format!(" ({sev})"));
+        }
+        Some(line)
+      }
+      "task_done" => Some(format!("completed task {}", short(s("id")?))),
+      "task_drop" => {
+        let mut line = format!("dropped task {}", short(s("id")?));
+        if let Some(note) = s("note") {
+          line.push_str(&format!(" {note:?}"));
+        }
+        Some(line)
+      }
       "janitor" => Some(format!(
         "janitor adjusted {}, {} dormant flagged",
         plural(n("changed")? as usize, "confidence", "confidences"),

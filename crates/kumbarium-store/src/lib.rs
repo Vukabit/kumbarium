@@ -151,12 +151,23 @@ fn migrate(conn: &Connection) -> Result<(), StoreError> {
 /// latest), but if one appears it errors loudly rather than
 /// guessing.
 fn normalize_legacy_versions(conn: &Connection) -> Result<(), StoreError> {
-  let max = schema_version(conn)?;
-  if max <= 1 {
+  // Legacy is identified by NAME, never by version arithmetic:
+  // a new-era store legitimately sits at version 2+ as
+  // append-only migrations land. Only a row carrying the
+  // pre-squash latest name marks a store from before D-030.
+  let legacy: bool = conn
+    .query_row(
+      "SELECT 1 FROM schema_version
+       WHERE version = ?1 AND name = '0006_status'",
+      [LEGACY_LATEST],
+      |_| Ok(true),
+    )
+    .or_else(|e| match e {
+      rusqlite::Error::QueryReturnedNoRows => Ok(false),
+      other => Err(other),
+    })?;
+  if !legacy {
     return Ok(());
-  }
-  if max != LEGACY_LATEST {
-    return Err(StoreError::Migration(max, rusqlite::Error::InvalidQuery));
   }
   conn.execute("DELETE FROM schema_version", [])?;
   conn.execute(
