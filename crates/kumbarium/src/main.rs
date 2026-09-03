@@ -71,6 +71,18 @@ pub fn run() -> ExitCode {
       Ok(n) => audit_tail(n),
       Err(_) => fail("audit tail takes a number"),
     },
+    ["instructions"] => {
+      let sty = style::Style::detect();
+      if let Some(md) = help::page("instructions") {
+        println!("{}", markdown::render(md, &sty));
+      }
+      ExitCode::SUCCESS
+    }
+    ["instructions", "--snippet"] => {
+      // Raw and unrendered: this output is file content.
+      print!("{}", help::SNIPPET);
+      ExitCode::SUCCESS
+    }
     ["help"] | ["--help"] | ["-h"] => {
       println!("{USAGE}\n\ntopics: kumbarium help <topic>");
       println!("  {}", help::TOPICS);
@@ -929,4 +941,7 @@ Usage:
   kumbarium paths                     where persisted data lives
   kumbarium version                   print the version
   kumbarium help [topic]              manual pages with grammar
-                                      and examples";
+                                      and examples
+  kumbarium instructions [--snippet]  agent setup: MCP
+                                      registration + root-file
+                                      instruction block";

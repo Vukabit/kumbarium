@@ -4,7 +4,8 @@
 //! use; plain when piped, colored on a terminal.
 
 pub const TOPICS: &str = "list show history revert retire \
-import namespace audit backup serve ids namespaces";
+import namespace audit backup serve ids namespaces \
+instructions";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -19,6 +20,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "backup" => PAGE_BACKUP,
     "serve" => PAGE_SERVE,
     "ids" | "id" => PAGE_IDS,
+    "instructions" | "setup" => PAGE_INSTRUCTIONS,
     "namespaces" | "scopes" => PAGE_NAMESPACES,
     _ => return None,
   })
@@ -252,4 +254,63 @@ humans; agents' clients spawn it (`claude mcp add kumbarium --
 supersede, forget. Every call is audited under the identity the
 client declared at initialize. stdout carries protocol only;
 diagnostics go to stderr.
+";
+
+/// The copy-paste block for an agent's root instruction file.
+/// Deliberately agent-neutral wording; `kum instructions
+/// --snippet` prints exactly this for appending to a file.
+pub const SNIPPET: &str = "\
+# Memory: Kumbarium
+
+Long-term memory lives in the Kumbarium MCP tools, shared
+across all agents and sessions.
+
+- At the start of substantive work, `recall` with scope
+  `project/<name>` for the current project (or `global`).
+- `remember` durable new facts: preferences, decisions,
+  standing constraints. Project facts go in the project
+  namespace; cross-project facts in `global`. Send content
+  whole; oversized memories are split and linked for you.
+- When a recalled fact proves stale or wrong, `supersede` it
+  (add a short `note` like 'typo fix' for trivial changes);
+  `forget` only wrong-or-sensitive content.
+- Namespaces are registered by the user (`kumbarium namespace
+  add`); never assume one exists, ask instead.
+";
+
+const PAGE_INSTRUCTIONS: &str = "\
+## instructions: wiring agents up
+
+```
+kum instructions             this page
+kum instructions --snippet   just the block, for appending
+```
+
+Two steps per agent: register the MCP server, then add the
+standing instruction block so the agent uses it unprompted.
+
+**1. Register the server**
+
+- Claude Code:
+  `claude mcp add --scope user kumbarium -- kumbarium serve`
+- Gemini CLI: in `~/.gemini/settings.json` under
+  `mcpServers`:
+  `{ \"kumbarium\": { \"command\": \"kumbarium\",
+  \"args\": [\"serve\"] } }`
+- Any MCP client: stdio transport, command `kumbarium serve`.
+
+**2. Add the instruction block** (append with
+`kum instructions --snippet >> <file>`)
+
+- Claude Code, all projects: `~/.claude/CLAUDE.md`
+- Claude Code, one repo: `<repo>/CLAUDE.md`
+- Gemini CLI: `~/.gemini/GEMINI.md` (or repo `GEMINI.md`)
+- OpenAI Codex CLI: `~/.codex/AGENTS.md` (or repo `AGENTS.md`)
+- Cursor / Windsurf / others: the repo `AGENTS.md` convention
+  is increasingly honored; otherwise their rules file
+  (`.cursor/rules/`, `.windsurfrules`).
+
+Root-level files apply everywhere; repo files version with the
+code. Keep durable law in files (they are injected every
+session); keep evolving facts in Kumbarium (they are recalled).
 ";
