@@ -1,13 +1,14 @@
 //! The one config file for every tunable. Hand-rolled parser
 //! for the TOML SUBSET the config actually uses: `# comments`,
-//! `[sections]`, and `key = <integer>` lines. Anything else in
+//! `[sections]`, `key = <integer>` lines, and `key = "string"`
+//! lines (bare words accepted too; approvals policy needs them). Anything else in
 //! the file earns a warning and the default value; a missing
 //! file is simply all defaults. Policy lives here and in the
 //! callers; mechanics (splitting, backups) stay in the crates
 //! that own them.
 
 /// Effective tunables, defaults matching the shipped constants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
   pub backup_interval_hours: i64,
   pub library_recent: usize,
@@ -20,6 +21,12 @@ pub struct Config {
   pub collapse_max_changed_lines: usize,
   pub recall_default_limit: usize,
   pub janitor_dormant_days: i64,
+  /// Write policy (D-027): what a write becomes for agents not
+  /// listed in `pending_agents`. true = pending-by-default.
+  pub approvals_default_pending: bool,
+  /// Agents whose writes always land pending, comma-separated
+  /// in config.
+  pub approvals_pending_agents: Vec<String>,
 }
 
 impl Default for Config {
@@ -36,6 +43,8 @@ impl Default for Config {
       collapse_max_changed_lines: 4,
       recall_default_limit: 8,
       janitor_dormant_days: 45,
+      approvals_default_pending: false,
+      approvals_pending_agents: Vec::new(),
     }
   }
 }
@@ -75,6 +84,15 @@ default_limit = 8
 # old is flagged dormant (a finding for the human, never a
 # confidence penalty).
 dormant_days = 45
+
+[approvals]
+# Write policy (D-027). live = writes circulate immediately
+# (personal tier); pending = every agent write waits for
+# `kum approve` unless the agent is trusted elsewhere.
+default_mode = \"live\"
+# Agents whose writes ALWAYS land pending, comma-separated,
+# e.g. \"intern-bot, contrib-scraper\".
+pending_agents = \"\"
 ";
 
 /// Parse config text over the defaults. Unknown or malformed
@@ -102,6 +120,31 @@ pub fn parse(text: &str) -> (Config, Vec<String>) {
       continue;
     };
     let key = format!("{section}.{}", key.trim());
+    let raw_value = value.trim().trim_matches('"').to_string();
+    // String-valued keys first; everything else is an integer.
+    match key.as_str() {
+      "approvals.default_mode" => {
+        match raw_value.as_str() {
+          "live" => cfg.approvals_default_pending = false,
+          "pending" => cfg.approvals_default_pending = true,
+          other => warnings.push(format!(
+            "config approvals.default_mode: {other:?} is not \
+             live|pending; default kept"
+          )),
+        }
+        continue;
+      }
+      "approvals.pending_agents" => {
+        cfg.approvals_pending_agents = raw_value
+          .split(',')
+          .map(str::trim)
+          .filter(|a| !a.is_empty())
+          .map(str::to_string)
+          .collect();
+        continue;
+      }
+      _ => {}
+    }
     let Ok(value) = value.trim().parse::<i64>() else {
       warnings.push(format!("config {key}: not an integer; default kept"));
       continue;
@@ -174,6 +217,23 @@ just a stray line
     assert_eq!(cfg.library_weeklies, 8);
     assert_eq!(cfg.split_target, Config::default().split_target);
     assert_eq!(warnings.len(), 3, "{warnings:?}");
+  }
+
+  #[test]
+  fn approvals_policy_parses() {
+    let (cfg, warnings) = parse(
+      "[approvals]\ndefault_mode = \"pending\"\n\
+       pending_agents = \"intern-bot, scraper\"\n",
+    );
+    assert!(cfg.approvals_default_pending);
+    assert_eq!(
+      cfg.approvals_pending_agents,
+      vec!["intern-bot".to_string(), "scraper".to_string()]
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let (cfg, warnings) = parse("[approvals]\ndefault_mode = sideways\n");
+    assert!(!cfg.approvals_default_pending, "junk keeps default");
+    assert_eq!(warnings.len(), 1);
   }
 
   #[test]

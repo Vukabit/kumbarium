@@ -191,7 +191,7 @@ fn maintenance(
     report.push("maintenance lock held elsewhere; skipping backups".into());
     return Ok(report);
   }
-  let cfg = state.cfg;
+  let cfg = &state.cfg;
   let interval_ms = cfg.backup_interval_hours * 3_600_000;
   let jobs = [
     (

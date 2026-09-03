@@ -223,12 +223,31 @@ pub fn call(
   }
 }
 
+/// What this identity's writes become (D-027): pending when the
+/// agent is quarantined by name or by default_mode, live
+/// otherwise. Policy, not self-assessment: the writer never
+/// chooses.
+fn write_status(state: &ServerState) -> kumbarium_store::Status {
+  let quarantined = state.cfg.approvals_default_pending
+    || state
+      .cfg
+      .approvals_pending_agents
+      .iter()
+      .any(|a| a == &state.agent_id);
+  if quarantined {
+    kumbarium_store::Status::Pending
+  } else {
+    kumbarium_store::Status::Live
+  }
+}
+
 fn remember(
   state: &mut ServerState,
   args: &Value,
 ) -> Result<Vec<String>, String> {
   let mut new = new_entry_args(args)?;
   new.agent_id = state.agent_id.clone();
+  new.status = write_status(state);
   let ids = store_split(state, &new, None, None)?;
   let head = ids[0].clone();
   let mut linked = 0usize;
@@ -318,6 +337,13 @@ fn render_stored(
     format!(" links={linked}")
   } else {
     String::new()
+  };
+  // A quarantined write must say so: the agent cannot recall it
+  // until a human approves, and silence here would read as loss.
+  let links = if new.status == kumbarium_store::Status::Pending {
+    format!("{links} status=pending (awaiting human approval)")
+  } else {
+    links
   };
   if ids.len() == 1 {
     format!(
@@ -426,6 +452,9 @@ fn supersede(
   let old_id = resolve(state, required_str(args, "old_id")?)?;
   let mut new = new_entry_args(args)?;
   new.agent_id = state.agent_id.clone();
+  // Policy status; the store still forces pending when the
+  // superseded entry is itself pending (D-027).
+  new.status = write_status(state);
   let note = args
     .get("note")
     .and_then(Value::as_str)
