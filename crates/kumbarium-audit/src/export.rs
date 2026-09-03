@@ -79,22 +79,24 @@ pub fn render_minutes(events: &[StoredEvent]) -> String {
   for e in events {
     let (d, t) = split_at(&e.at);
     if d != day {
+      if !day.is_empty() {
+        out.push_str("```\n");
+      }
       day = d;
-      out.push_str(&format!("\n## {day}\n\n"));
+      out.push_str(&format!(
+        "\n## {day}\n\n```\ntime      kind      \
+agent                scope                detail\n"
+      ));
     }
-    let scope = if e.scope.is_empty() {
-      String::new()
-    } else {
-      format!(" in {}", e.scope)
-    };
     out.push_str(&format!(
-      "- {t} {} by {}{}: {}\n",
+      "{t:<8}  {:<9} {:<20} {:<20} {}\n",
       e.kind,
       e.agent_id,
-      scope,
+      e.scope,
       describe_event(&e.kind, &e.detail)
     ));
   }
+  out.push_str("```\n");
   out
 }
 
@@ -243,9 +245,11 @@ mod tests {
     assert_eq!(a, b, "same events, same minutes");
     assert!(a.starts_with("# Kumbarium minutes\n"));
     assert!(a.contains("## 20"), "day section header");
-    assert!(a.contains("remember by test-agent in project/demo"));
-    let remember_pos = a.find("remember by").unwrap();
-    let recall_pos = a.find("recall by").unwrap();
+    assert!(a.contains("time      kind"), "tabular header per day");
+    assert!(a.contains("remember  test-agent"));
+    assert!(a.ends_with("```\n"), "day table fence closed");
+    let remember_pos = a.find("remember  test-agent").unwrap();
+    let recall_pos = a.find("recall    test-agent").unwrap();
     assert!(remember_pos < recall_pos, "oldest first");
   }
 
