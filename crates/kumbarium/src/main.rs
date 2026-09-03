@@ -283,7 +283,17 @@ fn maintenance(
   }
   let cfg = &state.cfg;
   let interval_ms = cfg.backup_interval_hours * 3_600_000;
-  let jobs = [
+  // Every shelf backs up (D-033). The docket joins the rotation
+  // once its file exists; it shares the library retention tier
+  // (task data is primary data).
+  let docket_conn = match p.docket_db.exists() {
+    true => Some(
+      kumbarium_docket::open(&p.docket_db)
+        .map_err(|e| format!("opening docket shelf: {e}"))?,
+    ),
+    false => None,
+  };
+  let mut jobs = vec![
     (
       "memory",
       &state.library,
@@ -303,6 +313,17 @@ fn maintenance(
       },
     ),
   ];
+  if let Some(conn) = &docket_conn {
+    jobs.push((
+      "docket",
+      conn,
+      kumbarium_store::Retention {
+        recent: cfg.library_recent,
+        dailies: cfg.library_dailies,
+        weeklies: cfg.library_weeklies,
+      },
+    ));
+  }
   for (name, conn, retention) in jobs {
     let dir = p.backups_dir.join(name);
     let due = force

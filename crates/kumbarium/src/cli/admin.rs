@@ -221,10 +221,14 @@ pub(crate) fn status_cmd() -> ExitCode {
     Err(e) => return fail(&e.to_string()),
   }
   println!("{}", sty.bold("maintenance"));
-  for (name, dir) in [
+  let mut shelves = vec![
     ("memory", p.backups_dir.join("memory")),
     ("audit", p.backups_dir.join("audit")),
-  ] {
+  ];
+  if p.docket_db.exists() {
+    shelves.push(("docket", p.backups_dir.join("docket")));
+  }
+  for (name, dir) in shelves {
     let line = match kumbarium_store::latest_backup_ms(&dir) {
       Some(ms) => {
         let age_h = (kumbarium_util::now_ms() - ms).max(0) / 3_600_000;
@@ -234,7 +238,11 @@ pub(crate) fn status_cmd() -> ExitCode {
     };
     println!("  {name:<10} {line}");
   }
-  for (name, path) in [("memory.db", &p.memory_db), ("audit.db", &p.audit_db)] {
+  for (name, path) in [
+    ("memory.db", &p.memory_db),
+    ("docket.db", &p.docket_db),
+    ("audit.db", &p.audit_db),
+  ] {
     if let Ok(meta) = std::fs::metadata(path) {
       println!("  {name:<10} {} KB", meta.len() / 1024);
     }
