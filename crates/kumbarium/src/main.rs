@@ -627,7 +627,10 @@ fn history_cmd(id: &str, with_diff: bool, all: bool) -> ExitCode {
     })
     .collect();
   let collapsed = |i: usize| -> bool {
+    // The live head never collapses: the current truth is
+    // always shown in full.
     !all
+      && i + 1 != n
       && versions[i].note.is_some()
       && changed[i] <= COLLAPSE_MAX_CHANGED_LINES
   };
