@@ -119,9 +119,7 @@ pub(crate) fn inbox_cmd() -> ExitCode {
     Err(e) => return fail(&e.to_string()),
   };
   let pending_tasks = match state.docket() {
-    Ok(conn) => {
-      kumbarium_docket::pending_tasks(conn).unwrap_or_default()
-    }
+    Ok(conn) => kumbarium_docket::pending_tasks(conn).unwrap_or_default(),
     Err(_) => Vec::new(),
   };
   if pending.is_empty() && pending_tasks.is_empty() {
@@ -161,10 +159,7 @@ matter"
       let excerpt: String = first.chars().take(40).collect();
       println!(
         "{}  {}  {:<20} {:<20} [{}] {}",
-        sty.id(&format!(
-          "{:<8}",
-          kumbarium_docket::short_id(&t.id)
-        )),
+        sty.id(&format!("{:<8}", kumbarium_docket::short_id(&t.id))),
         sty.dim(&local_display(&t.created_at)),
         t.agent_id,
         t.namespace,

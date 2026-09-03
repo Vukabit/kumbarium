@@ -18,12 +18,14 @@ fn docket_conn(
 /// None for a goalless matter.
 fn days_to_goal(goal: Option<&str>, now_ms: i64) -> Option<i64> {
   let goal = goal?;
-  let ms =
-    kumbarium_util::parse_iso8601_ms(&format!("{goal}T00:00:00.000Z"))?;
+  let ms = kumbarium_util::parse_iso8601_ms(&format!("{goal}T00:00:00.000Z"))?;
   Some((ms - now_ms).div_euclid(86_400_000))
 }
 
-fn severity_paint(sty: &style::Style, sev: kumbarium_docket::Severity) -> String {
+fn severity_paint(
+  sty: &style::Style,
+  sev: kumbarium_docket::Severity,
+) -> String {
   let padded = format!("{:<6}", sev.as_str());
   match sev {
     kumbarium_docket::Severity::Urgent => sty.red(&padded),
@@ -34,11 +36,13 @@ fn severity_paint(sty: &style::Style, sev: kumbarium_docket::Severity) -> String
 }
 
 /// The goal cell: date plus creep mark, painted by proximity.
-fn goal_paint(sty: &style::Style, days: Option<i64>, goal: Option<&str>) -> String {
+fn goal_paint(
+  sty: &style::Style,
+  days: Option<i64>,
+  goal: Option<&str>,
+) -> String {
   match (goal, days) {
-    (Some(g), Some(d)) if d < 0 => {
-      sty.red(&format!("{g} over {}d", -d))
-    }
+    (Some(g), Some(d)) if d < 0 => sty.red(&format!("{g} over {}d", -d)),
     (Some(g), Some(d)) if d <= 7 => sty.yellow(&format!("{g} in {d}d")),
     (Some(g), _) => g.to_string(),
     _ => sty.dim("-").to_string(),
@@ -68,10 +72,13 @@ fn timeline_order(tasks: &mut [kumbarium_docket::Task], now_ms: i64) {
   });
 }
 
-fn parse_task_flags(
-  rest: &[&str],
-) -> Result<(Vec<String>, Option<kumbarium_docket::Severity>, Option<String>), String>
-{
+type TaskFlags = (
+  Vec<String>,
+  Option<kumbarium_docket::Severity>,
+  Option<String>,
+);
+
+fn parse_task_flags(rest: &[&str]) -> Result<TaskFlags, String> {
   let mut words = Vec::new();
   let mut severity = None;
   let mut goal = None;
@@ -181,11 +188,7 @@ pub(crate) fn task_file_cmd(ns: &str, rest: &[&str]) -> ExitCode {
 }
 
 /// `kum task done|drop <id> [note...]`
-pub(crate) fn task_judge_cmd(
-  id: &str,
-  to_done: bool,
-  note: &str,
-) -> ExitCode {
+pub(crate) fn task_judge_cmd(id: &str, to_done: bool, note: &str) -> ExitCode {
   let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
@@ -209,8 +212,7 @@ pub(crate) fn task_judge_cmd(
     kumbarium_docket::TaskState::Dropped
   };
   let note = (!note.trim().is_empty()).then(|| note.trim().to_string());
-  if let Err(e) =
-    kumbarium_docket::set_state(conn, &full, to, note.as_deref())
+  if let Err(e) = kumbarium_docket::set_state(conn, &full, to, note.as_deref())
   {
     return fail(&e.to_string());
   }
@@ -265,15 +267,12 @@ pub(crate) fn task_grade_cmd(id: &str, rest: &[&str]) -> ExitCode {
     note: (!note.trim().is_empty()).then(|| note.trim().to_string()),
     content: None,
   };
-  let task = match kumbarium_docket::supersede_task(
-    conn,
-    &full,
-    &edit,
-    "kumbarium-cli",
-  ) {
-    Ok(t) => t,
-    Err(e) => return fail(&e.to_string()),
-  };
+  let task =
+    match kumbarium_docket::supersede_task(conn, &full, &edit, "kumbarium-cli")
+    {
+      Ok(t) => t,
+      Err(e) => return fail(&e.to_string()),
+    };
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
     kind: kumbarium_audit::EventKind::TaskUpdate,
@@ -372,11 +371,11 @@ pub(crate) fn tasks_cmd(rest: &[&str]) -> ExitCode {
     Err(e) => return fail(&e),
   };
   let scoped = ns.as_ref().map(|n| vec![n.clone()]);
-  let mut tasks =
-    match kumbarium_docket::tasks_in(conn, scoped.as_deref(), all) {
-      Ok(t) => t,
-      Err(e) => return fail(&e.to_string()),
-    };
+  let mut tasks = match kumbarium_docket::tasks_in(conn, scoped.as_deref(), all)
+  {
+    Ok(t) => t,
+    Err(e) => return fail(&e.to_string()),
+  };
   if let Some(sev) = severity {
     tasks.retain(|t| t.severity == sev);
   }
@@ -462,8 +461,7 @@ pub(crate) fn roadmap_cmd(ns: Option<&str>) -> ExitCode {
   };
   let names = ["overdue", "now", "next", "later", "someday"];
   for (i, name) in names.iter().enumerate() {
-    let in_bucket: Vec<_> =
-      tasks.iter().filter(|t| bucket(t) == i).collect();
+    let in_bucket: Vec<_> = tasks.iter().filter(|t| bucket(t) == i).collect();
     if in_bucket.is_empty() {
       continue;
     }

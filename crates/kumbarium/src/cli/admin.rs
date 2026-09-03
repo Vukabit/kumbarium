@@ -173,8 +173,7 @@ pub(crate) fn status_cmd() -> ExitCode {
   );
   if p.docket_db.exists()
     && let Ok(conn) = kumbarium_docket::open(&p.docket_db)
-    && let Ok((open, urgent, pending)) =
-      kumbarium_docket::counts(&conn)
+    && let Ok((open, urgent, pending)) = kumbarium_docket::counts(&conn)
   {
     let mut line = format!("  docket:    {open} open");
     if urgent > 0 {
