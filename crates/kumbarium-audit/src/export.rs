@@ -18,17 +18,57 @@ pub struct StoredEvent {
   pub detail: String,
 }
 
-/// The most recent `n` events, newest first.
+/// The most recent `n` events, newest first; optionally only
+/// one scope's.
 pub fn tail(
   conn: &Connection,
   n: usize,
+  scope: Option<&str>,
 ) -> Result<Vec<StoredEvent>, AuditError> {
-  query(
-    conn,
-    "SELECT id, at, agent_id, kind, scope, detail FROM events
-     ORDER BY at DESC, id DESC LIMIT ?1",
-    Some(n),
-  )
+  let mut stmt = match scope {
+    Some(_) => conn.prepare(
+      "SELECT id, at, agent_id, kind, scope, detail FROM events
+       WHERE scope = ?1 ORDER BY at DESC, id DESC LIMIT ?2",
+    )?,
+    None => conn.prepare(
+      "SELECT id, at, agent_id, kind, scope, detail FROM events
+       ORDER BY at DESC, id DESC LIMIT ?1",
+    )?,
+  };
+  let map = |row: &rusqlite::Row<'_>| {
+    Ok(StoredEvent {
+      id: row.get(0)?,
+      at: row.get(1)?,
+      agent_id: row.get(2)?,
+      kind: row.get(3)?,
+      scope: row.get(4)?,
+      detail: row.get(5)?,
+    })
+  };
+  let rows = match scope {
+    Some(sc) => stmt.query_map(rusqlite::params![sc, n as i64], map)?,
+    None => stmt.query_map([n as i64], map)?,
+  }
+  .collect::<Result<Vec<_>, _>>()?;
+  Ok(rows)
+}
+
+/// (event count, newest event timestamp) for `kum status`.
+pub fn summary(conn: &Connection) -> Result<(i64, Option<String>), AuditError> {
+  let count =
+    conn.query_row("SELECT count(*) FROM events", [], |row| row.get(0))?;
+  let latest = conn
+    .query_row(
+      "SELECT at FROM events ORDER BY at DESC LIMIT 1",
+      [],
+      |row| row.get(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+      rusqlite::Error::QueryReturnedNoRows => Ok(None),
+      other => Err(other),
+    })?;
+  Ok((count, latest))
 }
 
 /// Every event, oldest first (the minutes ordering).
@@ -238,10 +278,12 @@ mod tests {
   #[test]
   fn tail_returns_newest_first_and_respects_limit() {
     let conn = seeded();
-    let events = tail(&conn, 1).unwrap();
+    let events = tail(&conn, 1, None).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].kind, "recall");
-    assert_eq!(tail(&conn, 10).unwrap().len(), 2);
+    assert_eq!(tail(&conn, 10, None).unwrap().len(), 2);
+    assert_eq!(tail(&conn, 10, Some("project/demo")).unwrap().len(), 2);
+    assert_eq!(tail(&conn, 10, Some("global")).unwrap().len(), 0);
   }
 
   fn utc(at: &str) -> String {

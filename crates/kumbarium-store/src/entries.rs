@@ -204,6 +204,51 @@ pub fn predecessor_of(
   Ok(found)
 }
 
+/// Library-wide counts for `kum status`.
+#[derive(Debug, Clone, Copy)]
+pub struct Stats {
+  pub live: i64,
+  pub superseded: i64,
+  pub retired: i64,
+  pub set_heads: i64,
+  pub set_parts: i64,
+}
+
+/// One pass of counts over the library.
+pub fn stats(conn: &Connection) -> Result<Stats, StoreError> {
+  let one = |sql: &str| -> Result<i64, StoreError> {
+    Ok(conn.query_row(sql, [], |row| row.get(0))?)
+  };
+  Ok(Stats {
+    live: one(
+      "SELECT count(*) FROM entries
+       WHERE superseded_by IS NULL AND retired_at IS NULL",
+    )?,
+    superseded: one(
+      "SELECT count(*) FROM entries WHERE superseded_by IS NOT NULL",
+    )?,
+    retired: one("SELECT count(*) FROM entries WHERE retired_at IS NOT NULL")?,
+    set_heads: one(
+      "SELECT count(*) FROM (
+         SELECT DISTINCT to_id FROM entry_links
+         WHERE rel = 'continues'
+           AND to_id NOT IN (
+             SELECT from_id FROM entry_links
+             WHERE rel = 'continues'
+           )
+       )",
+    )?,
+    set_parts: one(
+      "SELECT count(*) FROM (
+         SELECT from_id AS id FROM entry_links
+         WHERE rel = 'continues'
+         UNION
+         SELECT to_id FROM entry_links WHERE rel = 'continues'
+       )",
+    )?,
+  })
+}
+
 /// Retire an entry: keep it (history, sets, versions intact)
 /// but remove it from every suggestion surface (recall, default
 /// listings). NOT a confidence change (D-004): relevance and

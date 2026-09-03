@@ -18,7 +18,7 @@ use std::path::Path;
 use rusqlite::Connection;
 
 pub use export::{
-  StoredEvent, describe_event, events_asc, render_minutes, tail,
+  StoredEvent, describe_event, events_asc, render_minutes, summary, tail,
 };
 
 const MIGRATIONS: &[(i64, &str, &str)] = &[

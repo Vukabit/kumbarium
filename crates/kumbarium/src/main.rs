@@ -66,11 +66,32 @@ pub fn run() -> ExitCode {
     ["revert", id, "--apply"] => revert_cmd(id, true),
     ["retire", id] => retire_cmd(id, true),
     ["unretire", id] => retire_cmd(id, false),
-    ["audit", "tail"] => audit_tail(20),
-    ["audit", "tail", n] => match n.parse() {
-      Ok(n) => audit_tail(n),
-      Err(_) => fail("audit tail takes a number"),
-    },
+    ["status"] => status_cmd(),
+    ["grep", pattern] => grep_cmd(pattern, None, false),
+    ["grep", pattern, "--all"] => grep_cmd(pattern, None, true),
+    ["grep", pattern, ns] => grep_cmd(pattern, Some(ns), false),
+    ["grep", pattern, ns, "--all"] => grep_cmd(pattern, Some(ns), true),
+    ["move", id, ns] => move_cmd(id, ns),
+    ["audit", "tail", rest @ ..] => {
+      let mut n = 20usize;
+      let mut scope = None;
+      let mut it = rest.iter();
+      while let Some(arg) = it.next() {
+        match *arg {
+          "--scope" => match it.next() {
+            Some(sc) => scope = Some(*sc),
+            None => return fail("--scope needs a namespace"),
+          },
+          num => match num.parse() {
+            Ok(v) => n = v,
+            Err(_) => {
+              return fail("audit tail takes a number");
+            }
+          },
+        }
+      }
+      audit_tail(n, scope)
+    }
     ["instructions"] => {
       let sty = style::Style::detect();
       if let Some(md) = help::page("instructions") {
@@ -480,12 +501,12 @@ fn show_entry(id: &str, full: bool) -> ExitCode {
   ExitCode::SUCCESS
 }
 
-fn audit_tail(n: usize) -> ExitCode {
+fn audit_tail(n: usize, scope: Option<&str>) -> ExitCode {
   let (_, state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
-  match kumbarium_audit::tail(&state.audit, n) {
+  match kumbarium_audit::tail(&state.audit, n, scope) {
     Ok(events) => {
       let sty = style::Style::detect();
       println!(
@@ -1029,6 +1050,238 @@ fn wrap_words(text: &str, width: usize) -> Vec<String> {
   lines
 }
 
+fn status_cmd() -> ExitCode {
+  let (p, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let stats = match kumbarium_store::stats(&state.library) {
+    Ok(stats) => stats,
+    Err(e) => return fail(&e.to_string()),
+  };
+  println!("{}", sty.bold("library"));
+  println!(
+    "  entries:   {} live, {} superseded, {} retired",
+    stats.live, stats.superseded, stats.retired
+  );
+  println!(
+    "  sets:      {} ({} parts)",
+    stats.set_heads, stats.set_parts
+  );
+  match kumbarium_store::namespaces(&state.library) {
+    Ok(rows) => {
+      for (path, _, _) in rows {
+        let n: i64 = state
+          .library
+          .query_row(
+            "SELECT count(*) FROM entries e
+             JOIN namespaces ns ON ns.id = e.namespace_id
+             WHERE ns.path = ?1 AND e.superseded_by IS NULL
+               AND e.retired_at IS NULL",
+            [&path],
+            |row| row.get(0),
+          )
+          .unwrap_or(0);
+        println!("  {path:<22} {n}");
+      }
+    }
+    Err(e) => return fail(&e.to_string()),
+  }
+  match kumbarium_audit::summary(&state.audit) {
+    Ok((count, latest)) => {
+      println!("{}", sty.bold("audit"));
+      let last = latest
+        .map(|at| local_display(&at))
+        .unwrap_or_else(|| "never".into());
+      println!("  events:    {count} (latest {last})");
+    }
+    Err(e) => return fail(&e.to_string()),
+  }
+  println!("{}", sty.bold("maintenance"));
+  for (name, dir) in [
+    ("library", p.backups_dir.join("library")),
+    ("audit", p.backups_dir.join("audit")),
+  ] {
+    let line = match kumbarium_store::latest_backup_ms(&dir) {
+      Some(ms) => {
+        let age_h = (kumbarium_util::now_ms() - ms).max(0) / 3_600_000;
+        format!("last backup {age_h}h ago")
+      }
+      None => "no backups yet".into(),
+    };
+    println!("  {name:<10} {line}");
+  }
+  for (name, path) in [("library.db", &p.library_db), ("audit.db", &p.audit_db)]
+  {
+    if let Ok(meta) = std::fs::metadata(path) {
+      println!("  {name:<10} {} KB", meta.len() / 1024);
+    }
+  }
+  ExitCode::SUCCESS
+}
+
+/// rg-flavored literal search: smart-case, exhaustive (--all
+/// includes superseded/retired), grouped headings on a tty and
+/// `id:line:text` when piped. Deliberately NOT recall: recall
+/// ranks live memories for agents; grep finds every occurrence
+/// for forensics.
+fn grep_cmd(pattern: &str, namespace: Option<&str>, all: bool) -> ExitCode {
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let entries =
+    match kumbarium_store::entries_in(&state.library, namespace, all) {
+      Ok(entries) => entries,
+      Err(e) => return fail(&e.to_string()),
+    };
+  // Smart-case, rg-style: all-lowercase pattern matches
+  // case-insensitively; any uppercase makes it exact.
+  let sensitive = pattern.chars().any(|c| c.is_uppercase());
+  let needle = if sensitive {
+    pattern.to_string()
+  } else {
+    pattern.to_lowercase()
+  };
+  let mut hits = 0usize;
+  for e in &entries {
+    let mut first = true;
+    for (lineno, line) in e.content.lines().enumerate() {
+      let hay = if sensitive {
+        line.to_string()
+      } else {
+        line.to_lowercase()
+      };
+      if !hay.contains(&needle) {
+        continue;
+      }
+      hits += 1;
+      if sty.on {
+        if first {
+          first = false;
+          let mark = if e.superseded_by.is_some() {
+            " [superseded]"
+          } else if e.retired_at.is_some() {
+            " [retired]"
+          } else {
+            ""
+          };
+          println!(
+            "{}  {}{}",
+            sty.id(kumbarium_store::short_id(&e.id)),
+            e.namespace,
+            sty.yellow(mark)
+          );
+        }
+        println!(
+          "{}: {}",
+          sty.dim(&format!("{:>4}", lineno + 1)),
+          highlight(line, &needle, sensitive, &sty)
+        );
+      } else {
+        println!("{}:{}:{line}", kumbarium_store::short_id(&e.id), lineno + 1);
+      }
+    }
+    if !first && sty.on {
+      println!();
+    }
+  }
+  if hits == 0 {
+    eprintln!("no matches");
+    return ExitCode::FAILURE;
+  }
+  ExitCode::SUCCESS
+}
+
+/// Paint every occurrence of the needle in a line, rg-style.
+fn highlight(
+  line: &str,
+  needle: &str,
+  sensitive: bool,
+  sty: &style::Style,
+) -> String {
+  let hay = if sensitive {
+    line.to_string()
+  } else {
+    line.to_lowercase()
+  };
+  let mut out = String::new();
+  let mut pos = 0;
+  while let Some(found) = hay[pos..].find(needle) {
+    let start = pos + found;
+    let end = start + needle.len();
+    if !line.is_char_boundary(start) || !line.is_char_boundary(end) {
+      break;
+    }
+    out.push_str(&line[pos..start]);
+    out.push_str(&sty.bold(&sty.red(&line[start..end])));
+    pos = end;
+  }
+  out.push_str(&line[pos..]);
+  out
+}
+
+/// Move a memory to another namespace: a supersession into the
+/// target with an auto-note, so history records the move rather
+/// than anything mutating in place.
+fn move_cmd(id: &str, namespace: &str) -> ExitCode {
+  if let Err(e) = kumbarium_librarian::validate_namespace(namespace) {
+    return fail(&format!("invalid namespace: {e}"));
+  }
+  let (_, mut state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let full = match kumbarium_store::resolve_id(&state.library, id) {
+    Ok(f) => f,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let e = match kumbarium_store::get(&state.library, &full) {
+    Ok(e) => e,
+    Err(err) => return fail(&err.to_string()),
+  };
+  if e.namespace == namespace {
+    return fail("entry is already in that namespace");
+  }
+  let note = format!("moved from {}", e.namespace);
+  let new = kumbarium_store::NewEntry {
+    namespace: namespace.to_string(),
+    kind: e.kind,
+    content: e.content.clone(),
+    agent_id: "kumbarium-cli".into(),
+    source: e.source.clone(),
+    tags: e.tags.clone(),
+  };
+  let ids = match tools::store_split(&mut state, &new, Some(&full), Some(&note))
+  {
+    Ok(ids) => ids,
+    Err(err) => return fail(&err),
+  };
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    kind: kumbarium_audit::EventKind::Supersede,
+    scope: namespace.to_string(),
+    detail: serde_json::json!({
+      "old_id": full,
+      "new_id": ids[0],
+      "note": note,
+    }),
+  };
+  if let Err(err) = kumbarium_audit::append(&state.audit, &event) {
+    return fail(&format!("moved, but audit append failed: {err}"));
+  }
+  println!(
+    "moved {} -> {} as {}",
+    sty.id(kumbarium_store::short_id(&full)),
+    namespace,
+    sty.id(kumbarium_store::short_id(&ids[0]))
+  );
+  ExitCode::SUCCESS
+}
+
 fn fail(message: &str) -> ExitCode {
   eprintln!("kumbarium: {message}");
   ExitCode::FAILURE
@@ -1055,7 +1308,11 @@ Usage:
                                       (preview only until the
                                       --apply sign-off; CLI
                                       only, agents cannot)
+  kumbarium status                    library health at a glance
+  kumbarium grep <pat> [ns] [--all]   literal search, rg-style
+  kumbarium move <id> <namespace>     relocate (as supersession)
   kumbarium audit tail [n]            recent audit events
+             [--scope <ns>]           (optionally one scope)
   kumbarium audit export [--stdout]   minutes markdown to
                          [--raw]      exports/ or streamed
                                       (--raw keeps stored UTC)
