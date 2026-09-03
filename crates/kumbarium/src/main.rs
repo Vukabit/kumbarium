@@ -65,7 +65,8 @@ pub fn run() -> ExitCode {
       Ok(n) => audit_tail(n),
       Err(_) => fail("audit tail takes a number"),
     },
-    ["audit", "export"] => audit_export(),
+    ["audit", "export"] => audit_export(false),
+    ["audit", "export", "--stdout"] => audit_export(true),
     [] => {
       println!("{USAGE}");
       ExitCode::SUCCESS
@@ -427,7 +428,7 @@ fn audit_tail(n: usize) -> ExitCode {
   }
 }
 
-fn audit_export() -> ExitCode {
+fn audit_export(to_stdout: bool) -> ExitCode {
   let (p, state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
@@ -437,6 +438,10 @@ fn audit_export() -> ExitCode {
     Err(e) => return fail(&e.to_string()),
   };
   let minutes = kumbarium_audit::render_minutes(&events);
+  if to_stdout {
+    print!("{minutes}");
+    return ExitCode::SUCCESS;
+  }
   if let Err(e) = std::fs::create_dir_all(&p.exports_dir) {
     return fail(&format!("creating exports dir: {e}"));
   }
@@ -454,14 +459,16 @@ fn audit_export() -> ExitCode {
   }
 }
 
-/// Quote a path for copy-paste into a shell when it needs it
-/// (the macOS data dir contains a space); plain paths print
-/// bare so command substitution stays clean.
+/// Quote a path for copy-paste when a HUMAN is reading (the
+/// macOS data dir contains a space) but print it bare into a
+/// pipe or command substitution, where literal quotes would
+/// corrupt the path. Same tty rule the color system uses.
 fn shell_quote(path: &str) -> String {
+  use std::io::IsTerminal;
   let plain = path
     .bytes()
     .all(|b| b.is_ascii_alphanumeric() || b"/._-+:@%".contains(&b));
-  if plain {
+  if plain || !std::io::stdout().is_terminal() {
     path.to_string()
   } else {
     format!("'{}'", path.replace('\'', "'\\''"))
@@ -689,7 +696,8 @@ Usage:
                                       --apply sign-off; CLI
                                       only, agents cannot)
   kumbarium audit tail [n]            recent audit events
-  kumbarium audit export              minutes markdown to exports/
+  kumbarium audit export [--stdout]   minutes markdown to
+                                      exports/ (or streamed)
   kumbarium backup                    snapshot both dbs now
   kumbarium paths                     where persisted data lives
   kumbarium version                   print the version";
