@@ -250,6 +250,7 @@ version = "0.1.0"
 dependencies = [
  "directories",
  "kumbarium-audit",
+ "kumbarium-docket",
  "kumbarium-janitor",
  "kumbarium-librarian",
  "kumbarium-store",

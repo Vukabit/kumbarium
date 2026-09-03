@@ -1,4 +1,4 @@
-//! The five MCP tools wired to store + librarian + audit. Every
+//! The MCP tools wired to the shelves + librarian + audit. Every
 //! call is audited after the operation; an audit failure fails
 //! the call (audit completeness over availability, D-007's
 //! trade, even in the synchronous writer).
@@ -15,9 +15,28 @@ pub struct ServerState {
   pub audit: kumbarium_store::Connection,
   pub agent_id: String,
   pub cfg: Config,
+  /// The docket shelf, opened lazily: the file does not exist
+  /// until the section is first used (D-033).
+  pub docket: Option<kumbarium_docket::Connection>,
+  /// Empty path = in-memory (tests, dry runs).
+  pub docket_path: std::path::PathBuf,
 }
 
 impl ServerState {
+  /// The docket connection, opening the shelf on first use.
+  pub fn docket(&mut self) -> Result<&kumbarium_docket::Connection, String> {
+    if self.docket.is_none() {
+      let conn = if self.docket_path.as_os_str().is_empty() {
+        kumbarium_docket::open_in_memory()
+      } else {
+        kumbarium_docket::open(&self.docket_path)
+      }
+      .map_err(|e| e.to_string())?;
+      self.docket = Some(conn);
+    }
+    Ok(self.docket.as_ref().expect("just opened"))
+  }
+
   #[cfg(test)]
   pub fn in_memory() -> ServerState {
     ServerState {
@@ -25,6 +44,8 @@ impl ServerState {
       audit: kumbarium_audit::open_in_memory().unwrap(),
       agent_id: "unknown-agent".into(),
       cfg: Config::default(),
+      docket: None,
+      docket_path: std::path::PathBuf::new(),
     }
   }
 }
@@ -188,6 +209,71 @@ pub fn list() -> Value {
       }
     },
     {
+      "name": "task_file",
+      "description": "File a task on the docket: a matter to be \
+  done, on a registered namespace shelf. Severity is YOUR \
+  judgment of how much it matters (low | normal | high | \
+  urgent); an optional goal (YYYY-MM-DD) is a target date the \
+  library watches for creep. One self-contained statement per \
+  task; detail belongs in memory. Tasks are claims of work \
+  owed, carrying their filer's authority and nothing more.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "namespace": { "type": "string" },
+          "content": {
+            "type": "string",
+            "description": "The matter, one self-contained \
+  statement."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "normal", "high", "urgent"]
+          },
+          "goal": {
+            "type": "string",
+            "description": "Optional target date, YYYY-MM-DD."
+          },
+          "source": { "type": "string" }
+        },
+        "required": ["namespace", "content"]
+      }
+    },
+    {
+      "name": "task_update",
+      "description": "Update a docket task. Pass state 'done' \
+  when the work is complete (a claim, witnessed) or 'dropped' \
+  when overtaken by events; or regrade with a new severity, \
+  goal, or content (the old version chains forward, never \
+  deleted). The id may be any unique fragment.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "state": {
+            "type": "string",
+            "enum": ["done", "dropped"]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "normal", "high", "urgent"]
+          },
+          "goal": {
+            "type": "string",
+            "description": "New target date YYYY-MM-DD, or the \
+  empty string to clear the goal."
+          },
+          "content": { "type": "string" },
+          "note": {
+            "type": "string",
+            "description": "One line on why (the regrade or the \
+  drop)."
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
       "name": "forget",
       "description": "Permanently delete a memory. Escape \
   hatch for wrong or sensitive content only; for routine \
@@ -215,6 +301,8 @@ pub fn call(
     "forget" => forget(state, args),
     "link" => link(state, args),
     "confirm" => confirm(state, args),
+    "task_file" => task_file(state, args),
+    "task_update" => task_update(state, args),
     other => Err(format!("unknown tool {other:?}")),
   };
   match result {
@@ -585,6 +673,203 @@ fn confidence_basis(e: &kumbarium_store::Entry) -> String {
       format!("never confirmed; created {}", day(&e.created_at))
     }
   }
+}
+
+fn validate_goal(goal: &str) -> Result<(), String> {
+  let ok = goal.len() == 10
+    && kumbarium_util::parse_iso8601_ms(&format!("{goal}T00:00:00.000Z"))
+      .is_some();
+  if ok {
+    Ok(())
+  } else {
+    Err(format!("invalid goal {goal:?}; use YYYY-MM-DD"))
+  }
+}
+
+fn task_write_status(state: &ServerState) -> kumbarium_docket::Status {
+  let quarantined = state.cfg.approvals_default_pending
+    || state
+      .cfg
+      .approvals_pending_agents
+      .iter()
+      .any(|a| a == &state.agent_id);
+  if quarantined {
+    kumbarium_docket::Status::Pending
+  } else {
+    kumbarium_docket::Status::Live
+  }
+}
+
+fn task_file(
+  state: &mut ServerState,
+  args: &Value,
+) -> Result<Vec<String>, String> {
+  let namespace =
+    kumbarium_librarian::normalize_namespace(required_str(args, "namespace")?);
+  kumbarium_librarian::validate_namespace(&namespace)
+    .map_err(|e| format!("invalid namespace: {e}"))?;
+  if kumbarium_store::namespace_id(&state.library, &namespace)
+    .map_err(describe_store_error)?
+    .is_none()
+  {
+    return Err(format!(
+      "namespace {namespace:?} is not registered (the user \
+       registers namespaces; ask them if yours is missing)"
+    ));
+  }
+  let content = required_str(args, "content")?.to_string();
+  let severity = match args.get("severity").and_then(Value::as_str) {
+    Some(raw) => kumbarium_docket::Severity::parse(raw)
+      .ok_or_else(|| format!("unknown severity {raw:?}"))?,
+    None => kumbarium_docket::Severity::Normal,
+  };
+  let goal = match args.get("goal").and_then(Value::as_str) {
+    Some(g) if !g.is_empty() => {
+      validate_goal(g)?;
+      Some(g.to_string())
+    }
+    _ => None,
+  };
+  let new = kumbarium_docket::NewTask {
+    namespace: namespace.clone(),
+    content,
+    agent_id: state.agent_id.clone(),
+    source: args
+      .get("source")
+      .and_then(Value::as_str)
+      .unwrap_or_default()
+      .to_string(),
+    severity,
+    goal: goal.clone(),
+    status: task_write_status(state),
+  };
+  let task = kumbarium_docket::file_task(state.docket()?, &new)
+    .map_err(|e| e.to_string())?;
+  audit(
+    state,
+    kumbarium_audit::EventKind::TaskFile,
+    &namespace,
+    json!({
+      "id": task.id,
+      "severity": task.severity.as_str(),
+      "goal": task.goal,
+    }),
+  )?;
+  let mut line = format!(
+    "Filed. id={} severity={} namespace={}",
+    task.id,
+    task.severity.as_str(),
+    task.namespace
+  );
+  if let Some(goal) = &task.goal {
+    line.push_str(&format!(" goal={goal}"));
+  }
+  if task.status == kumbarium_docket::Status::Pending {
+    line.push_str(" status=pending (awaiting human approval)");
+  }
+  // Echo the scope's open docket so filing shows its neighbors.
+  let chain = kumbarium_librarian::namespace_chain(&namespace)
+    .map_err(|e| format!("invalid scope: {e}"))?;
+  let open = kumbarium_docket::tasks_in(state.docket()?, Some(&chain), false)
+    .map_err(|e| e.to_string())?;
+  line.push_str(&format!("\nOpen matters in scope: {}", open.len()));
+  for t in open.iter().take(8) {
+    line.push_str(&format!(
+      "\n- [{}] id={} {}",
+      t.severity.as_str(),
+      &t.id[t.id.len().saturating_sub(8)..],
+      t.content.lines().next().unwrap_or("")
+    ));
+  }
+  Ok(vec![line])
+}
+
+fn task_update(
+  state: &mut ServerState,
+  args: &Value,
+) -> Result<Vec<String>, String> {
+  let frag = required_str(args, "id")?;
+  let id = kumbarium_docket::resolve_id(state.docket()?, frag)
+    .map_err(|e| e.to_string())?;
+  let note = args
+    .get("note")
+    .and_then(Value::as_str)
+    .and_then(kumbarium_librarian::sanitize_note);
+  if let Some(target) = args.get("state").and_then(Value::as_str) {
+    let to = match target {
+      "done" => kumbarium_docket::TaskState::Done,
+      "dropped" => kumbarium_docket::TaskState::Dropped,
+      other => return Err(format!("unknown state {other:?}")),
+    };
+    let task =
+      kumbarium_docket::get(state.docket()?, &id).map_err(|e| e.to_string())?;
+    kumbarium_docket::set_state(state.docket()?, &id, to, note.as_deref())
+      .map_err(|e| e.to_string())?;
+    let kind = if to == kumbarium_docket::TaskState::Done {
+      kumbarium_audit::EventKind::TaskDone
+    } else {
+      kumbarium_audit::EventKind::TaskDrop
+    };
+    audit(
+      state,
+      kind,
+      &task.namespace,
+      json!({ "id": id, "note": note }),
+    )?;
+    return Ok(vec![format!(
+      "Recorded: task {} {}.",
+      &id[id.len().saturating_sub(8)..],
+      to.as_str()
+    )]);
+  }
+  let mut edit = kumbarium_docket::TaskEdit {
+    note: note.clone(),
+    ..Default::default()
+  };
+  if let Some(raw) = args.get("severity").and_then(Value::as_str) {
+    edit.severity = Some(
+      kumbarium_docket::Severity::parse(raw)
+        .ok_or_else(|| format!("unknown severity {raw:?}"))?,
+    );
+  }
+  if let Some(goal) = args.get("goal").and_then(Value::as_str) {
+    if goal.is_empty() {
+      edit.goal = Some(None);
+    } else {
+      validate_goal(goal)?;
+      edit.goal = Some(Some(goal.to_string()));
+    }
+  }
+  if let Some(content) = args.get("content").and_then(Value::as_str) {
+    edit.content = Some(content.to_string());
+  }
+  if edit.severity.is_none() && edit.goal.is_none() && edit.content.is_none() {
+    return Err(
+      "nothing to update: pass state, severity, goal, or content".into(),
+    );
+  }
+  let agent = state.agent_id.clone();
+  let task =
+    kumbarium_docket::supersede_task(state.docket()?, &id, &edit, &agent)
+      .map_err(|e| e.to_string())?;
+  audit(
+    state,
+    kumbarium_audit::EventKind::TaskUpdate,
+    &task.namespace,
+    json!({
+      "old_id": id,
+      "new_id": task.id,
+      "severity": task.severity.as_str(),
+      "goal": task.goal,
+      "note": note,
+    }),
+  )?;
+  Ok(vec![format!(
+    "Regraded. id={} severity={} goal={}",
+    task.id,
+    task.severity.as_str(),
+    task.goal.as_deref().unwrap_or("none")
+  )])
 }
 
 fn new_entry_args(args: &Value) -> Result<kumbarium_store::NewEntry, String> {

@@ -198,6 +198,8 @@ pub(crate) fn open_stores() -> Result<Stores, String> {
     audit,
     agent_id: "unknown-agent".into(),
     cfg,
+    docket: None,
+    docket_path: p.docket_db.clone(),
   };
   Ok((p, state))
 }

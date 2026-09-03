@@ -136,7 +136,7 @@ agent                scope                detail\n"
       ));
     }
     out.push_str(&format!(
-      "{t:<8}  {:<9} {:<20} {:<20} {}\n",
+      "{t:<8}  {:<11} {:<20} {:<20} {}\n",
       e.kind,
       e.agent_id,
       e.scope,
@@ -354,7 +354,7 @@ mod tests {
     assert!(a.starts_with("# Kumbarium minutes\n"));
     assert!(a.contains("## 20"), "day section header");
     assert!(a.contains("time      kind"), "tabular header per day");
-    assert!(a.contains("remember  test-agent"));
+    assert!(a.contains("remember    test-agent"));
     assert!(a.ends_with("```\n"), "day table fence closed");
     let remember_pos = a.find("remember  test-agent").unwrap();
     let recall_pos = a.find("recall    test-agent").unwrap();

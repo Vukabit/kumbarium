@@ -267,10 +267,10 @@ kum serve
 Speaks MCP over stdio: newline-delimited JSON-RPC 2.0. Not for
 humans; agents' clients spawn it (`claude mcp add kumbarium --
 ~/.cargo/bin/kumbarium serve`). Tools: remember, link, recall,
-confirm, supersede, forget. Every call is audited under the
-identity the
-client declared at initialize. stdout carries protocol only;
-diagnostics go to stderr.
+confirm, supersede, forget, task_file, task_update. Every call
+is audited under the identity the client declared at
+initialize. stdout carries protocol only; diagnostics go to
+stderr.
 ";
 
 /// The copy-paste block for an agent's root instruction file.
@@ -295,6 +295,13 @@ across all agents and sessions.
   first `recall` the stale entry, then supersede the id it
   returned (add a short `note` like 'typo fix' for trivial
   changes). `forget` only wrong-or-sensitive content.
+- The DOCKET is the shared task list. At the start of work,
+  open matters for your scope are work owed: mention them
+  before starting new work. File matters worth doing later
+  with `task_file` (severity is your judgment; add a goal date
+  only when one is real); `task_update` marks them done when
+  the work is complete, or regrades severity and goal as
+  reality moves.
 - Namespaces are registered by the user (`kumbarium namespace
   add`); never assume one exists, ask instead.
 ";
