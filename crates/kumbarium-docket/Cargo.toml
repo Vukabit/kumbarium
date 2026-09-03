@@ -1,0 +1,17 @@
+# The docket: tasks and the roadmap, the coordination section's
+# first resource (docs/design/docket.md, D-032). Its own shelf
+# (library/docket.db), held to the section inheritance contract
+# (D-033): governed like memory, never recalled like memory.
+
+[package]
+name = "kumbarium-docket"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+kumbarium-util = { path = "../kumbarium-util" }
+rusqlite.workspace = true
+thiserror.workspace = true

@@ -274,6 +274,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumbarium-docket"
+version = "0.1.0"
+dependencies = [
+ "kumbarium-util",
+ "rusqlite",
+ "thiserror",
+]
+
+[[package]]
 name = "kumbarium-janitor"
 version = "0.1.0"
 dependencies = [

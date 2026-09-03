@@ -5,6 +5,7 @@
 #   kumbarium-audit      audit db: event types, writer, export
 #   kumbarium-librarian  retrieval, ranking, scoring, curation traits
 #   kumbarium-janitor    confidence pass: survival math over the ledger
+#   kumbarium-docket     tasks and the roadmap: the coordination shelf
 
 [workspace]
 resolver = "3"
@@ -14,6 +15,7 @@ members = [
   "crates/kumbarium-audit",
   "crates/kumbarium-librarian",
   "crates/kumbarium-janitor",
+  "crates/kumbarium-docket",
   "crates/kumbarium",
 ]
 
