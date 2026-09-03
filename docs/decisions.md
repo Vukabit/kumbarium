@@ -357,3 +357,18 @@ the launch cut: tamper-evidence becomes math anyone holding the
 file can check, which turns "we keep an audit log" into a claim
 no commodity memory server makes. The SHA-256 is the vendored
 FIPS 180-4 implementation bundles already use (D-012 holds).
+
+## D-030: migrations squashed at the public threshold (2026-09-03)
+
+The six store and seven audit pre-release migrations collapse
+into one 0001_init each, with byte-identical final schemas; from
+this commit MIGRATIONS ARE APPEND-ONLY FOREVER (a shipped
+migration is never edited; every schema change is a new numbered
+file). This is the retention line drawn where it matters: no
+public user ever runs the scaffolding history, and every future
+database replays exactly what we ship. Pre-squash databases
+(ours) carry legacy version rows over an identical schema, so
+open() normalizes them one time: a db at legacy latest collapses
+its schema_version rows to (1, '0001_init'); anything mid-legacy
+errors loudly instead of guessing (it cannot exist, since every
+open migrates to latest).

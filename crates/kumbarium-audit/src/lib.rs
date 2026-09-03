@@ -36,39 +36,13 @@ pub enum ChainStatus {
   },
 }
 
-const MIGRATIONS: &[(i64, &str, &str)] = &[
-  (1, "0001_init", include_str!("../migrations/0001_init.sql")),
-  (
-    2,
-    "0002_event_kinds",
-    include_str!("../migrations/0002_event_kinds.sql"),
-  ),
-  (
-    3,
-    "0003_retire_kinds",
-    include_str!("../migrations/0003_retire_kinds.sql"),
-  ),
-  (
-    4,
-    "0004_confirm_kind",
-    include_str!("../migrations/0004_confirm_kind.sql"),
-  ),
-  (
-    5,
-    "0005_janitor_kind",
-    include_str!("../migrations/0005_janitor_kind.sql"),
-  ),
-  (
-    6,
-    "0006_desk_kinds",
-    include_str!("../migrations/0006_desk_kinds.sql"),
-  ),
-  (
-    7,
-    "0007_hash_chain",
-    include_str!("../migrations/0007_hash_chain.sql"),
-  ),
-];
+const MIGRATIONS: &[(i64, &str, &str)] =
+  &[(1, "0001_init", include_str!("../migrations/0001_init.sql"))];
+
+/// The version pre-squash ledgers sit at: their schema is
+/// byte-identical to the squashed 0001, only the version rows
+/// differ. See `normalize_legacy_versions`.
+const LEGACY_LATEST: i64 = 7;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuditError {
@@ -342,6 +316,7 @@ fn migrate(conn: &Connection) -> Result<(), AuditError> {
      )",
     [],
   )?;
+  normalize_legacy_versions(conn)?;
   let current: i64 = conn.query_row(
     "SELECT COALESCE(MAX(version), 0) FROM schema_version",
     [],
@@ -360,6 +335,33 @@ fn migrate(conn: &Connection) -> Result<(), AuditError> {
       rusqlite::params![version, name, kumbarium_util::now_iso8601()],
     )?;
   }
+  Ok(())
+}
+
+/// One-time renumbering for ledgers created before the public
+/// squash (D-030): seven pre-release migrations became one 0001
+/// with an IDENTICAL final schema, so a ledger at legacy latest
+/// collapses its version rows to (1, '0001_init'). Mid-history
+/// cannot exist (every open migrates to latest); if one appears
+/// it errors loudly rather than guessing.
+fn normalize_legacy_versions(conn: &Connection) -> Result<(), AuditError> {
+  let max: i64 = conn.query_row(
+    "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+    [],
+    |row| row.get(0),
+  )?;
+  if max <= 1 {
+    return Ok(());
+  }
+  if max != LEGACY_LATEST {
+    return Err(AuditError::Migration(max, rusqlite::Error::InvalidQuery));
+  }
+  conn.execute("DELETE FROM schema_version", [])?;
+  conn.execute(
+    "INSERT INTO schema_version (version, name, applied_at)
+     VALUES (1, '0001_init', ?1)",
+    rusqlite::params![kumbarium_util::now_iso8601()],
+  )?;
   Ok(())
 }
 
@@ -489,5 +491,34 @@ mod tests {
       .unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
     assert_eq!(parsed["query"], "commit style");
+  }
+}
+
+#[cfg(test)]
+mod squash_tests {
+  use super::*;
+
+  #[test]
+  fn legacy_version_rows_collapse_to_the_squash() {
+    let conn = open_in_memory().unwrap();
+    conn.execute("DELETE FROM schema_version", []).unwrap();
+    for v in 1..=7 {
+      conn
+        .execute(
+          "INSERT INTO schema_version (version, name, applied_at)
+           VALUES (?1, 'legacy', '2026-09-03T00:00:00.000Z')",
+          rusqlite::params![v],
+        )
+        .unwrap();
+    }
+    migrate(&conn).unwrap();
+    let (max, rows): (i64, i64) = conn
+      .query_row(
+        "SELECT MAX(version), count(*) FROM schema_version",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+      )
+      .unwrap();
+    assert_eq!((max, rows), (1, 1));
   }
 }

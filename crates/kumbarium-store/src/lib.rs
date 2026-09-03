@@ -28,30 +28,13 @@ pub use links::{Link, Rel, continues_chain, link, links_of, unlink};
 /// Numbered migrations, applied in order inside one transaction
 /// each. Append-only: a shipped migration is never edited; schema
 /// changes are a new numbered file.
-const MIGRATIONS: &[(i64, &str, &str)] = &[
-  (1, "0001_init", include_str!("../migrations/0001_init.sql")),
-  (
-    2,
-    "0002_entry_links",
-    include_str!("../migrations/0002_entry_links.sql"),
-  ),
-  (
-    3,
-    "0003_retire",
-    include_str!("../migrations/0003_retire.sql"),
-  ),
-  (4, "0004_note", include_str!("../migrations/0004_note.sql")),
-  (
-    5,
-    "0005_confidence_basis",
-    include_str!("../migrations/0005_confidence_basis.sql"),
-  ),
-  (
-    6,
-    "0006_status",
-    include_str!("../migrations/0006_status.sql"),
-  ),
-];
+const MIGRATIONS: &[(i64, &str, &str)] =
+  &[(1, "0001_init", include_str!("../migrations/0001_init.sql"))];
+
+/// The version pre-squash databases sit at: their schema is
+/// byte-identical to the squashed 0001, only the version rows
+/// differ. See `normalize_legacy_versions`.
+const LEGACY_LATEST: i64 = 6;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -142,6 +125,7 @@ fn migrate(conn: &Connection) -> Result<(), StoreError> {
      )",
     [],
   )?;
+  normalize_legacy_versions(conn)?;
   let current = schema_version(conn)?;
   for (version, name, sql) in MIGRATIONS {
     if *version <= current {
@@ -159,6 +143,30 @@ fn migrate(conn: &Connection) -> Result<(), StoreError> {
   Ok(())
 }
 
+/// One-time renumbering for databases created before the public
+/// squash (D-030): six pre-release migrations became one 0001
+/// with an IDENTICAL final schema, so a db at legacy latest just
+/// collapses its version rows to (1, '0001_init'). A legacy db
+/// stuck mid-history cannot exist (every open migrates to
+/// latest), but if one appears it errors loudly rather than
+/// guessing.
+fn normalize_legacy_versions(conn: &Connection) -> Result<(), StoreError> {
+  let max = schema_version(conn)?;
+  if max <= 1 {
+    return Ok(());
+  }
+  if max != LEGACY_LATEST {
+    return Err(StoreError::Migration(max, rusqlite::Error::InvalidQuery));
+  }
+  conn.execute("DELETE FROM schema_version", [])?;
+  conn.execute(
+    "INSERT INTO schema_version (version, name, applied_at)
+     VALUES (1, '0001_init', ?1)",
+    rusqlite::params![kumbarium_util::now_iso8601()],
+  )?;
+  Ok(())
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -166,7 +174,7 @@ mod tests {
   #[test]
   fn fresh_store_reaches_latest_schema() {
     let conn = open_in_memory().unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 6);
+    assert_eq!(schema_version(&conn).unwrap(), 1);
   }
 
   #[test]
@@ -174,7 +182,36 @@ mod tests {
     let conn = open_in_memory().unwrap();
     // A second pass sees itself at latest and applies nothing.
     migrate(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 6);
+    assert_eq!(schema_version(&conn).unwrap(), 1);
+  }
+
+  #[test]
+  fn legacy_version_rows_collapse_to_the_squash() {
+    let conn = open_in_memory().unwrap();
+    // Simulate a pre-squash db: same schema, legacy version rows.
+    conn.execute("DELETE FROM schema_version", []).unwrap();
+    for (v, name) in [
+      (1, "0001_init"),
+      (2, "0002_entry_links"),
+      (3, "0003_retire"),
+      (4, "0004_note"),
+      (5, "0005_confidence_basis"),
+      (6, "0006_status"),
+    ] {
+      conn
+        .execute(
+          "INSERT INTO schema_version (version, name, applied_at)
+           VALUES (?1, ?2, '2026-09-03T00:00:00.000Z')",
+          rusqlite::params![v, name],
+        )
+        .unwrap();
+    }
+    migrate(&conn).unwrap();
+    assert_eq!(schema_version(&conn).unwrap(), 1);
+    let rows: i64 = conn
+      .query_row("SELECT count(*) FROM schema_version", [], |r| r.get(0))
+      .unwrap();
+    assert_eq!(rows, 1, "one row, the squashed init");
   }
 
   #[test]
