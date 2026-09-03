@@ -11,6 +11,7 @@ publish = false
 kumbarium-audit = { path = "../kumbarium-audit" }
 kumbarium-librarian = { path = "../kumbarium-librarian" }
 kumbarium-store = { path = "../kumbarium-store" }
+kumbarium-util = { path = "../kumbarium-util" }
 directories.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

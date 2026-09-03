@@ -12,3 +12,6 @@ publish = false
 kumbarium-util = { path = "../kumbarium-util" }
 rusqlite.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

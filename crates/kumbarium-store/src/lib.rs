@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod backup;
 mod entries;
 mod links;
 
@@ -14,6 +15,7 @@ use std::path::Path;
 // return it, so callers get the type without a rusqlite dep.
 pub use rusqlite::Connection;
 
+pub use backup::{Retention, backup, latest_backup_ms, prune};
 pub use entries::{
   Entry, Hit, Kind, NewEntry, confirm, find_by_source, forget, get,
   namespace_id, namespaces, recall, register_namespace, remember, supersede,
@@ -50,6 +52,10 @@ pub enum StoreError {
   EmptyContent,
   #[error("cannot link entry {0:?} to itself")]
   SelfLink(String),
+  #[error("backup io: {0}")]
+  Io(#[from] std::io::Error),
+  #[error("backup copy failed integrity check: {0}")]
+  BackupIntegrity(String),
 }
 
 /// Open (creating if absent) the Library at `path`, applying WAL

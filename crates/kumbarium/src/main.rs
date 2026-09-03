@@ -31,6 +31,7 @@ fn main() -> ExitCode {
     }
     ["namespace", "list"] => namespace_list(),
     ["import", "claude", rest @ ..] => import_claude(rest),
+    ["backup"] => backup_now(),
     [] => {
       println!("{USAGE}");
       ExitCode::SUCCESS
@@ -62,11 +63,97 @@ fn open_stores() -> Result<(paths::Paths, tools::ServerState), String> {
   Ok((p, state))
 }
 
+/// Backup policy (mechanics live in kumbarium-store). Audit
+/// keeps a shallower tier: higher volume, lower stakes.
+const BACKUP_INTERVAL_MS: i64 = 12 * 3_600_000;
+const LIBRARY_RETENTION: kumbarium_store::Retention =
+  kumbarium_store::Retention {
+    recent: 2,
+    dailies: 7,
+    weeklies: 4,
+  };
+const AUDIT_RETENTION: kumbarium_store::Retention =
+  kumbarium_store::Retention {
+    recent: 2,
+    dailies: 3,
+    weeklies: 0,
+  };
+
+/// Run backups for both databases if due (or forced). Guarded
+/// by the maintenance lock (D-015): if another process holds
+/// it, skip quietly; its holder is doing this work.
+fn maintenance(
+  p: &paths::Paths,
+  state: &tools::ServerState,
+  force: bool,
+) -> Result<Vec<String>, String> {
+  let mut report = Vec::new();
+  let resource = p.lock_file.with_extension("");
+  let lock = kumbarium_util::ProcessLock::try_acquire(&resource)
+    .map_err(|e| format!("maintenance lock: {e}"))?;
+  if lock.is_none() {
+    report.push("maintenance lock held elsewhere; skipping backups".into());
+    return Ok(report);
+  }
+  let jobs = [
+    ("library", &state.library, LIBRARY_RETENTION),
+    ("audit", &state.audit, AUDIT_RETENTION),
+  ];
+  for (name, conn, retention) in jobs {
+    let dir = p.backups_dir.join(name);
+    let due = force
+      || match kumbarium_store::latest_backup_ms(&dir) {
+        Some(last) => kumbarium_util::now_ms() - last >= BACKUP_INTERVAL_MS,
+        None => true,
+      };
+    if !due {
+      report.push(format!("{name}: backup not due"));
+      continue;
+    }
+    let snap = kumbarium_store::backup(conn, &dir)
+      .map_err(|e| format!("{name} backup: {e}"))?;
+    let removed = kumbarium_store::prune(&dir, retention)
+      .map_err(|e| format!("{name} prune: {e}"))?;
+    report.push(format!(
+      "{name}: snapshot {} ({} pruned)",
+      snap.file_name().unwrap_or_default().to_string_lossy(),
+      removed.len()
+    ));
+  }
+  Ok(report)
+}
+
+fn backup_now() -> ExitCode {
+  let (p, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  match maintenance(&p, &state, true) {
+    Ok(report) => {
+      for line in report {
+        println!("{line}");
+      }
+      ExitCode::SUCCESS
+    }
+    Err(e) => fail(&e),
+  }
+}
+
 fn serve() -> ExitCode {
   let (p, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
+  // On-launch backup check (12h-or-elapsed policy); failures
+  // are reported but never block serving.
+  match maintenance(&p, &state, false) {
+    Ok(report) => {
+      for line in report {
+        eprintln!("kumbarium: {line}");
+      }
+    }
+    Err(e) => eprintln!("kumbarium: {e}"),
+  }
   // stdout is protocol-only; say where we are on stderr.
   eprintln!(
     "kumbarium {VERSION} serving MCP on stdio \
@@ -175,5 +262,6 @@ Usage:
   kumbarium namespace list            list namespaces
   kumbarium import claude [--apply]   import Claude Code
       [--dir <path>]... [--map name=namespace]...  memories
+  kumbarium backup                    snapshot both dbs now
   kumbarium paths                     where persisted data lives
   kumbarium version                   print the version";
