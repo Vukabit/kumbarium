@@ -157,3 +157,23 @@ future Curator job, never this deterministic path. The
 importer's advisory oversize warning is replaced by the split
 itself. Also: `kum` ships as a second bin target aliasing the
 full CLI.
+
+## D-018: law lives in repos; Kumbarium authors it later (2026-09-03)
+
+Repo-level instruction files (CLAUDE.md and kin) STAY in repos.
+Three properties make them law that the store cannot replace:
+harness-side unconditional injection (recall is voluntary and
+ranked; law must be forced), versioning with the code (clones,
+branches, CI machines get the law without our database), and
+change review native to git. The future shape, when rules
+multiply across repos or contributors: Kumbarium as system of
+record (entries tagged as law, with supersession history and
+audit) and `kum export law <scope>` GENERATING the files
+deterministically, committed like lockfiles; drift becomes a
+gate check; promoting memory to law becomes a human sign-off.
+That is the first concrete face of the control-plane policy
+layer. Deliberately NOT built yet: two law files and one
+contributor make hand-maintenance free. Authority tiers to
+remember: gates (hard) > injected law (soft) > recallable
+memory (reference); rules live at the lowest tier that works
+and graduate on evidence.
