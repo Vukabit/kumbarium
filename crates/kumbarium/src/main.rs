@@ -10,7 +10,14 @@ use std::process::ExitCode;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+// Unused only when this file is included by the `kum` alias
+// binary, which supplies its own main.
+#[allow(dead_code)]
 fn main() -> ExitCode {
+  run()
+}
+
+pub fn run() -> ExitCode {
   let args: Vec<String> = std::env::args().skip(1).collect();
   let argv: Vec<&str> = args.iter().map(String::as_str).collect();
   match argv.as_slice() {
@@ -203,6 +210,7 @@ fn namespace_list() -> ExitCode {
   };
   match kumbarium_store::namespaces(&state.library) {
     Ok(rows) => {
+      println!("namespace  [created]  description");
       for (path, description, created_at) in rows {
         let day = created_at.get(..10).unwrap_or(&created_at);
         println!("{path}  [{day}]  {description}");
@@ -227,6 +235,10 @@ fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
     println!("no entries");
     return ExitCode::SUCCESS;
   }
+  println!(
+    "id        created     kind          namespace            \
+     content"
+  );
   for e in &entries {
     let day = e.created_at.get(..10).unwrap_or(&e.created_at);
     let dead = if e.superseded_by.is_some() {
@@ -243,13 +255,16 @@ fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
       .take(56)
       .collect();
     println!(
-      "{}  {day}  {:<13} {:<20} {preview}{dead}",
-      e.id,
+      "{:<8}  {day}  {:<13} {:<20} {preview}{dead}",
+      kumbarium_store::short_id(&e.id),
       e.kind.as_str(),
       e.namespace
     );
   }
-  println!("({} entries)", entries.len());
+  println!(
+    "({} entries; ids are short forms, any unique fragment works)",
+    entries.len()
+  );
   ExitCode::SUCCESS
 }
 
@@ -258,11 +273,19 @@ fn show_entry(id: &str) -> ExitCode {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
-  let e = match kumbarium_store::get(&state.library, id) {
+  let full = match kumbarium_store::resolve_id(&state.library, id) {
+    Ok(full) => full,
+    Err(err) => return fail(&err.to_string()),
+  };
+  let e = match kumbarium_store::get(&state.library, &full) {
     Ok(e) => e,
     Err(err) => return fail(&err.to_string()),
   };
-  println!("id:         {}", e.id);
+  println!(
+    "id:         {} (short: {})",
+    e.id,
+    kumbarium_store::short_id(&e.id)
+  );
   println!("namespace:  {}", e.namespace);
   println!("kind:       {}", e.kind.as_str());
   println!("agent:      {}", e.agent_id);
@@ -312,6 +335,10 @@ fn audit_tail(n: usize) -> ExitCode {
   };
   match kumbarium_audit::tail(&state.audit, n) {
     Ok(events) => {
+      println!(
+        "at                        kind      agent               \
+         scope  detail"
+      );
       for e in events {
         let scope = if e.scope.is_empty() {
           String::new()

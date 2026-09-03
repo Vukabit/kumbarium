@@ -7,6 +7,10 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+# `kum` (src/bin/kum.rs) is the short alias: it includes
+# src/main.rs as a module and calls run(), so every install
+# channel ships both names with zero shell config.
+
 [dependencies]
 kumbarium-audit = { path = "../kumbarium-audit" }
 kumbarium-librarian = { path = "../kumbarium-librarian" }

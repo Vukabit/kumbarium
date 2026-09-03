@@ -37,7 +37,9 @@ pub fn list() -> Value {
   Use for durable facts worth recalling in future sessions: user \
   preferences, project decisions, standing constraints. The \
   namespace must already be registered (the user registers \
-  namespaces; ask them if yours is missing).",
+  namespaces; ask them if yours is missing). Send content whole: \
+  the librarian splits oversized content into linked parts \
+  itself.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -96,7 +98,8 @@ pub fn list() -> Value {
       "description": "Create a typed edge between two existing \
   memories: 'continues' (sequence parts), 'relates_to' \
   (association), 'duplicates' or 'contradicts' (flag for human \
-  review). Idempotent.",
+  review). Idempotent. Ids may be any unique fragment (e.g. the \
+  8-char short form).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -138,7 +141,9 @@ pub fn list() -> Value {
       "name": "supersede",
       "description": "Replace an outdated memory with a \
   corrected one. The old entry is chained forward, never \
-  deleted. Use when a recalled fact turns out stale or wrong.",
+  deleted. Use when a recalled fact turns out stale or wrong. \
+  A split memory supersedes per PART (fix just the stale part); \
+  oversized replacement content is split automatically.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -164,7 +169,8 @@ pub fn list() -> Value {
       "name": "forget",
       "description": "Permanently delete a memory. Escape \
   hatch for wrong or sensitive content only; for routine \
-  correction use supersede, which preserves history.",
+  correction use supersede, which preserves history. The id may \
+  be any unique fragment.",
       "inputSchema": {
         "type": "object",
         "properties": { "id": { "type": "string" } },
@@ -200,17 +206,18 @@ fn remember(
 ) -> Result<Vec<String>, String> {
   let mut new = new_entry_args(args)?;
   new.agent_id = state.agent_id.clone();
-  let entry = kumbarium_store::remember(&mut state.library, &new)
-    .map_err(describe_store_error)?;
+  let ids = store_split(state, &new, None)?;
+  let head = ids[0].clone();
   let mut linked = 0usize;
   if let Some(links) = args.get("links").and_then(Value::as_array) {
     for spec in links {
-      let (to_id, rel) = link_spec(spec, "id")?;
-      kumbarium_store::link(&state.library, &entry.id, to_id, rel).map_err(
+      let (to_frag, rel) = link_spec(spec, "id")?;
+      let to_id = resolve(state, to_frag)?;
+      kumbarium_store::link(&state.library, &head, &to_id, rel).map_err(
         |e| {
           format!(
-            "entry {} stored, but linking to {to_id} failed: {}",
-            entry.id,
+            "entry {head} stored, but linking to {to_id} \
+             failed: {}",
             describe_store_error(e)
           )
         },
@@ -223,27 +230,91 @@ fn remember(
     kumbarium_audit::EventKind::Remember,
     &new.namespace,
     json!({
-      "id": entry.id,
+      "id": head,
+      "parts": ids.len(),
       "kind": new.kind.as_str(),
       "links": linked,
     }),
   )?;
-  Ok(vec![format!(
-    "Remembered. id={} namespace={} kind={}{}",
-    entry.id,
-    entry.namespace,
-    entry.kind.as_str(),
-    if linked > 0 {
-      format!(" links={linked}")
-    } else {
-      String::new()
+  Ok(vec![render_stored("Remembered", &ids, &new, linked)])
+}
+
+/// Store `new`, splitting oversized content into parts chained
+/// with `continues` edges (each later part points at its
+/// predecessor). Part 1 is the head and, when superseding, the
+/// entry that replaces `supersedes`. Returns the part ids in
+/// order. The importer shares this path, so every write splits
+/// identically regardless of origin.
+pub(crate) fn store_split(
+  state: &mut ServerState,
+  new: &kumbarium_store::NewEntry,
+  supersedes: Option<&str>,
+) -> Result<Vec<String>, String> {
+  let parts = kumbarium_librarian::split_for_storage(
+    &new.content,
+    kumbarium_librarian::SPLIT_TARGET,
+  );
+  let mut ids: Vec<String> = Vec::new();
+  for part in parts {
+    let part_entry = kumbarium_store::NewEntry {
+      content: part,
+      ..new.clone()
+    };
+    let stored = match (ids.is_empty(), supersedes) {
+      (true, Some(old_id)) => {
+        kumbarium_store::supersede(&mut state.library, old_id, &part_entry)
+      }
+      _ => kumbarium_store::remember(&mut state.library, &part_entry),
     }
-  )])
+    .map_err(describe_store_error)?;
+    if let Some(prev) = ids.last() {
+      kumbarium_store::link(
+        &state.library,
+        &stored.id,
+        prev,
+        kumbarium_store::Rel::Continues,
+      )
+      .map_err(describe_store_error)?;
+    }
+    ids.push(stored.id);
+  }
+  Ok(ids)
+}
+
+fn render_stored(
+  verb: &str,
+  ids: &[String],
+  new: &kumbarium_store::NewEntry,
+  linked: usize,
+) -> String {
+  let links = if linked > 0 {
+    format!(" links={linked}")
+  } else {
+    String::new()
+  };
+  if ids.len() == 1 {
+    format!(
+      "{verb}. id={} namespace={} kind={}{links}",
+      ids[0],
+      new.namespace,
+      new.kind.as_str()
+    )
+  } else {
+    format!(
+      "{verb} as {} linked parts (namespace={} kind={}{links}):\n{}",
+      ids.len(),
+      new.namespace,
+      new.kind.as_str(),
+      ids.join("\n")
+    )
+  }
 }
 
 fn link(state: &mut ServerState, args: &Value) -> Result<Vec<String>, String> {
-  let from_id = required_str(args, "from_id")?;
-  let (to_id, rel) = link_spec(args, "to_id")?;
+  let from_id = resolve(state, required_str(args, "from_id")?)?;
+  let (to_frag, rel) = link_spec(args, "to_id")?;
+  let to_id = resolve(state, to_frag)?;
+  let (from_id, to_id) = (from_id.as_str(), to_id.as_str());
   kumbarium_store::link(&state.library, from_id, to_id, rel)
     .map_err(describe_store_error)?;
   let scope = kumbarium_store::get(&state.library, from_id)
@@ -260,6 +331,13 @@ fn link(state: &mut ServerState, args: &Value) -> Result<Vec<String>, String> {
     }),
   )?;
   Ok(vec![format!("Linked {from_id} {} {to_id}.", rel.as_str())])
+}
+
+/// Resolve an id or unique fragment against the library
+/// (git-style; listings show the 8-char short form).
+fn resolve(state: &ServerState, fragment: &str) -> Result<String, String> {
+  kumbarium_store::resolve_id(&state.library, fragment)
+    .map_err(describe_store_error)
 }
 
 /// Pull (target id, rel) out of a link object; `id_key` names
@@ -318,20 +396,23 @@ fn supersede(
   state: &mut ServerState,
   args: &Value,
 ) -> Result<Vec<String>, String> {
-  let old_id = required_str(args, "old_id")?;
+  let old_id = resolve(state, required_str(args, "old_id")?)?;
   let mut new = new_entry_args(args)?;
   new.agent_id = state.agent_id.clone();
-  let entry = kumbarium_store::supersede(&mut state.library, old_id, &new)
-    .map_err(describe_store_error)?;
+  let ids = store_split(state, &new, Some(&old_id))?;
   audit(
     state,
     kumbarium_audit::EventKind::Supersede,
     &new.namespace,
-    json!({ "old_id": old_id, "new_id": entry.id }),
+    json!({
+      "old_id": old_id,
+      "new_id": ids[0],
+      "parts": ids.len(),
+    }),
   )?;
   Ok(vec![format!(
-    "Superseded {old_id}. New entry id={}",
-    entry.id
+    "Superseded {old_id}. {}",
+    render_stored("Stored", &ids, &new, 0)
   )])
 }
 
@@ -339,7 +420,8 @@ fn forget(
   state: &mut ServerState,
   args: &Value,
 ) -> Result<Vec<String>, String> {
-  let id = required_str(args, "id")?;
+  let id = resolve(state, required_str(args, "id")?)?;
+  let id = id.as_str();
   let entry =
     kumbarium_store::get(&state.library, id).map_err(describe_store_error)?;
   kumbarium_store::forget(&mut state.library, id)

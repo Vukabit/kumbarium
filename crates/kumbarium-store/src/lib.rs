@@ -19,7 +19,7 @@ pub use backup::{Retention, backup, latest_backup_ms, prune};
 pub use entries::{
   Entry, Hit, Kind, NewEntry, confirm, entries_in, find_by_source, forget, get,
   namespace_id, namespaces, predecessor_of, recall, register_namespace,
-  remember, supersede,
+  remember, resolve_id, short_id, supersede,
 };
 pub use links::{Link, Rel, link, links_of, unlink};
 
@@ -53,6 +53,8 @@ pub enum StoreError {
   EmptyContent,
   #[error("cannot link entry {0:?} to itself")]
   SelfLink(String),
+  #[error("id fragment {0:?} matches more than one entry")]
+  AmbiguousId(String),
   #[error("backup io: {0}")]
   Io(#[from] std::io::Error),
   #[error("backup copy failed integrity check: {0}")]

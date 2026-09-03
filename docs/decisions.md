@@ -136,3 +136,24 @@ ids only; agents fetch siblings on demand (token budgeting, no
 auto-chain inflation). Shipped as migrations 0002 in BOTH dbs,
 the first real append-only migrations (audit's rebuilds the
 events table to widen the kind CHECK with 'link'/'import').
+
+## D-017: librarian-side auto-split on every write (2026-09-03)
+
+Oversized content is split by the LIBRARIAN, not the writer:
+deterministic paragraph-boundary packing (blank-line blocks,
+markdown headings break early once a part is half full, a
+paragraph is never cut internally; an indivisible oversized
+paragraph passes whole). Parts chain with `continues` edges
+(later part points at its predecessor); part 1 is the head and
+carries the request's tags and explicit links; all parts share
+tags and source. One shared write path (tools::store_split)
+serves agent remember/supersede AND the importer, so origin
+never changes split behavior. Target: SPLIT_TARGET = 1500 bytes
+in kumbarium-librarian. Consequences, documented in the tool
+descriptions: parts rank independently in FTS (sharper, cheaper
+recall); supersede and forget operate per PART, which is the
+fine-grained history we want. Smarter semantic splitting is a
+future Curator job, never this deterministic path. The
+importer's advisory oversize warning is replaced by the split
+itself. Also: `kum` ships as a second bin target aliasing the
+full CLI.

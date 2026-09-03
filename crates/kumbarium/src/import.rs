@@ -9,10 +9,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
-use crate::tools::ServerState;
+use super::tools::ServerState;
 
 const AGENT_ID: &str = "claude-code-import";
-const OVERSIZE_CHARS: usize = 1500;
 
 /// One parsed memory file, pre-mapping.
 struct MemoryFile {
@@ -79,12 +78,14 @@ pub fn run(
     "memory", "namespace", "kind", "status"
   ));
   for p in &plan {
-    let size = p.file.body.len();
+    let parts = kumbarium_librarian::split_for_storage(
+      &content_of(&p.file),
+      kumbarium_librarian::SPLIT_TARGET,
+    )
+    .len();
     let status = match &p.already_imported {
       Some(id) => format!("SKIP (imported as {id})"),
-      None if size > OVERSIZE_CHARS => {
-        format!("import ({size} chars; consider splitting after)")
-      }
+      None if parts > 1 => format!("import ({parts} parts)"),
       None => "import".into(),
     };
     report.push(format!(
@@ -119,6 +120,7 @@ pub fn run(
   let known: std::collections::HashSet<String> =
     plan.iter().map(|p| p.file.name.clone()).collect();
   let mut imported = 0usize;
+  let mut total_parts = 0usize;
   for p in &importable {
     let mut tags = vec![p.file.name.clone()];
     for l in &p.file.wiki_links {
@@ -126,19 +128,20 @@ pub fn run(
         tags.push(l.clone()); // dangling -> tag fallback
       }
     }
-    let entry = kumbarium_store::remember(
-      &mut state.library,
-      &kumbarium_store::NewEntry {
-        namespace: p.namespace.clone(),
-        kind: p.kind,
-        content: format!("{}\n\n{}", p.file.description, p.file.body),
-        agent_id: AGENT_ID.into(),
-        source: source_of(&p.file.path),
-        tags,
-      },
-    )
-    .map_err(|e| format!("{}: {e}", p.file.name))?;
-    id_by_name.insert(p.file.name.clone(), entry.id);
+    let new = kumbarium_store::NewEntry {
+      namespace: p.namespace.clone(),
+      kind: p.kind,
+      content: content_of(&p.file),
+      agent_id: AGENT_ID.into(),
+      source: source_of(&p.file.path),
+      tags,
+    };
+    // The shared write path: oversized content splits into
+    // continues-chained parts here exactly as agent writes do.
+    let ids = super::tools::store_split(state, &new, None)
+      .map_err(|e| format!("{}: {e}", p.file.name))?;
+    total_parts += ids.len();
+    id_by_name.insert(p.file.name.clone(), ids[0].clone());
     imported += 1;
   }
 
@@ -177,11 +180,15 @@ pub fn run(
 
   report.push(String::new());
   report.push(format!(
-    "imported {imported} memories, {edges} relates_to edges \
-     ({} skipped as already imported)",
+    "imported {imported} memories as {total_parts} entries, \
+     {edges} relates_to edges ({} skipped as already imported)",
     plan.len() - imported
   ));
   Ok(report)
+}
+
+fn content_of(file: &MemoryFile) -> String {
+  format!("{}\n\n{}", file.description, file.body)
 }
 
 fn collect(
@@ -387,7 +394,9 @@ The project uses SQLite.\n";
     let mut state = state_with_ns();
     let report = run(&mut state, &opts(dir.path(), true)).unwrap();
     let text = report.join("\n");
-    assert!(text.contains("imported 2 memories, 1 relates_to edges"));
+    assert!(
+      text.contains("imported 2 memories as 2 entries, 1 relates_to edges")
+    );
     // Kind + namespace mapping held.
     let (ns, kind): (String, String) = state
       .library
@@ -431,6 +440,43 @@ The project uses SQLite.\n";
       )
       .unwrap();
     assert_eq!(kind, "import");
+  }
+
+  #[test]
+  fn oversized_memory_splits_into_chained_parts() {
+    let dir = tempfile::tempdir().unwrap();
+    let long_body = (0..40)
+      .map(|i| format!("paragraph {i} {}", "x".repeat(60)))
+      .collect::<Vec<_>>()
+      .join("\n\n");
+    let fixture = format!(
+      "---\nname: test-long\ndescription: big one\n\
+       metadata:\n  type: project\n---\n\n{long_body}"
+    );
+    std::fs::write(dir.path().join("test-long.md"), fixture).unwrap();
+    let mut state = ServerState::in_memory();
+    let opts = Options {
+      dirs: vec![dir.path().to_path_buf()],
+      apply: true,
+      map: vec![],
+    };
+    let report = run(&mut state, &opts).unwrap();
+    let text = report.join("\n");
+    assert!(text.contains("parts)"), "plan shows part count");
+    let entries: i64 = state
+      .library
+      .query_row("SELECT count(*) FROM entries", [], |r| r.get(0))
+      .unwrap();
+    assert!(entries > 1, "split into multiple entries");
+    let chains: i64 = state
+      .library
+      .query_row(
+        "SELECT count(*) FROM entry_links WHERE rel='continues'",
+        [],
+        |r| r.get(0),
+      )
+      .unwrap();
+    assert_eq!(chains, entries - 1, "parts fully chained");
   }
 
   #[test]

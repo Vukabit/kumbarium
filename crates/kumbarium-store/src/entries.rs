@@ -110,6 +110,42 @@ pub fn namespaces(
   Ok(rows)
 }
 
+/// Resolve an id fragment to a full entry id, git-style: a full
+/// UUIDv7 passes through; otherwise any UNIQUE substring of at
+/// least 4 chars matches (the last 8 hex chars shown by
+/// listings are the intended short form, since UUIDv7 fronts
+/// are timestamps and collide within a batch). Ambiguity is an
+/// error, never a guess.
+pub fn resolve_id(
+  conn: &Connection,
+  fragment: &str,
+) -> Result<String, StoreError> {
+  if kumbarium_util::is_valid_id(fragment) {
+    return Ok(fragment.to_string());
+  }
+  let hexish = fragment.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-');
+  if fragment.len() < 4 || !hexish {
+    return Err(StoreError::EntryNotFound(fragment.to_string()));
+  }
+  let mut stmt =
+    conn.prepare("SELECT id FROM entries WHERE id LIKE ?1 LIMIT 2")?;
+  let matches = stmt
+    .query_map([format!("%{fragment}%")], |row| row.get::<_, String>(0))?
+    .collect::<Result<Vec<_>, _>>()?;
+  match matches.as_slice() {
+    [] => Err(StoreError::EntryNotFound(fragment.to_string())),
+    [id] => Ok(id.clone()),
+    _ => Err(StoreError::AmbiguousId(fragment.to_string())),
+  }
+}
+
+/// The short display form of an id: its last 8 hex chars (the
+/// random tail; UUIDv7 fronts are timestamps and collide within
+/// a mint batch).
+pub fn short_id(id: &str) -> &str {
+  id.get(id.len().saturating_sub(8)..).unwrap_or(id)
+}
+
 /// Browse entries, newest first: all namespaces or exactly one
 /// (no chain here; browsing is namespace-scoped, recall chains).
 /// Superseded entries are hidden unless `include_superseded`.
@@ -674,6 +710,31 @@ mod tests {
       confirm(&conn, "missing"),
       Err(StoreError::EntryNotFound(_))
     ));
+  }
+
+  #[test]
+  fn id_fragments_resolve_uniquely_or_error() {
+    let mut conn = store();
+    let a =
+      remember(&mut conn, &entry_in("project/demo-app", "first fact")).unwrap();
+    let b = remember(&mut conn, &entry_in("project/demo-app", "second fact"))
+      .unwrap();
+    // Full id passes through; the short tail resolves.
+    assert_eq!(resolve_id(&conn, &a.id).unwrap(), a.id);
+    assert_eq!(resolve_id(&conn, short_id(&b.id)).unwrap(), b.id);
+    assert_eq!(short_id(&b.id).len(), 8);
+    // Same-batch UUIDv7 fronts collide: ambiguous, never a guess.
+    assert!(matches!(
+      resolve_id(&conn, &a.id[..8]),
+      Err(StoreError::AmbiguousId(_))
+    ));
+    // Too short, non-hex, or unknown: not found.
+    for bad in ["abc", "zzzz9999", "ffffffff"] {
+      assert!(matches!(
+        resolve_id(&conn, bad),
+        Err(StoreError::EntryNotFound(_))
+      ));
+    }
   }
 
   #[test]

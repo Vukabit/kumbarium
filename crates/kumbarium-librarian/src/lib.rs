@@ -6,11 +6,13 @@
 
 mod namespace;
 mod score;
+mod split;
 
 pub use namespace::{
   MAX_DEPTH, NamespaceError, namespace_chain, validate_namespace,
 };
 pub use score::Scores;
+pub use split::{SPLIT_TARGET, split_for_storage};
 
 /// The LLM curation seam. The write path (dedup, merge,
 /// contradiction checks) and the janitor call through this trait;

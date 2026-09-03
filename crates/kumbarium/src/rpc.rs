@@ -7,7 +7,7 @@ use std::io::{BufRead, Write};
 
 use serde_json::{Value, json};
 
-use crate::tools::{self, ServerState};
+use super::tools::{self, ServerState};
 
 /// Legacy protocol revisions this server will echo back. A
 /// request for anything else is answered with LATEST (per the
@@ -366,7 +366,9 @@ mod tests {
       .split("id=")
       .nth(1)
       .unwrap()
-      .trim()
+      .split_whitespace()
+      .next()
+      .unwrap()
       .to_string();
     let out = drive(&mut state, &[call(1, "forget", json!({ "id": new_id }))]);
     assert_eq!(out[0]["result"]["isError"], false);
@@ -430,6 +432,44 @@ mod tests {
     assert!(recall_text.contains("links: continues <-"));
     // Dangling link through the link tool is a tool error.
     assert_eq!(out[2]["result"]["isError"], true);
+  }
+
+  #[test]
+  fn oversized_remember_splits_and_chains_automatically() {
+    let mut state = ServerState::in_memory();
+    let content = (0..40)
+      .map(|i| format!("paragraph {i} {}", "y".repeat(60)))
+      .collect::<Vec<_>>()
+      .join("\n\n");
+    let out = drive(
+      &mut state,
+      &[call(
+        1,
+        "remember",
+        json!({
+          "namespace": "global",
+          "kind": "reference",
+          "content": content,
+        }),
+      )],
+    );
+    assert_eq!(out[0]["result"]["isError"], false);
+    let text = text_of(&out[0]);
+    assert!(text.contains("linked parts"), "{text}");
+    let entries: i64 = state
+      .library
+      .query_row("SELECT count(*) FROM entries", [], |r| r.get(0))
+      .unwrap();
+    assert!(entries > 1);
+    let chains: i64 = state
+      .library
+      .query_row(
+        "SELECT count(*) FROM entry_links WHERE rel='continues'",
+        [],
+        |r| r.get(0),
+      )
+      .unwrap();
+    assert_eq!(chains, entries - 1, "every part chained");
   }
 
   #[test]
