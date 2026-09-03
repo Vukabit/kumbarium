@@ -191,6 +191,7 @@ mod tests {
           agent_id: "test".into(),
           source: "".into(),
           tags: vec![],
+          status: crate::entries::Status::Live,
         },
       )
       .unwrap()
@@ -258,6 +259,7 @@ mod tests {
         agent_id: "test".into(),
         source: "".into(),
         tags: vec![],
+        status: crate::entries::Status::Live,
       },
     )
     .unwrap()
@@ -287,6 +289,7 @@ mod tests {
         agent_id: "test".into(),
         source: "".into(),
         tags: vec![],
+        status: crate::entries::Status::Live,
       },
     )
     .unwrap()
@@ -326,6 +329,7 @@ mod tests {
         agent_id: "test".into(),
         source: "".into(),
         tags: vec![],
+        status: crate::entries::Status::Live,
       },
       Some("typo fix"),
     )

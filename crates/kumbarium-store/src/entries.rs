@@ -39,8 +39,40 @@ impl Kind {
   }
 }
 
+/// Circulation status (D-027): quarantine is a status, not a
+/// place. Only live entries surface in recall, list, grep, and
+/// chain search; approval flips pending to live; rejection keeps
+/// the entry as evidence of the judgment. Mirrors the CHECK in
+/// migration 0006.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+  Live,
+  Pending,
+  Rejected,
+}
+
+impl Status {
+  pub fn as_str(self) -> &'static str {
+    match self {
+      Status::Live => "live",
+      Status::Pending => "pending",
+      Status::Rejected => "rejected",
+    }
+  }
+
+  pub fn parse(s: &str) -> Option<Status> {
+    match s {
+      "live" => Some(Status::Live),
+      "pending" => Some(Status::Pending),
+      "rejected" => Some(Status::Rejected),
+      _ => None,
+    }
+  }
+}
+
 /// What a writer supplies; the store mints id, timestamps, and
-/// the starting confidence.
+/// the starting confidence. `status` is set by the GATE from
+/// write policy (D-027), never chosen by the writer itself.
 #[derive(Debug, Clone)]
 pub struct NewEntry {
   pub namespace: String,
@@ -49,6 +81,7 @@ pub struct NewEntry {
   pub agent_id: String,
   pub source: String,
   pub tags: Vec<String>,
+  pub status: Status,
 }
 
 /// A stored entry, tags included.
@@ -71,6 +104,7 @@ pub struct Entry {
   pub last_confirmed_at: Option<String>,
   pub retired_at: Option<String>,
   pub note: Option<String>,
+  pub status: Status,
   pub tags: Vec<String>,
 }
 
@@ -164,7 +198,7 @@ pub fn entries_in(
             e.source, e.confidence, e.superseded_by,
             e.created_at, e.updated_at, e.last_accessed_at,
             e.last_confirmed_at, e.retired_at, e.note,
-            e.confidence_basis
+            e.confidence_basis, e.status
      FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
      WHERE 1=1",
   );
@@ -172,7 +206,10 @@ pub fn entries_in(
     sql.push_str(" AND ns.path = ?1");
   }
   if !include_superseded {
-    sql.push_str(" AND e.superseded_by IS NULL AND e.retired_at IS NULL");
+    sql.push_str(
+      " AND e.superseded_by IS NULL AND e.retired_at IS NULL \
+       AND e.status = 'live'",
+    );
   }
   sql.push_str(" ORDER BY e.created_at DESC");
   let mut stmt = conn.prepare(&sql)?;
@@ -214,6 +251,8 @@ pub struct Stats {
   pub live: i64,
   pub superseded: i64,
   pub retired: i64,
+  pub pending: i64,
+  pub rejected: i64,
   pub set_heads: i64,
   pub set_parts: i64,
 }
@@ -226,8 +265,14 @@ pub fn stats(conn: &Connection) -> Result<Stats, StoreError> {
   Ok(Stats {
     live: one(
       "SELECT count(*) FROM entries
-       WHERE superseded_by IS NULL AND retired_at IS NULL",
+       WHERE superseded_by IS NULL AND retired_at IS NULL
+         AND status = 'live'",
     )?,
+    pending: one(
+      "SELECT count(*) FROM entries
+       WHERE status = 'pending' AND superseded_by IS NULL",
+    )?,
+    rejected: one("SELECT count(*) FROM entries WHERE status = 'rejected'")?,
     superseded: one(
       "SELECT count(*) FROM entries WHERE superseded_by IS NOT NULL",
     )?,
@@ -374,7 +419,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<Entry, StoreError> {
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id, e.source,
             e.confidence, e.superseded_by, e.created_at,
             e.updated_at, e.last_accessed_at, e.last_confirmed_at,
-            e.retired_at, e.note, e.confidence_basis
+            e.retired_at, e.note, e.confidence_basis, e.status
      FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
      WHERE e.id = ?1",
   )?;
@@ -412,7 +457,7 @@ pub fn recall(
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id, e.source,
             e.confidence, e.superseded_by, e.created_at,
             e.updated_at, e.last_accessed_at, e.last_confirmed_at,
-            e.retired_at, e.note, e.confidence_basis,
+            e.retired_at, e.note, e.confidence_basis, e.status,
             bm25(entries_fts) AS rank
      FROM entries_fts
      JOIN entries e ON e.rowid = entries_fts.rowid
@@ -420,6 +465,7 @@ pub fn recall(
      WHERE entries_fts MATCH ?1
        AND e.superseded_by IS NULL
        AND e.retired_at IS NULL
+       AND e.status = 'live'
        AND ns.path IN ({ns_marks})
      ORDER BY rank
      LIMIT ?2"
@@ -428,7 +474,7 @@ pub fn recall(
   args.extend(namespaces.iter().cloned());
   let mut stmt = conn.prepare(&sql)?;
   let rows = stmt.query_map(params_from_iter(args.iter()), |row| {
-    Ok((row_to_entry(row)?, row.get::<_, f64>(15)?))
+    Ok((row_to_entry(row)?, row.get::<_, f64>(16)?))
   })?;
   let mut hits = Vec::new();
   for row in rows {
@@ -456,27 +502,33 @@ pub fn supersede(
   // busy_timeout can wait (found by daily_drive_sim storm).
   let tx =
     conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-  let prior: Option<Option<String>> = tx
+  let prior: Option<(Option<String>, String)> = tx
     .query_row(
-      "SELECT superseded_by FROM entries WHERE id = ?1",
+      "SELECT superseded_by, status FROM entries WHERE id = ?1",
       [old_id],
-      |row| row.get(0),
+      |row| Ok((row.get(0)?, row.get(1)?)),
     )
     .map(Some)
     .or_else(|e| match e {
       rusqlite::Error::QueryReturnedNoRows => Ok(None),
       other => Err(other),
     })?;
-  match prior {
+  let old_status = match prior {
     None => {
       return Err(StoreError::EntryNotFound(old_id.to_string()));
     }
-    Some(Some(_)) => {
+    Some((Some(_), _)) => {
       return Err(StoreError::AlreadySuperseded(old_id.to_string()));
     }
-    Some(None) => {}
+    Some((None, status)) => status,
+  };
+  // Revising a quarantined fact keeps the chain head pending:
+  // judgment happens at the desk, never via a revision (D-027).
+  let mut new = new.clone();
+  if old_status == "pending" {
+    new.status = Status::Pending;
   }
-  let entry = insert_entry(&tx, new)?;
+  let entry = insert_entry(&tx, &new)?;
   if let Some(note) = note {
     tx.execute(
       "UPDATE entries SET note = ?1 WHERE id = ?2",
@@ -551,6 +603,67 @@ pub fn confirm(conn: &Connection, id: &str) -> Result<(), StoreError> {
   Ok(())
 }
 
+/// All pending entries, oldest first: the inbox.
+pub fn pending_in(conn: &Connection) -> Result<Vec<Entry>, StoreError> {
+  let mut stmt = conn.prepare(
+    "SELECT e.id, ns.path, e.kind, e.content, e.agent_id,
+            e.source, e.confidence, e.superseded_by,
+            e.created_at, e.updated_at, e.last_accessed_at,
+            e.last_confirmed_at, e.retired_at, e.note,
+            e.confidence_basis, e.status
+     FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
+     WHERE e.status = 'pending' AND e.superseded_by IS NULL
+     ORDER BY e.created_at ASC",
+  )?;
+  let rows = stmt
+    .query_map([], row_to_entry)?
+    .collect::<Result<Vec<_>, _>>()?;
+  let mut entries = Vec::new();
+  for entry in rows {
+    entries.push(with_tags(conn, entry)?);
+  }
+  Ok(entries)
+}
+
+/// Promote a pending entry into circulation (human-only at the
+/// CLI; the caller witnesses the approval event).
+pub fn approve(conn: &Connection, id: &str) -> Result<(), StoreError> {
+  set_status(conn, id, Status::Live)
+}
+
+/// Decline a pending entry, keeping it as evidence of the
+/// judgment (never deleted; `forget` is the separate tool).
+pub fn reject(conn: &Connection, id: &str) -> Result<(), StoreError> {
+  set_status(conn, id, Status::Rejected)
+}
+
+fn set_status(
+  conn: &Connection,
+  id: &str,
+  to: Status,
+) -> Result<(), StoreError> {
+  let n = conn.execute(
+    "UPDATE entries SET status = ?1, updated_at = ?2
+     WHERE id = ?3 AND status = 'pending'",
+    params![to.as_str(), kumbarium_util::now_iso8601(), id],
+  )?;
+  if n == 0 {
+    // Distinguish missing from not-pending for the error.
+    let exists: bool = conn
+      .query_row("SELECT 1 FROM entries WHERE id = ?1", [id], |_| Ok(true))
+      .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(false),
+        other => Err(other),
+      })?;
+    return Err(if exists {
+      StoreError::NotPending(id.to_string())
+    } else {
+      StoreError::EntryNotFound(id.to_string())
+    });
+  }
+  Ok(())
+}
+
 /// Set an entry's confidence and its stored basis. The janitor is
 /// the only intended caller (D-004: writers never self-assess;
 /// D-025: the janitor is the designated mover of the number).
@@ -591,8 +704,8 @@ fn insert_entry(
   conn.execute(
     "INSERT INTO entries
        (id, namespace_id, kind, content, agent_id, source,
-        created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+        status, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
     params![
       id,
       ns,
@@ -600,6 +713,7 @@ fn insert_entry(
       new.content,
       new.agent_id,
       new.source,
+      new.status.as_str(),
       now,
     ],
   )?;
@@ -611,6 +725,20 @@ fn insert_entry(
     )?;
   }
   get(conn, &id)
+}
+
+fn parse_status(
+  row: &rusqlite::Row<'_>,
+  idx: usize,
+) -> Result<Status, rusqlite::Error> {
+  let raw: String = row.get(idx)?;
+  Status::parse(&raw).ok_or_else(|| {
+    rusqlite::Error::FromSqlConversionFailure(
+      idx,
+      rusqlite::types::Type::Text,
+      format!("unknown status {raw:?}").into(),
+    )
+  })
 }
 
 fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<Entry, rusqlite::Error> {
@@ -638,6 +766,7 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<Entry, rusqlite::Error> {
     retired_at: row.get(12)?,
     note: row.get(13)?,
     confidence_basis: row.get(14)?,
+    status: parse_status(row, 15)?,
     tags: Vec::new(),
   })
 }
@@ -699,6 +828,7 @@ mod tests {
       agent_id: "test-agent".into(),
       source: "unit-test".into(),
       tags: vec!["alpha".into(), "beta".into()],
+      status: Status::Live,
     }
   }
 
@@ -1011,5 +1141,94 @@ mod tests {
     let conn = store();
     let err = register_namespace(&conn, "project/demo-app", "again");
     assert!(matches!(err, Err(StoreError::NamespaceExists(_))));
+  }
+
+  #[test]
+  fn pending_never_surfaces_in_recall_or_list() {
+    let mut conn = store();
+    let mut new = entry_in("global", "the pending zarquat rule");
+    new.status = Status::Pending;
+    let e = remember(&mut conn, &new).unwrap();
+    let hits = recall(&conn, "zarquat rule", &["global".into()], 10).unwrap();
+    assert!(hits.is_empty(), "pending is out of circulation");
+    let listed = entries_in(&conn, None, false).unwrap();
+    assert!(listed.iter().all(|x| x.id != e.id));
+    // Forensics (--all) still sees it.
+    let all = entries_in(&conn, None, true).unwrap();
+    assert!(all.iter().any(|x| x.id == e.id));
+  }
+
+  #[test]
+  fn approve_promotes_into_circulation() {
+    let mut conn = store();
+    let mut new = entry_in("global", "the pending zarquat rule");
+    new.status = Status::Pending;
+    let e = remember(&mut conn, &new).unwrap();
+    approve(&conn, &e.id).unwrap();
+    assert_eq!(get(&conn, &e.id).unwrap().status, Status::Live);
+    let hits = recall(&conn, "zarquat rule", &["global".into()], 10).unwrap();
+    assert_eq!(hits.len(), 1);
+  }
+
+  #[test]
+  fn reject_keeps_the_entry_out_of_circulation() {
+    let mut conn = store();
+    let mut new = entry_in("global", "the pending zarquat rule");
+    new.status = Status::Pending;
+    let e = remember(&mut conn, &new).unwrap();
+    reject(&conn, &e.id).unwrap();
+    let kept = get(&conn, &e.id).unwrap();
+    assert_eq!(kept.status, Status::Rejected);
+    assert_eq!(kept.content, "the pending zarquat rule");
+    let hits = recall(&conn, "zarquat rule", &["global".into()], 10).unwrap();
+    assert!(hits.is_empty());
+  }
+
+  #[test]
+  fn judging_a_live_entry_errors() {
+    let mut conn = store();
+    let e = remember(&mut conn, &entry_in("global", "already live")).unwrap();
+    let err = approve(&conn, &e.id);
+    assert!(matches!(err, Err(StoreError::NotPending(_))));
+    let err = reject(&conn, &e.id);
+    assert!(matches!(err, Err(StoreError::NotPending(_))));
+  }
+
+  #[test]
+  fn superseding_pending_stays_pending() {
+    let mut conn = store();
+    let mut new = entry_in("global", "the pending zarquat rule v1");
+    new.status = Status::Pending;
+    let e = remember(&mut conn, &new).unwrap();
+    // The revision claims live; the chain head must stay pending
+    // (judgment happens at the desk, never via a revision).
+    let revised = supersede(
+      &mut conn,
+      &e.id,
+      &entry_in("global", "the pending zarquat rule v2"),
+      None,
+    )
+    .unwrap();
+    assert_eq!(revised.status, Status::Pending);
+    let inbox = pending_in(&conn).unwrap();
+    assert_eq!(inbox.len(), 1);
+    assert_eq!(inbox[0].id, revised.id, "inbox shows the chain head");
+  }
+
+  #[test]
+  fn stats_count_pending_and_rejected() {
+    let mut conn = store();
+    remember(&mut conn, &entry_in("global", "live one")).unwrap();
+    let mut new = entry_in("global", "pending one");
+    new.status = Status::Pending;
+    remember(&mut conn, &new).unwrap();
+    let mut new = entry_in("global", "rejected one");
+    new.status = Status::Pending;
+    let e = remember(&mut conn, &new).unwrap();
+    reject(&conn, &e.id).unwrap();
+    let st = stats(&conn).unwrap();
+    assert_eq!(st.live, 1);
+    assert_eq!(st.pending, 1);
+    assert_eq!(st.rejected, 1);
   }
 }

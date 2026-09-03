@@ -587,9 +587,11 @@ fn new_entry_args(args: &Value) -> Result<kumbarium_store::NewEntry, String> {
     namespace: namespace.to_string(),
     kind,
     content: content.to_string(),
-    // The dispatching tool overwrites this with the declared
-    // client identity before any store write.
+    // The dispatching tool overwrites agent_id with the declared
+    // client identity, and status with the write policy for that
+    // identity (D-027), before any store write.
     agent_id: String::new(),
+    status: kumbarium_store::Status::Live,
     source,
     tags,
   })

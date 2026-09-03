@@ -877,6 +877,7 @@ fn revert_cmd(id: &str, apply: bool) -> ExitCode {
     agent_id: "kumbarium-cli".into(),
     source: target.source.clone(),
     tags: target.tags.clone(),
+    status: kumbarium_store::Status::Live,
   };
   let revert_note =
     format!("revert to {}", kumbarium_store::short_id(&target.id));
@@ -1088,6 +1089,12 @@ fn status_cmd() -> ExitCode {
     "  entries:   {} live, {} superseded, {} retired",
     stats.live, stats.superseded, stats.retired
   );
+  if stats.pending > 0 || stats.rejected > 0 {
+    println!(
+      "  desk:      {} pending (kum inbox), {} rejected",
+      stats.pending, stats.rejected
+    );
+  }
   println!(
     "  sets:      {} ({} parts)",
     stats.set_heads, stats.set_parts
@@ -1101,7 +1108,7 @@ fn status_cmd() -> ExitCode {
             "SELECT count(*) FROM entries e
              JOIN namespaces ns ON ns.id = e.namespace_id
              WHERE ns.path = ?1 AND e.superseded_by IS NULL
-               AND e.retired_at IS NULL",
+               AND e.retired_at IS NULL AND e.status = 'live'",
             [&path],
             |row| row.get(0),
           )
@@ -1277,6 +1284,7 @@ fn move_cmd(id: &str, namespace: &str) -> ExitCode {
     agent_id: "kumbarium-cli".into(),
     source: e.source.clone(),
     tags: e.tags.clone(),
+    status: kumbarium_store::Status::Live,
   };
   let ids = match tools::store_split(&mut state, &new, Some(&full), Some(&note))
   {

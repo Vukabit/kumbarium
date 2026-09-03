@@ -135,6 +135,7 @@ pub fn run(
       agent_id: AGENT_ID.into(),
       source: source_of(&p.file.path),
       tags,
+      status: kumbarium_store::Status::Live,
     };
     // The shared write path: oversized content splits into
     // continues-chained parts here exactly as agent writes do.

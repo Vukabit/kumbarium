@@ -17,10 +17,11 @@ pub use rusqlite::Connection;
 
 pub use backup::{Retention, backup, latest_backup_ms, prune};
 pub use entries::{
-  Entry, Hit, Kind, NewEntry, Stats, confirm, entries_in, find_by_source,
-  forget, get, namespace_id, namespaces, predecessor_of, recall,
-  register_namespace, remember, resolve_id, retire, set_confidence, short_id,
-  stats, supersede, unretire, version_history,
+  Entry, Hit, Kind, NewEntry, Stats, Status, approve, confirm, entries_in,
+  find_by_source, forget, get, namespace_id, namespaces, pending_in,
+  predecessor_of, recall, register_namespace, reject, remember, resolve_id,
+  retire, set_confidence, short_id, stats, supersede, unretire,
+  version_history,
 };
 pub use links::{Link, Rel, continues_chain, link, links_of, unlink};
 
@@ -44,6 +45,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     5,
     "0005_confidence_basis",
     include_str!("../migrations/0005_confidence_basis.sql"),
+  ),
+  (
+    6,
+    "0006_status",
+    include_str!("../migrations/0006_status.sql"),
   ),
 ];
 
@@ -71,6 +77,8 @@ pub enum StoreError {
   AlreadyRetired(String),
   #[error("entry {0:?} is not retired")]
   NotRetired(String),
+  #[error("entry {0:?} is not pending")]
+  NotPending(String),
   #[error("backup io: {0}")]
   Io(#[from] std::io::Error),
   #[error("backup copy failed integrity check: {0}")]
@@ -152,7 +160,7 @@ mod tests {
   #[test]
   fn fresh_store_reaches_latest_schema() {
     let conn = open_in_memory().unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 5);
+    assert_eq!(schema_version(&conn).unwrap(), 6);
   }
 
   #[test]
@@ -160,7 +168,7 @@ mod tests {
     let conn = open_in_memory().unwrap();
     // A second pass sees itself at latest and applies nothing.
     migrate(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 5);
+    assert_eq!(schema_version(&conn).unwrap(), 6);
   }
 
   #[test]

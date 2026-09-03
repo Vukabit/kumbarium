@@ -50,6 +50,7 @@ fn new_entry(seed: &Seed) -> kumbarium_store::NewEntry {
     agent_id: "golden-eval".into(),
     source: "evals/golden.toml".into(),
     tags: Vec::new(),
+    status: kumbarium_store::Status::Live,
   }
 }
 

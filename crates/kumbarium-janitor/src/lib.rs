@@ -220,6 +220,7 @@ mod tests {
         agent_id: "writer".into(),
         source: "test".into(),
         tags: vec![],
+        status: kumbarium_store::Status::Live,
       },
     )
     .unwrap();

@@ -186,6 +186,7 @@ mod tests {
         agent_id: "test".into(),
         source: "".into(),
         tags: vec![],
+        status: crate::Status::Live,
       },
     )
     .unwrap();
