@@ -318,6 +318,78 @@ mod tests {
   }
 
   #[test]
+  fn urgent_matters_ride_the_first_recall() {
+    let mut state = ServerState::in_memory();
+    kumbarium_store::register_namespace(&state.library, "project/x", "t")
+      .unwrap();
+    let out = drive(
+      &mut state,
+      &[
+        call(
+          1,
+          "task_file",
+          json!({
+            "namespace": "project/x",
+            "content": "the drenwick timeout endangers production",
+            "severity": "urgent"
+          }),
+        ),
+        call(
+          2,
+          "task_file",
+          json!({
+            "namespace": "project/x",
+            "content": "polish the badge sometime",
+            "severity": "low"
+          }),
+        ),
+        call(
+          3,
+          "recall",
+          json!({
+            "query": "anything", "scope": "project/x"
+          }),
+        ),
+        call(
+          4,
+          "recall",
+          json!({
+            "query": "anything", "scope": "project/x"
+          }),
+        ),
+      ],
+    );
+    let first = text_of(&out[2]);
+    assert!(
+      first.contains("OPEN MATTERS") && first.contains("drenwick"),
+      "urgent matter rides the first recall: {first}"
+    );
+    assert!(
+      !first.contains("badge"),
+      "low matters do not interrupt: {first}"
+    );
+    assert!(
+      first.contains("+1 more open matters"),
+      "the count line teaches there is more: {first}"
+    );
+    let second = text_of(&out[3]);
+    assert!(
+      !second.contains("OPEN MATTERS"),
+      "second recall stays clean: {second}"
+    );
+    let served: i64 = state
+      .audit
+      .query_row(
+        "SELECT count(*) FROM events WHERE kind = 'recall'
+         AND detail LIKE '%\"matters_served\":1%'",
+        [],
+        |r| r.get(0),
+      )
+      .unwrap();
+    assert_eq!(served, 1, "receipt of the matters is on the ledger");
+  }
+
+  #[test]
   fn pending_briefings_are_never_served() {
     let mut state = ServerState::in_memory();
     state.cfg.approvals_pending_agents = vec!["unknown-agent".into()];

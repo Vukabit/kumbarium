@@ -553,6 +553,13 @@ def grade_episode(ep, new_events, home, agent, transcript=None):
       if r["status"] == "pending"
     ]
     checks.append((f"task-pending[{token}]", bool(rows), True))
+  if ep.get("expects_matters_served"):
+    served = any(
+      e["kind"] == "recall"
+      and json.loads(e["detail"]).get("matters_served", 0) > 0
+      for e in new_events
+    )
+    checks.append(("matters-served", served, True))
   if "expects_task_mention" in ep:
     tok = ep["expects_task_mention"].lower()
     checks.append(("open-task-mentioned", tok in replies, False))

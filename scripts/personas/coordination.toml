@@ -28,6 +28,7 @@ name = "ep2-session-start"
 agent = "dev-agent"
 scope = "project/coord"
 expects_recall = true
+expects_matters_served = true
 expects_task_mention = "drenwick"
 turns = [
   """New session on coord. Anything urgent I should know about \

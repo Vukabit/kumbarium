@@ -236,11 +236,14 @@ pub fn list() -> Value {
       "name": "task_file",
       "description": "File a task on the docket: a matter to be \
   done, on a registered namespace shelf. Severity is YOUR \
-  judgment of how much it matters (low | normal | high | \
-  urgent); an optional goal (YYYY-MM-DD) is a target date the \
-  library watches for creep. One self-contained statement per \
-  task; detail belongs in memory. Tasks are claims of work \
-  owed, carrying their filer's authority and nothing more.",
+  judgment, and it has consequences: low = someday, normal = \
+  the default, high = soon, urgent = INTERRUPTS the next \
+  session's start (reserve it for production risk and \
+  deadline-critical work). An optional goal (YYYY-MM-DD) is a \
+  target date the library watches; an overdue goal also \
+  interrupts. One self-contained statement per task; detail \
+  belongs in memory. Tasks are claims of work owed, carrying \
+  their filer's authority and nothing more.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -562,21 +565,78 @@ fn recall(
     .map_err(|e| format!("invalid scope: {e}"))?;
   let hits = kumbarium_store::recall(&state.library, query, &chain, limit)
     .map_err(describe_store_error)?;
-  // Served first, literally (D-036): the FIRST recall this
-  // session makes in a scope carries the standing briefing,
-  // named and dated; later recalls stay clean. Pending
-  // briefings are never served.
+  // Served first, literally (D-036, D-037): the FIRST recall
+  // this session makes in a scope carries the opening frame:
+  // the standing briefing, then the matters that MUST interrupt
+  // (urgent severity, or any open matter whose goal has passed:
+  // the creep machinery surfacing to agents too). Later recalls
+  // stay clean. Pending rows are never served.
   let mut briefing = None;
-  let shelf_reachable = state.handoff.is_some()
-    || state.handoff_path.as_os_str().is_empty()
-    || state.handoff_path.exists();
-  if !state.served_handoffs.contains(scope) && shelf_reachable {
-    let conn = state.handoff()?;
-    if let Ok(Some(h)) = kumbarium_handoff::standing(conn, scope) {
-      briefing = Some(format!(
-        "STANDING HANDOFF for {} (left by {} at {}):\n{}\n---",
-        h.namespace, h.agent_id, h.created_at, h.content
-      ));
+  let mut matters = None;
+  let mut matters_served = 0usize;
+  if !state.served_handoffs.contains(scope) {
+    let handoff_reachable = state.handoff.is_some()
+      || state.handoff_path.as_os_str().is_empty()
+      || state.handoff_path.exists();
+    if handoff_reachable {
+      let conn = state.handoff()?;
+      if let Ok(Some(h)) = kumbarium_handoff::standing(conn, scope) {
+        briefing = Some(format!(
+          "STANDING HANDOFF for {} (left by {} at {}):\n{}\n---",
+          h.namespace, h.agent_id, h.created_at, h.content
+        ));
+      }
+    }
+    let docket_reachable = state.docket.is_some()
+      || state.docket_path.as_os_str().is_empty()
+      || state.docket_path.exists();
+    if docket_reachable {
+      let conn = state.docket()?;
+      if let Ok(open) = kumbarium_docket::tasks_in(conn, Some(&chain), false) {
+        let now = kumbarium_util::now_ms();
+        let overdue = |t: &kumbarium_docket::Task| {
+          t.goal
+            .as_deref()
+            .and_then(|g| {
+              kumbarium_util::parse_iso8601_ms(&format!("{g}T00:00:00.000Z"))
+            })
+            .map(|ms| ms < now)
+            .unwrap_or(false)
+        };
+        let must: Vec<_> = open
+          .iter()
+          .filter(|t| {
+            t.severity == kumbarium_docket::Severity::Urgent || overdue(t)
+          })
+          .take(5)
+          .collect();
+        if !must.is_empty() {
+          matters_served = must.len();
+          let mut block =
+            format!("OPEN MATTERS for {scope} demanding attention:");
+          for t in &must {
+            let goal = t
+              .goal
+              .as_deref()
+              .map(|g| format!(" (goal {g})"))
+              .unwrap_or_default();
+            block.push_str(&format!(
+              "\n- [{}] id={} {}{goal}",
+              t.severity.as_str(),
+              &t.id[t.id.len().saturating_sub(8)..],
+              t.content.lines().next().unwrap_or("")
+            ));
+          }
+          if open.len() > must.len() {
+            block.push_str(&format!(
+              "\n(+{} more open matters on the docket)",
+              open.len() - must.len()
+            ));
+          }
+          block.push_str("\n---");
+          matters = Some(block);
+        }
+      }
     }
     state.served_handoffs.insert(scope.to_string());
   }
@@ -589,11 +649,15 @@ fn recall(
       "query": query,
       "returned": ids,
       "handoff_served": briefing.is_some(),
+      "matters_served": matters_served,
     }),
   )?;
   let mut blocks = Vec::new();
   if let Some(b) = briefing {
     blocks.push(b);
+  }
+  if let Some(m) = matters {
+    blocks.push(m);
   }
   if hits.is_empty() {
     blocks.push(format!("No memories matched {query:?} in scope {scope}."));

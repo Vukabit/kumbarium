@@ -303,9 +303,10 @@ across all agents and sessions.
   `handoff_write`: what is mid-flight, decided-but-unfinished,
   sharp edges. The next session receives it automatically with
   its first recall; write it for them.
-- The DOCKET is the shared task list. At the start of work,
-  open matters for your scope are work owed: mention them
-  before starting new work. File matters worth doing later
+- The DOCKET is the shared task list. Urgent or overdue
+  matters arrive automatically with your first recall in a
+  scope: mention them before starting new work. File matters
+  worth doing later
   with `task_file` (severity is your judgment; add a goal date
   only when one is real). Shelving follows the same rule as
   facts: a project's tasks go on the project's namespace,

@@ -487,3 +487,24 @@ no severity or state machine (a handoff is a note, not a
 matter); no per-agent notes, no TTL, no structured fields
 (prose with judgment beats forms filled from habit). Janitor
 v2 gains stale-handoff findings.
+
+## D-037: a section's must-know rides the first recall (2026-09-03)
+
+The coordination fixture's designed miss arrived on schedule:
+agents cannot LIST open tasks, so the session-start mention of
+an urgent matter failed for want of a read surface. Decision
+(the handoff argument, applied again and now the standing
+pattern for every shelf): anything load-bearing at session
+start must be a MECHANISM the agent cannot skip, not an
+instruction it might follow. The first recall in a scope now
+serves, after the standing briefing, the matters that MUST
+interrupt: urgent severity, or any open matter whose goal has
+passed (the creep machinery surfacing to agents, not just to
+the human timeline), capped at five with a count line so the
+agent learns the docket holds more. The recall event records
+matters_served beside handoff_served: receipt stays provable.
+What qualifies is inked here to anchor future severity
+debates: urgent + overdue, nothing else interrupts. A browsing
+read tool remains wait-and-see round two, added only if
+fixtures or daily driving show agents needing the full docket
+mid-session.
