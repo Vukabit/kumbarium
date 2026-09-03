@@ -1,0 +1,168 @@
+# The secrets broker: the restricted stacks (D-038)
+
+The third section, and the one the manager stance was built
+for: credentials are the most dangerous thing agents touch,
+and today they live in env vars, dotfiles, and pasted-into-
+context strings that no ledger ever sees. The broker gives
+them a shelf with a locked door, a sign-out sheet, and a
+librarian who never forgets who asked.
+
+Design only; the build waits for sign-off, and one decision
+below is explicitly reserved for the human.
+
+## What the broker honestly buys (stdio tier)
+
+Ink the truth before the features: at the personal tier, any
+process running as the user can read any file the user can.
+The broker does NOT protect against a malicious local process,
+and pretending otherwise would be theater. What it buys is
+real anyway:
+
+- WITNESSED ACCESS. Every secret checkout lands on the
+  hash-chained ledger: which agent, which secret, when. "Who
+  has read the deploy key this month" becomes a query. This is
+  the charter applied to credentials, and it is the product.
+- SCOPED ACCESS. An agent gets only what was granted to it, so
+  a confused agent's blast radius shrinks from "everything in
+  the env" to "what its work needs". Deny by default.
+- HYGIENE. Agents stop pasting keys into memories, tasks, and
+  CLAUDE.md files because a proper place exists and the
+  snippet says so. The leak-shaped failure mode gets a home
+  that is not the general collection.
+- EXFILTRATION RESISTANCE AT REST (with the encryption
+  decision below): secrets.db copied off the machine alone is
+  ciphertext.
+
+Enforcement hardens at the daemon rung, where authn makes
+grants real; the mechanism is built correct-first so
+enforcement has something to guard (the D-027 posture).
+
+## The reserved decision: the cryptography exception
+
+Everything in this codebase is hand-rolled under D-012 because
+supply chains are attack surface and a page of arithmetic is
+auditable. Cryptography that must resist adversaries is the
+one domain where that reasoning INVERTS: hand-rolled AEAD is
+malpractice, and an unencrypted secrets shelf undercuts the
+"1Password for agents" claim.
+
+The recommendation: admit ONE vetted dependency,
+`chacha20poly1305` (RustCrypto: pure Rust, permissive, small,
+widely audited), as a named exception that proves the rule.
+The master key never touches the repo or the config: it lives
+in the platform keystore, reached by SHELLING the OS tool
+(`security` on macOS, `cmdkey`/PowerShell on Windows,
+`secret-tool` on Linux), which costs zero dependencies. Each
+value is sealed with a per-row nonce under the master key.
+Where no keystore exists, the broker REFUSES to store rather
+than silently downgrading to plaintext (loud, with the flag
+`--i-accept-plaintext` for air-gapped setups that choose it).
+
+The alternative, honestly stated: plaintext-at-rest with 0600
+permissions, betting entirely on the OS user boundary, zero
+new dependencies. Defensible at the personal tier; hollow the
+moment the repo says "secrets broker" in public.
+
+This is a doctrine amendment and it is Shawn's call, not the
+build's. D-012 gains its exception clause only on explicit
+sign-off.
+
+## Shelving
+
+`library/secrets.db` per D-033: lazy file, per-shelf backups
+(NOTE: backups of ciphertext are ciphertext; the master key is
+NOT in any backup, which is correct and worth saying).
+Namespace stored as the validated PATH, gate-checked. Rows:
+
+- secrets: id (UUIDv7), namespace, name (unique per shelf),
+  value (sealed), nonce, agent_id ("kumbarium-cli": human-only
+  writes in v1), superseded_by, note, created_at, updated_at.
+- grants: (namespace, name, agent_id, created_at), managed and
+  witnessed; deny by default; no wildcard agents in v1
+  (a wildcard is a decision someone should have to type out
+  per-secret at the daemon tier, not before).
+
+## Lifecycle: rotation keeps the history, not the value
+
+The one place supersede-never-delete BENDS, deliberately:
+
+- `set` on an existing name supersedes, exactly like memory,
+  so the ROTATION HISTORY is a chain: who rotated, when, how
+  often. But the superseded row's sealed value is SHREDDED
+  (overwritten) at rotation: the skeleton of history remains,
+  the retired credential does not. An old key is not a memory,
+  it is a liability.
+- `shred` removes a secret entirely: the row is kept with its
+  value destroyed (the judgment is recorded; the material is
+  gone). There is no `forget` that erases the fact a secret
+  existed: the ledger would contradict it anyway.
+- No desk in v1 because agents cannot write secrets at all:
+  credential poisoning is the one injection with no
+  redeeming review story ("approve this new deploy key" is a
+  social-engineering form, not a workflow).
+
+## Never served, ever
+
+The section's standing exception to D-037, inked in advance:
+NOTHING on this shelf rides recall, briefings, or matters.
+Secrets are pull-only, by name, one at a time. `recall`, list
+surfaces, grep, exports, and minutes never contain a value;
+access events render as names and agents only. The inheritance
+contract already withholds FTS and split; this shelf also
+withholds serving.
+
+## Surfaces
+
+MCP, ONE tool:
+
+- `secret_read`: namespace + name. Returns the value IF a
+  grant exists for the calling identity; refuses otherwise,
+  naming the grant command so the human can decide. Every call
+  witnessed (secret_read event: name + agent, never value).
+
+CLI (human-only writes):
+
+```
+kum secret set <ns> <name>       value read from stdin or
+                                 prompted with echo off; never
+                                 an argv argument (shell
+                                 history is a ledger too)
+kum secret read <ns> <name>      print value (tty warning)
+kum secrets [ns]                 names + metadata, never values
+kum secret grant <ns> <name> <agent>
+kum secret revoke <ns> <name> <agent>
+kum secret shred <ns> <name>
+```
+
+Witness kinds: secret_set, secret_read, secret_grant,
+secret_revoke, secret_shred (one audit migration). `kum
+history` on a secret id renders the rotation chain, values
+absent. The snippet gains one bullet: never write credential
+VALUES into memories, tasks, or briefings; ask secret_read,
+and if refused, ask the human for a grant.
+
+## Non-goals (v1)
+
+- No agent writes, no desk flow for secrets.
+- No leases, TTLs, or auto-rotation (the docket can hold a
+  rotation task with a goal date today; creep does the
+  reminding: sections composing instead of growing).
+- No wildcard grants, no grant delegation.
+- Secrets never travel in bundles (inked forever, not just
+  v1).
+- No environment injection / exec wrapper (a fine v2:
+  `kum secret exec <name> -- cmd`; out of scope now).
+
+## Testing shape (when built)
+
+Store: seal/unseal round-trip, rotation shreds the ancestor's
+value (bytes provably gone), grants deny by default, unique
+name per shelf. CLI: echo-off entry, grant round-trip, history
+shows chain without values. rpc: secret_read granted vs
+refused, witnessed both ways. Persona harness, two fixtures
+worth having: the GRANT fixture (agent asks for a granted
+secret, uses it, and the grader proves the VALUE appears in no
+memory, no task, no briefing, and no minutes: the leak check
+greps every shelf and every export for the secret bytes) and
+the REFUSAL fixture (ungranted agent is refused, and the
+refusal event is on the ledger with the agent's name).

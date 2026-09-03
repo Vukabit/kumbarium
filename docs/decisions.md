@@ -508,3 +508,27 @@ debates: urgent + overdue, nothing else interrupts. A browsing
 read tool remains wait-and-see round two, added only if
 fixtures or daily driving show agents needing the full docket
 mid-session.
+
+## D-038: the restricted stacks (2026-09-03)
+
+The secrets broker designed (docs/design/secrets.md), honest
+first: at the stdio tier the broker cannot protect against a
+malicious local process, and does not pretend to. What it buys
+is witnessed access (every checkout on the hash-chained ledger:
+the charter applied to credentials, and the product), scoped
+deny-by-default grants, hygiene (credentials get a home that is
+not the general collection), and at-rest exfiltration
+resistance pending the encryption decision. Settled here:
+human-only writes (credential poisoning has no review story, so
+no desk flow); rotation keeps the history and shreds the value
+(the one place supersede-never-delete bends: an old key is a
+liability, not a memory); NOTHING on this shelf is ever served
+(the section's standing exception to D-037: pull-only, by name,
+witnessed); values never appear in argv, listings, grep,
+exports, or minutes; secrets never travel in bundles, forever.
+RESERVED for explicit human sign-off: the cryptography
+exception to D-012 (one vetted AEAD dependency,
+chacha20poly1305, master key in the platform keystore reached
+by shelling the OS tool; refuse-don't-downgrade where no
+keystore exists) versus plaintext-at-rest on the OS user
+boundary. A doctrine amendment is the human's to make.
