@@ -66,23 +66,32 @@ fn query(
 }
 
 /// Render events (oldest first) as meeting-minutes markdown:
-/// one day per section, one line per event. Pure and
-/// deterministic; identical input always yields identical
-/// output.
-pub fn render_minutes(events: &[StoredEvent]) -> String {
-  let mut out = String::from("# Kumbarium minutes\n\nAll times UTC.\n");
+/// one day per section, one line per event. Pure given its
+/// inputs: `localize` converts a stored UTC ISO timestamp into
+/// the display form "YYYY-MM-DD HH:MM:SS" (the CLI passes local
+/// time; tests pass a fixed converter, keeping the renderer
+/// deterministic).
+pub fn render_minutes(
+  events: &[StoredEvent],
+  localize: &dyn Fn(&str) -> String,
+) -> String {
+  let mut out = String::from(
+    "# Kumbarium minutes\n\nTimes are local to the exporting \
+machine.\n",
+  );
   if events.is_empty() {
     out.push_str("\nNo events recorded.\n");
     return out;
   }
-  let mut day = "";
+  let mut day = String::new();
   for e in events {
-    let (d, t) = split_at(&e.at);
+    let local = localize(&e.at);
+    let (d, t) = split_at(&local);
     if d != day {
       if !day.is_empty() {
         out.push_str("```\n");
       }
-      day = d;
+      day = d.to_string();
       out.push_str(&format!(
         "\n## {day}\n\n```\ntime      kind      \
 agent                scope                detail\n"
@@ -196,8 +205,9 @@ fn plural(n: usize, one: &str, many: &str) -> String {
   }
 }
 
-/// (day, hh:mm:ss) halves of a strict ISO timestamp; total for
-/// any input (malformed rows render verbatim, never panic).
+/// (day, hh:mm:ss) halves of a "YYYY-MM-DD HH:MM:SS"-shaped
+/// display timestamp; total for any input (malformed rows
+/// render verbatim, never panic).
 fn split_at(at: &str) -> (&str, &str) {
   match (at.get(..10), at.get(11..19)) {
     (Some(d), Some(t)) => (d, t),
@@ -236,12 +246,18 @@ mod tests {
     assert_eq!(tail(&conn, 10).unwrap().len(), 2);
   }
 
+  fn utc(at: &str) -> String {
+    let day = at.get(..10).unwrap_or(at);
+    let time = at.get(11..19).unwrap_or("");
+    format!("{day} {time}")
+  }
+
   #[test]
   fn minutes_render_deterministically_grouped_by_day() {
     let conn = seeded();
     let events = events_asc(&conn).unwrap();
-    let a = render_minutes(&events);
-    let b = render_minutes(&events);
+    let a = render_minutes(&events, &utc);
+    let b = render_minutes(&events, &utc);
     assert_eq!(a, b, "same events, same minutes");
     assert!(a.starts_with("# Kumbarium minutes\n"));
     assert!(a.contains("## 20"), "day section header");
@@ -293,7 +309,7 @@ mod tests {
   #[test]
   fn empty_log_renders_a_stub() {
     let conn = open_in_memory().unwrap();
-    let text = render_minutes(&events_asc(&conn).unwrap());
+    let text = render_minutes(&events_asc(&conn).unwrap(), &utc);
     assert!(text.contains("No events recorded."));
   }
 }

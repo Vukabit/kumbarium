@@ -492,15 +492,28 @@ fn audit_tail(n: usize) -> ExitCode {
 scope                detail"
         )
       );
+      // Columns before detail: 19+2 + 9+1 + 20+1 + 20+1 = 73.
+      const DETAIL_COL: usize = 73;
+      let wrap_width = term_width()
+        .filter(|w| *w > DETAIL_COL + 16)
+        .map(|w| w - DETAIL_COL);
       for e in events {
+        let detail = kumbarium_audit::describe_event(&e.kind, &e.detail);
+        let chunks = match wrap_width {
+          Some(width) => wrap_words(&detail, width),
+          None => vec![detail.clone()],
+        };
         println!(
           "{}  {} {:<20} {:<20} {}",
           sty.dim(&local_display(&e.at)),
           sty.event(&format!("{:<9}", e.kind)),
           e.agent_id,
           e.scope,
-          kumbarium_audit::describe_event(&e.kind, &e.detail)
+          chunks.first().map(String::as_str).unwrap_or("")
         );
+        for chunk in chunks.iter().skip(1) {
+          println!("{:DETAIL_COL$}{chunk}", "");
+        }
       }
       ExitCode::SUCCESS
     }
@@ -517,7 +530,7 @@ fn audit_export(to_stdout: bool) -> ExitCode {
     Ok(events) => events,
     Err(e) => return fail(&e.to_string()),
   };
-  let minutes = kumbarium_audit::render_minutes(&events);
+  let minutes = kumbarium_audit::render_minutes(&events, &local_display);
   if to_stdout {
     print!("{minutes}");
     return ExitCode::SUCCESS;
@@ -906,6 +919,59 @@ fn local_display(iso_utc: &str) -> String {
   {
     iso_utc.to_string()
   }
+}
+
+/// The terminal's column count, when stdout is a terminal.
+fn term_width() -> Option<usize> {
+  #[cfg(unix)]
+  {
+    use std::io::IsTerminal;
+    if !std::io::stdout().is_terminal() {
+      return None;
+    }
+    let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
+    let ok =
+      unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) }
+        == 0;
+    (ok && ws.ws_col > 0).then_some(ws.ws_col as usize)
+  }
+  #[cfg(not(unix))]
+  {
+    None
+  }
+}
+
+/// Word-wrap `text` to `width` columns; a word longer than the
+/// width is hard-cut rather than overflowing.
+fn wrap_words(text: &str, width: usize) -> Vec<String> {
+  let mut lines = Vec::new();
+  let mut current = String::new();
+  for word in text.split_whitespace() {
+    let mut word = word;
+    while word.len() > width {
+      if !current.is_empty() {
+        lines.push(std::mem::take(&mut current));
+      }
+      let (head, rest) = word.split_at(width);
+      lines.push(head.to_string());
+      word = rest;
+    }
+    let sep = if current.is_empty() { 0 } else { 1 };
+    if !current.is_empty() && current.len() + sep + word.len() > width {
+      lines.push(std::mem::take(&mut current));
+    }
+    if !current.is_empty() {
+      current.push(' ');
+    }
+    current.push_str(word);
+  }
+  if !current.is_empty() {
+    lines.push(current);
+  }
+  if lines.is_empty() {
+    lines.push(String::new());
+  }
+  lines
 }
 
 fn fail(message: &str) -> ExitCode {
