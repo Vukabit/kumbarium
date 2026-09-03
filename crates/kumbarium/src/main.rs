@@ -1,6 +1,7 @@
 //! Kumbarium: the librarian process. `serve` speaks MCP over
 //! stdio (D-014); the rest is the human-facing CLI.
 
+mod bundle;
 mod config;
 mod diff;
 mod help;
@@ -51,6 +52,10 @@ pub fn run() -> ExitCode {
     }
     ["namespace", "list"] => namespace_list(),
     ["import", "claude", rest @ ..] => import_claude(rest),
+    ["bundle", scope] => bundle_cmd(scope, None),
+    ["bundle", scope, "--out", file] => bundle_cmd(scope, Some(file)),
+    ["import", "bundle", file] => import_bundle_cmd(file, false),
+    ["import", "bundle", file, "--pending"] => import_bundle_cmd(file, true),
     ["backup"] => backup_now(),
     ["list"] => list_entries(None, false),
     ["list", "--all"] => list_entries(None, true),
@@ -1757,6 +1762,91 @@ fn judge_cmd(id: &str, approving: bool, reason: Option<String>) -> ExitCode {
   ExitCode::SUCCESS
 }
 
+/// Export one shelf as a hashed bundle file (D-028): stdout by
+/// default (pipeable), or --out to a named file.
+fn bundle_cmd(scope: &str, out: Option<&str>) -> ExitCode {
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let (text, count) = match bundle::export(&state, scope) {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  match out {
+    Some(path) => {
+      if let Err(e) = kumbarium_util::write_atomically(
+        std::path::Path::new(path),
+        text.as_bytes(),
+      ) {
+        return fail(&format!("writing {path}: {e}"));
+      }
+      eprintln!("bundled {count} entries from {scope} into {path}");
+    }
+    None => print!("{text}"),
+  }
+  ExitCode::SUCCESS
+}
+
+/// Union-merge a bundle file (D-028); --pending routes every
+/// imported chain head through the desk. Witnessed as an import
+/// event carrying the bundle hash.
+fn import_bundle_cmd(file: &str, as_pending: bool) -> ExitCode {
+  let (_, mut state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let text = match std::fs::read_to_string(file) {
+    Ok(t) => t,
+    Err(e) => return fail(&format!("reading {file}: {e}")),
+  };
+  let summary = match bundle::import(&mut state, &text, as_pending) {
+    Ok(s) => s,
+    Err(e) => return fail(&e),
+  };
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    kind: kumbarium_audit::EventKind::Import,
+    scope: summary.scope.clone(),
+    detail: serde_json::json!({
+      "planned": summary.planned,
+      "imported": summary.imported,
+      "edges": 0,
+      "bundle_hash": summary.hash,
+      "skipped": summary.skipped,
+      "extended": summary.extended,
+      "forks": summary.forks.len(),
+      "pending": as_pending,
+    }),
+  };
+  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+    return fail(&format!("imported, but audit append failed: {e}"));
+  }
+  println!(
+    "bundle {}: {} imported, {} already present, {} chains \
+     fast-forwarded",
+    &summary.hash[..12],
+    summary.imported,
+    summary.skipped,
+    summary.extended
+  );
+  for (rival, local) in &summary.forks {
+    println!(
+      "{} fork: rival {} sent to the desk (contradicts live {}); \
+       judge via kum review {}",
+      sty.yellow("!"),
+      sty.id(kumbarium_store::short_id(rival)),
+      sty.id(kumbarium_store::short_id(local)),
+      kumbarium_store::short_id(rival)
+    );
+  }
+  if as_pending && summary.imported > 0 {
+    println!("imported heads are pending: kum inbox to review");
+  }
+  ExitCode::SUCCESS
+}
+
 fn fail(message: &str) -> ExitCode {
   eprintln!("kumbarium: {message}");
   ExitCode::FAILURE
@@ -1771,6 +1861,11 @@ Usage:
   kumbarium namespace list            list namespaces
   kumbarium import claude [--apply]   import Claude Code
       [--dir <path>]... [--map name=namespace]...  memories
+  kumbarium bundle <ns> [--out FILE]  export a shelf as one
+                                      hashed JSON bundle
+  kumbarium import bundle <FILE>      union-merge a bundle
+                          [--pending] (forks go to the desk;
+                                      --pending queues all)
   kumbarium list [ns] [--all]         browse entries
   kumbarium show <id> [--full]        one entry (--full stitches
                                       a split set in order)

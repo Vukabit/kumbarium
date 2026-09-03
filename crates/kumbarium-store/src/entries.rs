@@ -603,6 +603,113 @@ pub fn confirm(conn: &Connection, id: &str) -> Result<(), StoreError> {
   Ok(())
 }
 
+/// Outcome of importing one bundled entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportOutcome {
+  Inserted,
+  Skipped,
+}
+
+/// Insert a bundled entry VERBATIM: id, provenance, timestamps,
+/// chain pointer, note, retirement, and the caller-decided
+/// status all preserved (the bundle import path; every other
+/// write mints fresh ids via `remember`). An id already present
+/// is skipped after verifying identical content: divergence on
+/// the same id can only mean tampering or corruption (D-028)
+/// and is a hard error. Confidence is NOT imported: evidence is
+/// local, the receiving janitor re-earns the number.
+pub fn import_entry(
+  conn: &Connection,
+  e: &Entry,
+) -> Result<ImportOutcome, StoreError> {
+  let existing: Option<String> = conn
+    .query_row(
+      "SELECT content FROM entries WHERE id = ?1",
+      [&e.id],
+      |row| row.get(0),
+    )
+    .map(Some)
+    .or_else(|err| match err {
+      rusqlite::Error::QueryReturnedNoRows => Ok(None),
+      other => Err(other),
+    })?;
+  if let Some(content) = existing {
+    if content != e.content {
+      return Err(StoreError::ContentDivergence(e.id.clone()));
+    }
+    return Ok(ImportOutcome::Skipped);
+  }
+  let ns = namespace_id(conn, &e.namespace)?
+    .ok_or_else(|| StoreError::NamespaceNotRegistered(e.namespace.clone()))?;
+  if e.content.trim().is_empty() {
+    return Err(StoreError::EmptyContent);
+  }
+  conn.execute(
+    "INSERT INTO entries
+       (id, namespace_id, kind, content, agent_id, source,
+        status, superseded_by, note, retired_at, created_at,
+        updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+    params![
+      e.id,
+      ns,
+      e.kind.as_str(),
+      e.content,
+      e.agent_id,
+      e.source,
+      e.status.as_str(),
+      e.superseded_by,
+      e.note,
+      e.retired_at,
+      e.created_at,
+      e.updated_at,
+    ],
+  )?;
+  for tag in &e.tags {
+    conn.execute(
+      "INSERT OR IGNORE INTO entry_tags (entry_id, tag)
+       VALUES (?1, ?2)",
+      params![e.id, tag],
+    )?;
+  }
+  Ok(ImportOutcome::Inserted)
+}
+
+/// Force an entry into quarantine (bundle import only, D-028:
+/// a fork's rival head goes to the desk whatever status it
+/// arrived with).
+pub fn quarantine(conn: &Connection, id: &str) -> Result<(), StoreError> {
+  let n = conn.execute(
+    "UPDATE entries SET status = 'pending', updated_at = ?1
+     WHERE id = ?2",
+    params![kumbarium_util::now_iso8601(), id],
+  )?;
+  if n == 0 {
+    return Err(StoreError::EntryNotFound(id.to_string()));
+  }
+  Ok(())
+}
+
+/// Fast-forward a chain during bundle import (D-028): point
+/// `old_id` at `new_id` ONLY if it is currently a chain head.
+/// A head that moved locally in the meantime is a fork, which
+/// the import routes to the desk instead of calling this.
+pub fn extend_chain(
+  conn: &Connection,
+  old_id: &str,
+  new_id: &str,
+) -> Result<(), StoreError> {
+  let n = conn.execute(
+    "UPDATE entries SET superseded_by = ?1, updated_at = ?2
+     WHERE id = ?3 AND superseded_by IS NULL",
+    params![new_id, kumbarium_util::now_iso8601(), old_id],
+  )?;
+  if n == 0 {
+    return Err(StoreError::AlreadySuperseded(old_id.to_string()));
+  }
+  Ok(())
+}
+
 /// All pending entries, oldest first: the inbox.
 pub fn pending_in(conn: &Connection) -> Result<Vec<Entry>, StoreError> {
   let mut stmt = conn.prepare(

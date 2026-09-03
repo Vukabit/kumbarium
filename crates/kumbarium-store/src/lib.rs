@@ -17,11 +17,11 @@ pub use rusqlite::Connection;
 
 pub use backup::{Retention, backup, latest_backup_ms, prune};
 pub use entries::{
-  Entry, Hit, Kind, NewEntry, Stats, Status, approve, confirm, entries_in,
-  find_by_source, forget, get, namespace_id, namespaces, pending_in,
-  predecessor_of, recall, register_namespace, reject, remember, resolve_id,
-  retire, set_confidence, short_id, stats, supersede, unretire,
-  version_history,
+  Entry, Hit, ImportOutcome, Kind, NewEntry, Stats, Status, approve, confirm,
+  entries_in, extend_chain, find_by_source, forget, get, import_entry,
+  namespace_id, namespaces, pending_in, predecessor_of, quarantine, recall,
+  register_namespace, reject, remember, resolve_id, retire, set_confidence,
+  short_id, stats, supersede, unretire, version_history,
 };
 pub use links::{Link, Rel, continues_chain, link, links_of, unlink};
 
@@ -79,6 +79,12 @@ pub enum StoreError {
   NotRetired(String),
   #[error("entry {0:?} is not pending")]
   NotPending(String),
+  #[error(
+    "entry {0:?} exists with DIFFERENT content; a bundle can \
+     never disagree with the library about an id (tampering or \
+     corruption)"
+  )]
+  ContentDivergence(String),
   #[error("backup io: {0}")]
   Io(#[from] std::io::Error),
   #[error("backup copy failed integrity check: {0}")]

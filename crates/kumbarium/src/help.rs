@@ -5,7 +5,7 @@
 
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
-instructions status grep move janitor approvals";
+instructions status grep move janitor approvals bundle";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -27,6 +27,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "namespaces" | "scopes" => PAGE_NAMESPACES,
     "janitor" => PAGE_JANITOR,
     "approvals" | "inbox" | "review" | "approve" | "reject" => PAGE_APPROVALS,
+    "bundle" | "bundles" => PAGE_BUNDLE,
     _ => return None,
   })
 }
@@ -341,6 +342,38 @@ Entry counts (live / superseded / retired), split sets, live
 entries per namespace, audit event count and latest, backup
 ages, database sizes. The first command to run when wondering
 what state things are in.
+";
+
+const PAGE_BUNDLE: &str = "\
+## bundle: memories in motion
+
+```
+kum bundle <namespace> [--out FILE]
+kum import bundle <FILE> [--pending]
+```
+
+One shelf as one deterministic JSON file, SHA-256 hashed so a
+review conversation can name it and the importer can verify
+nothing changed in transit (an altered bundle is refused).
+Entries travel with full provenance, tags, notes, and chain
+pointers; pending and rejected material never travels, and
+CONFIDENCE never travels either: evidence is local, the
+receiving janitor re-earns the number from its own ledger.
+
+Import is a union-merge, idempotent by id (re-import no-ops;
+the same id with different content is refused as tampering).
+A chain the bundle extends fast-forwards locally. A FORK (both
+libraries superseded the same entry differently) never
+auto-resolves: the rival head lands pending with a
+`contradicts` edge to the live local head, and you settle it
+from the inbox (D-028). `--pending` routes every imported head
+through the desk, for bundles from hands you do not know.
+
+```
+kum bundle project/my-app --out my-app.bundle.json
+kum import bundle my-app.bundle.json
+kum import bundle contributed.bundle.json --pending
+```
 ";
 
 const PAGE_APPROVALS: &str = "\
