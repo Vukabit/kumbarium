@@ -1,10 +1,10 @@
 name: ci
 
-# The gate battery on the org self-hosted runners. Kumbarium is
-# pure cross-platform Rust, but portability is the end goal, so
-# clippy + tests run natively on all three OSes. The Linux
-# runners are ephemeral autoscaler spawns that inconsistently
-# ship rustup; a Linux-scoped self-heal step installs it first.
+# The gate battery, on GitHub-hosted runners: this repo is going
+# public, and fork PRs must never execute on self-hosted
+# machines.
+# Kumbarium is pure cross-platform Rust and portability is the
+# end goal, so clippy + tests run natively on all three OSes.
 
 on:
   push:
@@ -21,21 +21,9 @@ concurrency:
 jobs:
   fmt:
     # OS-independent; run once. Nightly rustfmt.
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Ensure rustup on PATH (Linux autoscaler runners)
-        shell: bash
-        run: |
-          if ! command -v rustup >/dev/null 2>&1; then
-            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-              curl --proto '=https' --tlsv1.2 -sSf \
-                https://sh.rustup.rs \
-                | sh -s -- -y --default-toolchain none \
-                  --profile minimal
-            fi
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
       - run: >
           rustup toolchain install nightly -c rustfmt
           --profile minimal
@@ -43,7 +31,7 @@ jobs:
 
   lints:
     # The Python gates + licenses: OS-independent, run once.
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - run: python3 scripts/width_gate.py
@@ -57,26 +45,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: macOS, arch: ARM64 }
-          - { os: Windows, arch: X64 }
-          - { os: Linux, arch: X64 }
-    runs-on: [self-hosted, "${{ matrix.os }}", "${{ matrix.arch }}"]
+        runner: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
-      - name: Ensure rustup on PATH (Linux autoscaler runners)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          if ! command -v rustup >/dev/null 2>&1; then
-            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-              curl --proto '=https' --tlsv1.2 -sSf \
-                https://sh.rustup.rs \
-                | sh -s -- -y --default-toolchain none \
-                  --profile minimal
-            fi
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
       - run: >
           rustup toolchain install stable -c clippy
           --profile minimal
