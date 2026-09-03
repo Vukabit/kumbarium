@@ -237,3 +237,20 @@ supersession chain itself. Without this, superseding one part
 of a split set left the set stitching through the dead
 version. Edges are metadata (mutable per D-020), so migrating
 them mutates nothing that was said.
+
+## D-023: persona harness grades from the witness (2026-09-03)
+
+The behavioral test harness (docs/design/persona-harness.md)
+runs real LLM agents (a low-cost Anthropic realism tier + a
+local Ollama robustness floor) through multi-session arcs
+against a sandboxed library, and is scored DETERMINISTICALLY
+from the audit log and entries afterward: no judge model. Tool
+definitions come from the live server's tools/list and the
+system prompt is help::SNIPPET verbatim, so the harness can
+never drift from the surface agents actually receive; model
+misuse is documentation feedback. Users are scripted turns in
+v1 (deterministic, free); expectations live in fixtures
+(recall-at-start, remember tokens, supersede-on-correction,
+confirm-after-outcome as informational since confirm is
+voluntary evidence). Confirms are never REQUIRED by the grader:
+requiring them would contradict survival-first.
