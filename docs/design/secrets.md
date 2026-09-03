@@ -101,6 +101,64 @@ The one place supersede-never-delete BENDS, deliberately:
   redeeming review story ("approve this new deploy key" is a
   social-engineering form, not a workflow).
 
+## Custody: who holds the value, stated end to end
+
+The chain, with its honest terminus: the human types the value
+(echo off, never argv); it is sealed in-process immediately;
+it rests as ciphertext with the master key in the OS keystore
+(backups carry ciphertext only, never the key); it is unsealed
+only inside the librarian at read time; it crosses to the
+agent over the stdio pipe (kernel memory, never disk, never
+network); and there the broker's custody ENDS, because the
+value now lives in the model's context window. Two
+consequences, named rather than hidden:
+
+- The MCP CLIENT logs tool results: a returned secret lands in
+  the client's session transcript on disk, outside these
+  walls. No broker fixes another program's logging. The
+  snippet teaches around it, the leak fixtures police our own
+  shelves, and the eventual answer is USE-NOT-SEE: the broker
+  applying a credential instead of revealing it. Use-not-see
+  makes the librarian execute requests, which grinds against
+  manager-never-executes; that tension is real and is deferred
+  deliberately, not papered over. (The CLI-side
+  `kum secret exec <ns> <name> -- cmd`, human-invoked env
+  injection, is the tension-free half and a fine v2.)
+- No zeroization theater: the value passes through JSON and a
+  pipe; pretending we scrub memory would be a lie. The serve
+  process is short-lived per session, which is the honest
+  mitigation.
+
+## Expiry: leases are real, value expiry is metadata
+
+Two different things, deliberately separated:
+
+- GRANT EXPIRY (leases) is enforceable even at the stdio tier,
+  because every secret_read re-checks grants at read time;
+  nothing is cached to outlive a revocation. `grant ...
+  --until DATE` is an expires_at column consulted on every
+  read: honest enforcement, no theater, and revocation is
+  already instantaneous for the same reason.
+- VALUE EXPIRY (the credential itself expires upstream) is
+  metadata the broker records and surfaces (`expires_at` shown
+  by `kum secrets`), never enforces. The sections compose: an
+  expiring credential is a docket matter with a goal date, and
+  D-037's creep machinery already interrupts sessions for
+  overdue goals. The broker knows the date; the docket does
+  the reminding; the janitor gains an "expired credential
+  still stocked" finding in v2.
+
+## Transport, and the network gate inked in advance
+
+stdio tier: librarian to agent over a kernel pipe; the value
+never touches disk or network in our custody. The daemon rung
+changes the stakes, so the gate is inked NOW: secrets never
+cross a network transport until TLS and real authn both exist.
+A future HTTP serve mode REFUSES secret_read outright rather
+than degrading, the same refuse-don't-downgrade posture as the
+keystore rule. Until that rung, the restricted stacks are a
+local-tier section by construction.
+
 ## Never served, ever
 
 The section's standing exception to D-037, inked in advance:
@@ -144,9 +202,10 @@ and if refused, ask the human for a grant.
 ## Non-goals (v1)
 
 - No agent writes, no desk flow for secrets.
-- No leases, TTLs, or auto-rotation (the docket can hold a
-  rotation task with a goal date today; creep does the
-  reminding: sections composing instead of growing).
+- No auto-rotation (the docket holds a rotation task with a
+  goal date today; creep does the reminding). Grant leases
+  (`--until`) and value-expiry metadata are v1.5: cheap and
+  honest, but the core lands first.
 - No wildcard grants, no grant delegation.
 - Secrets never travel in bundles (inked forever, not just
   v1).
