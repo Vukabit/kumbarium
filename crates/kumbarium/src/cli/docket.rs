@@ -475,39 +475,55 @@ pub(crate) fn roadmap_cmd(ns: Option<&str>) -> ExitCode {
     }
   };
   let names = ["overdue", "now", "next", "later", "someday"];
+  // Unscoped, matters group per shelf inside each horizon
+  // (global first, then alphabetical); a scoped roadmap skips
+  // the redundant group headers.
+  let grouped = ns.is_none();
   for (i, name) in names.iter().enumerate() {
     let in_bucket: Vec<_> = tasks.iter().filter(|t| bucket(t) == i).collect();
     if in_bucket.is_empty() {
       continue;
     }
     println!("{}", sty.bold(name));
-    // Content column start: 2 + 8+2 + 6+1 = 19; hanging wrap.
-    const CONTENT_COL: usize = 19;
+    let mut shelves: Vec<&str> =
+      in_bucket.iter().map(|t| t.namespace.as_str()).collect();
+    shelves.sort_unstable();
+    shelves.dedup();
+    shelves.sort_by_key(|s| (*s != "global", *s));
+    let indent = if grouped { 4 } else { 2 };
+    // Content column start: indent + 8+2 + 6+1.
+    let content_col = indent + 17;
     let wrap_width = term_width()
-      .filter(|w| *w > CONTENT_COL + 16)
-      .map(|w| w - CONTENT_COL);
-    for t in in_bucket {
-      let goal = t
-        .goal
-        .as_deref()
-        .map(|g| format!("  {g}"))
-        .unwrap_or_default();
-      let content = t.content.lines().next().unwrap_or("");
-      let chunks = match wrap_width {
-        Some(width) => wrap_words(content, width),
-        None => vec![content.to_string()],
-      };
-      println!(
-        "  {}  {} {}",
-        sty.id(kumbarium_docket::short_id(&t.id)),
-        severity_paint(&sty, t.severity),
-        chunks.first().map(String::as_str).unwrap_or(""),
-      );
-      for chunk in chunks.iter().skip(1) {
-        println!("{:CONTENT_COL$}{chunk}", "");
+      .filter(|w| *w > content_col + 16)
+      .map(|w| w - content_col);
+    for shelf in shelves {
+      if grouped {
+        println!("  {}", sty.dim(shelf));
       }
-      if !goal.is_empty() {
-        println!("{:CONTENT_COL$}{}", "", sty.dim(goal.trim_start()));
+      for t in in_bucket.iter().filter(|t| t.namespace == shelf) {
+        let goal = t
+          .goal
+          .as_deref()
+          .map(|g| format!("  {g}"))
+          .unwrap_or_default();
+        let content = t.content.lines().next().unwrap_or("");
+        let chunks = match wrap_width {
+          Some(width) => wrap_words(content, width),
+          None => vec![content.to_string()],
+        };
+        println!(
+          "{:indent$}{}  {} {}",
+          "",
+          sty.id(kumbarium_docket::short_id(&t.id)),
+          severity_paint(&sty, t.severity),
+          chunks.first().map(String::as_str).unwrap_or(""),
+        );
+        for chunk in chunks.iter().skip(1) {
+          println!("{:content_col$}{chunk}", "");
+        }
+        if !goal.is_empty() {
+          println!("{:content_col$}{}", "", sty.dim(goal.trim_start()));
+        }
       }
     }
   }
