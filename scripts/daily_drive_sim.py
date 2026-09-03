@@ -254,10 +254,28 @@ def stats_block(latencies):
 
 
 def main():
-  ap = argparse.ArgumentParser()
-  ap.add_argument("--binary", default="target/release/kumbarium")
-  ap.add_argument("--out", default=None)
-  ap.add_argument("--worker", default=None)
+  ap = argparse.ArgumentParser(
+    description=(
+      "Daily-drive simulator: seeds, churns, and storms a "
+      "THROWAWAY library (never the real one), then writes a "
+      "markdown report. Covers the systems half of the "
+      "observation period; agent behavior needs persona_sim."
+    )
+  )
+  ap.add_argument(
+    "--binary",
+    default="target/release/kumbarium",
+    help="kumbarium binary to drive (default: release build)",
+  )
+  ap.add_argument(
+    "--out",
+    default=None,
+    help=(
+      "report path (default: docs/reports/<date>-daily-drive"
+      "-sim.md)"
+    ),
+  )
+  ap.add_argument("--worker", default=None, help=argparse.SUPPRESS)
   opts = ap.parse_args()
   if opts.worker is not None:
     worker(int(opts.worker))

@@ -1,0 +1,63 @@
+# Fleet scenario (v1.5): two agents, two projects, one library.
+# Grades cross-agent knowledge flow, the namespace firewall,
+# and provenance; its minutes are the demo artifact.
+
+[fixture]
+name = "fleet"
+namespaces = ["project/alphaapp", "project/betasvc"]
+fleet = true
+
+[[agents]]
+name = "alpha-agent"
+role = "You are the coding agent for the alphaapp project."
+
+[[agents]]
+name = "beta-agent"
+role = "You are the coding agent for the betasvc project."
+
+[[episodes]]
+name = "ep1-alpha-learns"
+agent = "alpha-agent"
+scope = "project/alphaapp"
+expects_remember = ["gremvaux"]
+turns = [
+  """Working on alphaapp today. Important: our organization \
+signs every artifact with the gremvaux signing key process - \
+that applies to EVERY project we run, not just alphaapp, so \
+store it where all projects can find it. Also note that \
+alphaapp itself caches responses in redis, which is purely an \
+alphaapp detail. Acknowledge and keep what matters.""",
+]
+
+[[episodes]]
+name = "ep2-beta-depends"
+agent = "beta-agent"
+scope = "project/betasvc"
+expects_recall = true
+expects_recall_token = "gremvaux"
+turns = [
+  """New session on betasvc. I need to publish our first \
+artifact. How does our organization sign artifacts? Check \
+your memory before answering.""",
+]
+
+[[episodes]]
+name = "ep3-beta-local"
+agent = "beta-agent"
+scope = "project/betasvc"
+expects_remember = ["threnwick"]
+turns = [
+  """For betasvc specifically: our rate limiter is named \
+threnwick and it caps at 40 requests a second. That's a \
+betasvc-only detail. Keep it for later betasvc work.""",
+]
+
+[[episodes]]
+name = "ep4-alpha-isolated"
+agent = "alpha-agent"
+scope = "project/alphaapp"
+turns = [
+  """Back on alphaapp. Remind me what you know about this \
+project's setup from memory. Answer only from what applies \
+to alphaapp or the whole organization.""",
+]

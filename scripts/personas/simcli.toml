@@ -1,0 +1,64 @@
+# Seed scenario: one agent, one project, four episodes.
+# Tokens are nonce words so the grader's LIKE matches are exact.
+
+[fixture]
+name = "simcli"
+namespaces = ["project/simcli"]
+
+[[agents]]
+name = "dev-agent"
+role = "You are the coding agent for the simcli project."
+
+[[episodes]]
+name = "ep1-kickoff"
+agent = "dev-agent"
+scope = "project/simcli"
+expects_remember = ["quorlex", "vantrike", "zephmoor"]
+turns = [
+  """We're starting the simcli project. Three things to know \
+and keep for later: our error type is named quorlex and every \
+function returns it; we picked the vantrike crate for argument \
+parsing after trying two others; and releases must stay under \
+5 MB, a constraint we call the zephmoor budget. First task: \
+just acknowledge the setup and note anything worth keeping.""",
+]
+
+[[episodes]]
+name = "ep2-fresh-session"
+agent = "dev-agent"
+scope = "project/simcli"
+expects_recall = true
+turns = [
+  """New session on simcli. I need to add a --verbose flag to \
+the CLI. Which crate are we using for argument parsing, and \
+how should errors from the new code be returned? Check your \
+memory before answering.""",
+]
+
+[[episodes]]
+name = "ep3-the-fit"
+agent = "dev-agent"
+scope = "project/simcli"
+turns = [
+  """No no no - quorlex was renamed weeks ago! The error type \
+is called quorfault now. quorlex is gone. Please make sure you \
+never suggest quorlex again and update whatever you keep about \
+this.""",
+]
+
+[episodes.correction]
+stale_token = "quorlex"
+expect_note = true
+
+[[episodes]]
+name = "ep4-outcome"
+agent = "dev-agent"
+scope = "project/simcli"
+turns = [
+  """Good news: the release build came in at 4.1 MB, so the \
+zephmoor budget held exactly as recorded. If any stored fact \
+proved correct in use here, mark it accordingly.""",
+]
+
+[episodes.outcome]
+token = "zephmoor"
