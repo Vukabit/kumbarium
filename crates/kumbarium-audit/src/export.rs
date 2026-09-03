@@ -70,7 +70,7 @@ fn query(
 /// deterministic; identical input always yields identical
 /// output.
 pub fn render_minutes(events: &[StoredEvent]) -> String {
-  let mut out = String::from("# Kumbarium minutes\n");
+  let mut out = String::from("# Kumbarium minutes\n\nAll times UTC.\n");
   if events.is_empty() {
     out.push_str("\nNo events recorded.\n");
     return out;

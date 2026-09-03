@@ -323,7 +323,8 @@ fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
         continue;
       };
       emitted.insert(m.id.as_str());
-      let day = m.created_at.get(..10).unwrap_or(&m.created_at);
+      let local = local_display(&m.created_at);
+      let day = local.get(..10).unwrap_or(&local);
       let dead = if m.superseded_by.is_some() {
         sty.red(" [superseded]")
       } else if m.retired_at.is_some() {
@@ -382,16 +383,16 @@ fn show_entry(id: &str, full: bool) -> ExitCode {
     println!("source:     {}", e.source);
   }
   println!("confidence: {:.2}", e.confidence);
-  println!("created:    {}", e.created_at);
-  println!("updated:    {}", e.updated_at);
+  println!("created:    {}", local_display(&e.created_at));
+  println!("updated:    {}", local_display(&e.updated_at));
   if let Some(at) = &e.last_accessed_at {
-    println!("accessed:   {at}");
+    println!("accessed:   {}", local_display(at));
   }
   if let Some(at) = &e.last_confirmed_at {
-    println!("confirmed:  {at}");
+    println!("confirmed:  {}", local_display(at));
   }
   if let Some(at) = &e.retired_at {
-    println!("retired:    {}", sty.yellow(at));
+    println!("retired:    {}", sty.yellow(&local_display(at)));
   }
   if !e.tags.is_empty() {
     println!("tags:       {}", e.tags.join(", "));
@@ -469,14 +470,14 @@ fn audit_tail(n: usize) -> ExitCode {
       println!(
         "{}",
         sty.dim(
-          "at                        kind      agent                \
+          "at (local)           kind      agent                \
 scope                detail"
         )
       );
       for e in events {
         println!(
           "{}  {} {:<20} {:<20} {}",
-          sty.dim(&e.at),
+          sty.dim(&local_display(&e.at)),
           sty.event(&format!("{:<9}", e.kind)),
           e.agent_id,
           e.scope,
@@ -608,7 +609,8 @@ fn history_cmd(id: &str, with_diff: bool) -> ExitCode {
   for (i, e) in versions.iter().enumerate().rev() {
     let live = if i + 1 == n { " (live)" } else { "" };
     let ver = format!("v{}{live}", i + 1);
-    let day = e.created_at.get(..10).unwrap_or(&e.created_at);
+    let local = local_display(&e.created_at);
+    let day = local.get(..10).unwrap_or(&local);
     println!(
       "{ver:<11}{}  {day}  {:<20}  {}",
       sty.id(kumbarium_store::short_id(&e.id)),
@@ -785,6 +787,38 @@ fn import_claude(rest: &[&str]) -> ExitCode {
       ExitCode::SUCCESS
     }
     Err(e) => fail(&e),
+  }
+}
+
+/// Render a stored UTC timestamp in the machine's local time
+/// for interactive display. Storage stays strict UTC (D-005);
+/// this is presentation only. Non-unix or unparseable input
+/// passes through unchanged.
+fn local_display(iso_utc: &str) -> String {
+  #[cfg(unix)]
+  {
+    let Some(ms) = kumbarium_util::parse_iso8601_ms(iso_utc) else {
+      return iso_utc.to_string();
+    };
+    let secs = ms.div_euclid(1000) as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    let ok = unsafe { !libc::localtime_r(&secs, &mut tm).is_null() };
+    if !ok {
+      return iso_utc.to_string();
+    }
+    format!(
+      "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+      tm.tm_year + 1900,
+      tm.tm_mon + 1,
+      tm.tm_mday,
+      tm.tm_hour,
+      tm.tm_min,
+      tm.tm_sec
+    )
+  }
+  #[cfg(not(unix))]
+  {
+    iso_utc.to_string()
   }
 }
 
