@@ -300,7 +300,10 @@ across all agents and sessions.
   open matters for your scope are work owed: mention them
   before starting new work. File matters worth doing later
   with `task_file` (severity is your judgment; add a goal date
-  only when one is real); `task_update` marks them done when
+  only when one is real). Shelving follows the same rule as
+  facts: a project's tasks go on the project's namespace,
+  `global` only for genuinely cross-project matters.
+  `task_update` marks them done when
   the work is complete, or regrades severity and goal as
   reality moves.
 - Namespaces are registered by the user (`kumbarium namespace

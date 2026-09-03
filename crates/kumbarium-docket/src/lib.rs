@@ -368,6 +368,9 @@ pub struct TaskEdit {
   pub severity: Option<Severity>,
   /// Some(None) clears the goal; None leaves it alone.
   pub goal: Option<Option<String>>,
+  /// Relocation: the new shelf (validated + registry-checked by
+  /// the librarian before it reaches here, D-033).
+  pub namespace: Option<String>,
   pub note: Option<String>,
 }
 
@@ -411,6 +414,10 @@ fn supersede_locked(
     Some(g) => g.clone(),
     None => old.goal.clone(),
   };
+  let namespace = edit
+    .namespace
+    .clone()
+    .unwrap_or_else(|| old.namespace.clone());
   let id = kumbarium_util::generate_id();
   let now = kumbarium_util::now_iso8601();
   conn.execute(
@@ -420,7 +427,7 @@ fn supersede_locked(
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
     params![
       id,
-      old.namespace,
+      namespace,
       content,
       agent_id,
       old.source,

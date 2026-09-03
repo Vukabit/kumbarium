@@ -266,6 +266,7 @@ pub(crate) fn task_grade_cmd(id: &str, rest: &[&str]) -> ExitCode {
     goal: goal.map(Some),
     note: (!note.trim().is_empty()).then(|| note.trim().to_string()),
     content: None,
+    namespace: None,
   };
   let task =
     match kumbarium_docket::supersede_task(conn, &full, &edit, "kumbarium-cli")
@@ -579,4 +580,77 @@ pub(crate) fn show_task(
   }
   println!("\n{}", t.content);
   Ok(ExitCode::SUCCESS)
+}
+
+/// Relocate a task (`kum move` falling through to the docket):
+/// a supersession into the target shelf, the move noted, same
+/// discipline as memory (D-034: ids are building-wide names).
+pub(crate) fn move_task_cmd(
+  state: &mut tools::ServerState,
+  id: &str,
+  namespace: &str,
+) -> ExitCode {
+  match kumbarium_store::namespace_id(&state.library, namespace) {
+    Ok(Some(_)) => {}
+    Ok(None) => {
+      return fail(&format!(
+        "namespace {namespace:?} is not registered; kumbarium \
+         namespace add {namespace}"
+      ));
+    }
+    Err(e) => return fail(&e.to_string()),
+  }
+  let sty = style::Style::detect();
+  let conn = match state.docket() {
+    Ok(c) => c,
+    Err(e) => return fail(&e),
+  };
+  let full = match kumbarium_docket::resolve_id(conn, id) {
+    Ok(f) => f,
+    Err(kumbarium_docket::DocketError::TaskNotFound(_)) => {
+      return fail(&format!("no entry or task with id {id:?}"));
+    }
+    Err(e) => return fail(&e.to_string()),
+  };
+  let old = match kumbarium_docket::get(conn, &full) {
+    Ok(t) => t,
+    Err(e) => return fail(&e.to_string()),
+  };
+  if old.namespace == namespace {
+    return fail("task is already on that shelf");
+  }
+  let note = format!("moved from {}", old.namespace);
+  let edit = kumbarium_docket::TaskEdit {
+    namespace: Some(namespace.to_string()),
+    note: Some(note.clone()),
+    ..Default::default()
+  };
+  let task =
+    match kumbarium_docket::supersede_task(conn, &full, &edit, "kumbarium-cli")
+    {
+      Ok(t) => t,
+      Err(e) => return fail(&e.to_string()),
+    };
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    kind: kumbarium_audit::EventKind::TaskUpdate,
+    scope: namespace.to_string(),
+    detail: serde_json::json!({
+      "old_id": full,
+      "new_id": task.id,
+      "severity": task.severity.as_str(),
+      "goal": task.goal,
+      "note": note,
+    }),
+  };
+  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+    return fail(&format!("moved, but audit append failed: {e}"));
+  }
+  println!(
+    "moved task {} -> {} (now on {})",
+    sty.id(kumbarium_docket::short_id(&full)),
+    sty.id(kumbarium_docket::short_id(&task.id)),
+    namespace
+  );
+  ExitCode::SUCCESS
 }

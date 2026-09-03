@@ -618,6 +618,12 @@ pub(crate) fn move_cmd(id: &str, namespace: &str) -> ExitCode {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
+  if kumbarium_store::resolve_id(&state.library, id).is_err() {
+    // Ids are building-wide names: relocate a task the same
+    // way, a supersession into the new shelf with the move
+    // noted (D-034).
+    return super::docket::move_task_cmd(&mut state, id, namespace);
+  }
   let sty = style::Style::detect();
   let full = match kumbarium_store::resolve_id(&state.library, id) {
     Ok(f) => f,
