@@ -208,7 +208,7 @@ const PAGE_AUDIT: &str = "\
 
 ```
 kum audit tail [n]
-kum audit export [--stdout]
+kum audit export [--stdout] [--raw]
 ```
 
 Every librarian transaction is an event: who (agent identity),
@@ -216,7 +216,9 @@ when, what, in which scope. `tail` shows the most recent n
 (default 20) as prose. `export` renders deterministic
 meeting-minutes markdown to exports/ and prints the path
 (quoted on a terminal, bare into pipes); `--stdout` streams the
-markdown instead, for piping.
+markdown instead, for piping. Times render local by default;
+`--raw` keeps the stored UTC form (machine-comparable across
+exporting machines). Storage is always strict ISO-8601 UTC.
 
 ```
 kum audit tail 50

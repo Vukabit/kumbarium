@@ -99,8 +99,11 @@ pub fn run() -> ExitCode {
         help::TOPICS
       )),
     },
-    ["audit", "export"] => audit_export(false),
-    ["audit", "export", "--stdout"] => audit_export(true),
+    ["audit", "export", rest @ ..] => {
+      let to_stdout = rest.contains(&"--stdout");
+      let raw = rest.contains(&"--raw");
+      audit_export(to_stdout, raw)
+    }
     [] => {
       println!("{USAGE}");
       ExitCode::SUCCESS
@@ -521,7 +524,7 @@ scope                detail"
   }
 }
 
-fn audit_export(to_stdout: bool) -> ExitCode {
+fn audit_export(to_stdout: bool, raw: bool) -> ExitCode {
   let (p, state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
@@ -530,7 +533,26 @@ fn audit_export(to_stdout: bool) -> ExitCode {
     Ok(events) => events,
     Err(e) => return fail(&e.to_string()),
   };
-  let minutes = kumbarium_audit::render_minutes(&events, &local_display);
+  // --raw keeps the STORED form: UTC, machine-comparable
+  // across exporting machines. Default is local time.
+  let utc_display = |at: &str| -> String {
+    let day = at.get(..10).unwrap_or(at);
+    let time = at.get(11..19).unwrap_or("");
+    format!("{day} {time}")
+  };
+  let minutes = if raw {
+    kumbarium_audit::render_minutes(
+      &events,
+      &utc_display,
+      "All times UTC (as stored).",
+    )
+  } else {
+    kumbarium_audit::render_minutes(
+      &events,
+      &local_display,
+      "Times are local to the exporting machine.",
+    )
+  };
   if to_stdout {
     print!("{minutes}");
     return ExitCode::SUCCESS;
@@ -1002,7 +1024,8 @@ Usage:
                                       only, agents cannot)
   kumbarium audit tail [n]            recent audit events
   kumbarium audit export [--stdout]   minutes markdown to
-                                      exports/ (or streamed)
+                         [--raw]      exports/ or streamed
+                                      (--raw keeps stored UTC)
   kumbarium backup                    snapshot both dbs now
   kumbarium paths                     where persisted data lives
   kumbarium version                   print the version

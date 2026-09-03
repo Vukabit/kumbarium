@@ -74,11 +74,9 @@ fn query(
 pub fn render_minutes(
   events: &[StoredEvent],
   localize: &dyn Fn(&str) -> String,
+  times_note: &str,
 ) -> String {
-  let mut out = String::from(
-    "# Kumbarium minutes\n\nTimes are local to the exporting \
-machine.\n",
-  );
+  let mut out = format!("# Kumbarium minutes\n\n{times_note}\n");
   if events.is_empty() {
     out.push_str("\nNo events recorded.\n");
     return out;
@@ -256,8 +254,8 @@ mod tests {
   fn minutes_render_deterministically_grouped_by_day() {
     let conn = seeded();
     let events = events_asc(&conn).unwrap();
-    let a = render_minutes(&events, &utc);
-    let b = render_minutes(&events, &utc);
+    let a = render_minutes(&events, &utc, "All times UTC.");
+    let b = render_minutes(&events, &utc, "All times UTC.");
     assert_eq!(a, b, "same events, same minutes");
     assert!(a.starts_with("# Kumbarium minutes\n"));
     assert!(a.contains("## 20"), "day section header");
@@ -309,7 +307,8 @@ mod tests {
   #[test]
   fn empty_log_renders_a_stub() {
     let conn = open_in_memory().unwrap();
-    let text = render_minutes(&events_asc(&conn).unwrap(), &utc);
+    let text =
+      render_minutes(&events_asc(&conn).unwrap(), &utc, "All times UTC.");
     assert!(text.contains("No events recorded."));
   }
 }
