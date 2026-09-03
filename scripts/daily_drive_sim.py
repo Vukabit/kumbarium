@@ -374,7 +374,7 @@ def main():
 
   text = "\n".join(report)
   out = opts.out or time.strftime(
-    "docs/reports/%Y-%m-%d-daily-drive-sim.md"
+    "docs/reports/%Y-%m-%d-%H%M%S-daily-drive-sim.md"
   )
   os.makedirs(os.path.dirname(out), exist_ok=True)
   with open(out, "w", encoding="utf-8") as fh:
