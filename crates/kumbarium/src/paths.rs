@@ -28,6 +28,21 @@ pub struct Paths {
 /// Resolve the map. Creates nothing; startup code decides what
 /// to create and when.
 pub fn resolve() -> Result<Paths, PathsError> {
+  // KUMBARIUM_HOME overrides everything: data AND config land
+  // under one directory. For test harnesses, portable installs,
+  // and throwaway libraries; unset means platform dirs.
+  if let Some(home) = std::env::var_os("KUMBARIUM_HOME") {
+    let home = std::path::PathBuf::from(home);
+    return Ok(Paths {
+      library_db: home.join("library.db"),
+      audit_db: home.join("audit.db"),
+      lock_file: home.join("kumbarium.lock"),
+      backups_dir: home.join("backups"),
+      exports_dir: home.join("exports"),
+      logs_dir: home.join("logs"),
+      config_file: home.join("config.toml"),
+    });
+  }
   let dirs =
     ProjectDirs::from("", "", "kumbarium").ok_or(PathsError::NoHome)?;
   let data = dirs.data_dir();

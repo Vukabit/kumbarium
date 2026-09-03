@@ -353,7 +353,12 @@ pub fn remember(
   conn: &mut Connection,
   new: &NewEntry,
 ) -> Result<Entry, StoreError> {
-  let tx = conn.transaction()?;
+  // IMMEDIATE, not deferred: a deferred write tx upgrading
+  // read->write under multi-process WAL hits non-retryable
+  // SQLITE_BUSY; IMMEDIATE takes the write lock at BEGIN where
+  // busy_timeout can wait (found by daily_drive_sim storm).
+  let tx =
+    conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
   let entry = insert_entry(&tx, new)?;
   tx.commit()?;
   Ok(entry)
@@ -440,7 +445,12 @@ pub fn supersede(
   new: &NewEntry,
   note: Option<&str>,
 ) -> Result<Entry, StoreError> {
-  let tx = conn.transaction()?;
+  // IMMEDIATE, not deferred: a deferred write tx upgrading
+  // read->write under multi-process WAL hits non-retryable
+  // SQLITE_BUSY; IMMEDIATE takes the write lock at BEGIN where
+  // busy_timeout can wait (found by daily_drive_sim storm).
+  let tx =
+    conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
   let prior: Option<Option<String>> = tx
     .query_row(
       "SELECT superseded_by FROM entries WHERE id = ?1",
@@ -500,7 +510,12 @@ pub fn supersede(
 /// wrong or sensitive content; routine correction is `supersede`).
 /// Any chain pointing at it is unlinked first.
 pub fn forget(conn: &mut Connection, id: &str) -> Result<(), StoreError> {
-  let tx = conn.transaction()?;
+  // IMMEDIATE, not deferred: a deferred write tx upgrading
+  // read->write under multi-process WAL hits non-retryable
+  // SQLITE_BUSY; IMMEDIATE takes the write lock at BEGIN where
+  // busy_timeout can wait (found by daily_drive_sim storm).
+  let tx =
+    conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
   tx.execute(
     "UPDATE entries SET superseded_by = NULL WHERE superseded_by = ?1",
     [id],

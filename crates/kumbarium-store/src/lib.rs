@@ -106,6 +106,9 @@ fn configure(conn: &Connection) -> Result<(), StoreError> {
   let _mode: String =
     conn.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
   conn.pragma_update(None, "journal_mode", "wal")?;
+  // Multi-process by design (D-015): a writer briefly holding
+  // the db must make peers wait, not error with SQLITE_BUSY.
+  conn.pragma_update(None, "busy_timeout", 5000)?;
   conn.pragma_update(None, "foreign_keys", "on")?;
   conn.pragma_update(None, "synchronous", "normal")?;
   Ok(())

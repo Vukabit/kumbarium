@@ -129,6 +129,9 @@ pub fn append(conn: &Connection, event: &Event) -> Result<String, AuditError> {
 
 fn configure(conn: &Connection) -> Result<(), AuditError> {
   conn.pragma_update(None, "journal_mode", "wal")?;
+  // Multi-process by design (D-015): a writer briefly holding
+  // the db must make peers wait, not error with SQLITE_BUSY.
+  conn.pragma_update(None, "busy_timeout", 5000)?;
   conn.pragma_update(None, "synchronous", "normal")?;
   Ok(())
 }
