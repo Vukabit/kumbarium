@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The local gate battery -- run before a commit. Mirrors CI (fmt /
+# The local gate battery: run before a commit. Mirrors CI (fmt /
 # clippy / test) plus the Kumbarium lint gates (80-column width,
 # no-scaffolding, manifest hygiene, licenses). Runs EVERY gate,
 # reports each pass/fail, and exits non-zero if any failed (it

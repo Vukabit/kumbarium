@@ -3,20 +3,20 @@
 
 `rustfmt` targets 80 columns on `.rs` but treats `max_width` as a soft
 goal (it won't split some long strings / paths). This gate is the HARD
-80-column enforcer across every text file under the repo -- `.rs` included
+80-column enforcer across every text file under the repo, `.rs` included
 (display width, not just rustfmt's soft pass) plus `.md`, `.toml`, `.py`,
-`.wgsl`, and the rest -- because the project's rule is an 80-column max
+`.wgsl`, and the rest, because the project's rule is an 80-column max
 width on every file under the repo, measured in DISPLAY COLUMNS.
 
 Width is DISPLAY columns: East-Asian wide / fullwidth code points count 2,
 zero-width / combining marks count 0, everything else (an em-dash
 included) counts 1.
 
-EXEMPTIONS (never linted -- reformatting them is wrong):
+EXEMPTIONS (never linted; reformatting them is wrong):
   - Gitignored / untracked-ignored files. The whole-tree scan lints only
     what git considers part of the repo (tracked + untracked, minus
     ignored: the gitignored per-developer config + internal design docs,
-    ...) -- matching CI, which only ever sees committed + trackable
+    ...), matching CI, which only ever sees committed + trackable
     content. Pass an explicit PATH to lint a file regardless of git status.
   - Byte-exact data directories: `assets/` (vendored fonts / SVGs /
     license text, provenance-hashed), `testdata/` (KAT / reference
@@ -29,7 +29,7 @@ EXEMPTIONS (never linted -- reformatting them is wrong):
   - Binary files, and the usual build/VCS dirs (`target`, `.git`, ...).
 
 Exit status is 0 when clean, 1 when any file has an over-width line, 2 on
-a usage error -- so it drops straight into CI next to fmt / clippy.
+a usage error, so it drops straight into CI next to fmt / clippy.
 
 Usage:
   scripts/width_gate.py            # scan the whole working tree
@@ -71,7 +71,7 @@ def display_width(line):
 
 def is_data_dir(path):
   """True for a path inside a byte-exact data directory (`assets/`,
-  `testdata/`, `proptest-regressions/`) -- data blobs, not width-gated."""
+  `testdata/`, `proptest-regressions/`): data blobs, not width-gated."""
   parts = path.replace(os.sep, "/").split("/")
   return bool({"assets", "testdata", "proptest-regressions"} & set(parts))
 
@@ -134,7 +134,7 @@ def iter_targets(roots):
   """Yield every candidate text file under `roots` (files or dirs).
 
   A whole-tree scan (`.`) yields git's file list so gitignored per-
-  developer config + the internal design docs are excluded -- matching CI.
+  developer config + the internal design docs are excluded, matching CI.
   An explicit file/dir root is walked directly, so a caller can lint any
   path regardless of git status."""
   for root in roots:

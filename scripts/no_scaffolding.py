@@ -2,11 +2,11 @@
 """Catch leftover debug / scaffolding in SHIPPED library code.
 
 `dbg!`, `todo!`, `unimplemented!`, and stray `println!` / `eprintln!` are
-review scaffolding or unfinished stubs -- none should ship in a library's
+review scaffolding or unfinished stubs; none should ship in a library's
 non-test code. This scans `crates/*/src/**.rs` and flags them, using the
 tests-last convention to skip the `#[cfg(test)]` region (where a `println!`
 in a test is fine). CLI crates (`xtask`) and `examples/` are out of scope
-by construction -- `src/` excludes `examples/`, and this scans `crates/`
+by construction: `src/` excludes `examples/`, and this scans `crates/`
 only, not `xtask`, where progress prints are legitimate.
 
 Exit 0 clean, 1 on any hit, 2 on a usage error.
@@ -58,7 +58,7 @@ def main():
     except (OSError, UnicodeDecodeError):
       continue
     for i, line in enumerate(lines, 1):
-      # Tests-last: once the test region starts, stop -- the rest is test
+      # Tests-last: once the test region starts, stop; the rest is test
       # code where these macros are fine.
       if CFG_TEST.search(line):
         break
@@ -73,7 +73,7 @@ def main():
   if hits:
     print(f"\nno_scaffolding: {hits} scaffolding hit(s).", file=sys.stderr)
     return 1
-  print("no_scaffolding: clean -- no debug/stub macros in library code.")
+  print("no_scaffolding: clean; no debug/stub macros in library code.")
   return 0
 
 

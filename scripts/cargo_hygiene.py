@@ -2,8 +2,8 @@
 """Cargo.toml consistency across the workspace.
 
 Per crate manifest, checks:
-- `publish = false` -- these are internal crates, never published.
-- an `edition` is set (ideally `edition.workspace = true`) -- no crate
+- `publish = false`; these are internal crates, never published.
+- an `edition` is set (ideally `edition.workspace = true`); no crate
   drifts onto rustc's default edition.
 - a dep that ALSO exists in `[workspace.dependencies]` is inherited with
   `name.workspace = true`, not re-pinned with a local version literal
@@ -90,10 +90,10 @@ def check(path, ws_deps):
       continue
     name, workspace_key, rhs = k.group(1), k.group(2), k.group(3)
     if workspace_key or "workspace = true" in rhs or "path =" in rhs:
-      continue  # inherited or a local path dep -- fine
+      continue  # inherited or a local path dep; fine
     if name in ws_deps:
       findings.append(
-        f"{path}:{i}: `{name}` is a workspace dep -- inherit it with "
+        f"{path}:{i}: `{name}` is a workspace dep; inherit it with "
         f"`{name}.workspace = true`, not a local version"
       )
   return findings

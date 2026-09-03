@@ -1,6 +1,6 @@
 # Kumbarium
 
-*koom-BAH-ree-um* -- Swahili *kumbuka* (remember) + Latin *-arium*
+*koom-BAH-ree-um*, Swahili *kumbuka* (remember) + Latin *-arium*
 (place of): the place of remembering.
 
 Kumbarium is an agent-agnostic memory system: one local,

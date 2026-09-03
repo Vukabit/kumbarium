@@ -8,7 +8,7 @@
 __pycache__/
 *.py[cod]
 
-# Per-developer internal design docs -- untracked by design; each
+# Per-developer internal design docs, untracked by design; each
 # dev keeps their own. The shared spine stays TRACKED:
 # docs/design/kumbarium-design.md, docs/thesis.md,
 # docs/decisions.md. (width_gate.py's whole-tree scan skips

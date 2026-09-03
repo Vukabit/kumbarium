@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   fmt:
-    # OS-independent -- run once. Nightly rustfmt.
+    # OS-independent; run once. Nightly rustfmt.
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v5
