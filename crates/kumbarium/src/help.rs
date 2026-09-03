@@ -5,7 +5,7 @@
 
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
-instructions";
+instructions status grep move";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -21,6 +21,9 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "serve" => PAGE_SERVE,
     "ids" | "id" => PAGE_IDS,
     "instructions" | "setup" => PAGE_INSTRUCTIONS,
+    "status" => PAGE_STATUS,
+    "grep" => PAGE_GREP,
+    "move" => PAGE_MOVE,
     "namespaces" | "scopes" => PAGE_NAMESPACES,
     _ => return None,
   })
@@ -207,7 +210,7 @@ const PAGE_AUDIT: &str = "\
 ## audit: the witness
 
 ```
-kum audit tail [n]
+kum audit tail [n] [--scope <ns>]
 kum audit export [--stdout] [--raw]
 ```
 
@@ -315,4 +318,57 @@ standing instruction block so the agent uses it unprompted.
 Root-level files apply everywhere; repo files version with the
 code. Keep durable law in files (they are injected every
 session); keep evolving facts in Kumbarium (they are recalled).
+";
+
+const PAGE_STATUS: &str = "\
+## status: library health at a glance
+
+```
+kum status
+```
+
+Entry counts (live / superseded / retired), split sets, live
+entries per namespace, audit event count and latest, backup
+ages, database sizes. The first command to run when wondering
+what state things are in.
+";
+
+const PAGE_GREP: &str = "\
+## grep: literal search, rg-flavored
+
+```
+kum grep <pattern> [namespace] [--all]
+```
+
+NOT recall: recall is ranked, stemmed, live-only (the agent
+surface); grep is literal, exhaustive forensics. Smart-case
+like ripgrep (all-lowercase pattern matches insensitively; any
+uppercase makes it exact). `--all` includes superseded and
+retired versions: 'where did I EVER say X'. On a terminal:
+grouped by entry with highlighted matches; piped:
+`id:line:text` for scripts.
+
+```
+kum grep porter
+kum grep TIOCGWINSZ project/kumbarium
+kum grep 'old convention' --all
+```
+";
+
+const PAGE_MOVE: &str = "\
+## move: relocate a memory
+
+```
+kum move <id> <namespace>
+```
+
+Moves an entry to another namespace AS A SUPERSESSION with an
+auto-note ('moved from project/x'): nothing mutates in place,
+the move is history like everything else. Target namespace must
+be registered. Moving one part of a split set moves that part
+only.
+
+```
+kum move 8d331758 project/[redacted]
+```
 ";
