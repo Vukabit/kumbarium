@@ -116,7 +116,7 @@ pub(crate) fn export_minutes_cmd(rest: &[&str]) -> ExitCode {
     // (8+2 + 9+1 + 20+1 + 20+1 = 62) so overflow stays
     // readable; piped/redirected output is byte-identical to
     // the file artifact.
-    const EXPORT_DETAIL_COL: usize = 64;
+    const EXPORT_DETAIL_COL: usize = 66;
     let width = term_width().filter(|w| *w > EXPORT_DETAIL_COL + 16);
     let Some(width) = width else {
       print!("{minutes}");

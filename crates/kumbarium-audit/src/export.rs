@@ -131,12 +131,12 @@ pub fn render_minutes(
       }
       day = d.to_string();
       out.push_str(&format!(
-        "\n## {day}\n\n```\ntime      kind      \
+        "\n## {day}\n\n```\ntime      kind          \
 agent                scope                detail\n"
       ));
     }
     out.push_str(&format!(
-      "{t:<8}  {:<11} {:<20} {:<20} {}\n",
+      "{t:<8}  {:<13} {:<20} {:<20} {}\n",
       e.kind,
       e.agent_id,
       e.scope,
@@ -355,10 +355,10 @@ mod tests {
     assert!(a.starts_with("# Kumbarium minutes\n"));
     assert!(a.contains("## 20"), "day section header");
     assert!(a.contains("time      kind"), "tabular header per day");
-    assert!(a.contains("remember    test-agent"));
+    assert!(a.contains("remember      test-agent"));
     assert!(a.ends_with("```\n"), "day table fence closed");
-    let remember_pos = a.find("remember    test-agent").unwrap();
-    let recall_pos = a.find("recall      test-agent").unwrap();
+    let remember_pos = a.find("remember      test-agent").unwrap();
+    let recall_pos = a.find("recall        test-agent").unwrap();
     assert!(remember_pos < recall_pos, "oldest first");
   }
 
