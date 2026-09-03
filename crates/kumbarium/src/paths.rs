@@ -20,6 +20,7 @@ pub enum PathsError {
 pub struct Paths {
   pub memory_db: PathBuf,
   pub docket_db: PathBuf,
+  pub handoff_db: PathBuf,
   pub audit_db: PathBuf,
   pub lock_file: PathBuf,
   pub backups_dir: PathBuf,
@@ -39,6 +40,7 @@ pub fn resolve() -> Result<Paths, PathsError> {
     return Ok(Paths {
       memory_db: home.join("library").join("memory.db"),
       docket_db: home.join("library").join("docket.db"),
+      handoff_db: home.join("library").join("handoff.db"),
       audit_db: home.join("audit.db"),
       lock_file: home.join("kumbarium.lock"),
       backups_dir: home.join("backups"),
@@ -56,6 +58,7 @@ pub fn resolve() -> Result<Paths, PathsError> {
   Ok(Paths {
     memory_db: data.join("library").join("memory.db"),
     docket_db: data.join("library").join("docket.db"),
+    handoff_db: data.join("library").join("handoff.db"),
     audit_db: data.join("audit.db"),
     lock_file: data.join("kumbarium.lock"),
     backups_dir: data.join("backups"),
@@ -69,6 +72,7 @@ impl fmt::Display for Paths {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     writeln!(f, "memory:   {}", self.memory_db.display())?;
     writeln!(f, "docket:   {}", self.docket_db.display())?;
+    writeln!(f, "handoff:  {}", self.handoff_db.display())?;
     writeln!(f, "audit:    {}", self.audit_db.display())?;
     writeln!(f, "lock:     {}", self.lock_file.display())?;
     writeln!(f, "backups:  {}", self.backups_dir.display())?;
@@ -88,6 +92,7 @@ mod tests {
     let data_root = p.memory_db.parent().unwrap().parent().unwrap();
     for path in [
       &p.docket_db,
+      &p.handoff_db,
       &p.audit_db,
       &p.lock_file,
       &p.backups_dir,

@@ -20,6 +20,13 @@ pub struct ServerState {
   pub docket: Option<kumbarium_docket::Connection>,
   /// Empty path = in-memory (tests, dry runs).
   pub docket_path: std::path::PathBuf,
+  /// The handoff shelf, same lazy discipline.
+  pub handoff: Option<kumbarium_handoff::Connection>,
+  pub handoff_path: std::path::PathBuf,
+  /// Scopes whose standing briefing this session has already
+  /// been served (the FIRST recall in a scope prepends it,
+  /// D-036; later recalls stay clean).
+  pub served_handoffs: std::collections::HashSet<String>,
 }
 
 impl ServerState {
@@ -37,6 +44,20 @@ impl ServerState {
     Ok(self.docket.as_ref().expect("just opened"))
   }
 
+  /// The handoff connection, opening the shelf on first use.
+  pub fn handoff(&mut self) -> Result<&kumbarium_handoff::Connection, String> {
+    if self.handoff.is_none() {
+      let conn = if self.handoff_path.as_os_str().is_empty() {
+        kumbarium_handoff::open_in_memory()
+      } else {
+        kumbarium_handoff::open(&self.handoff_path)
+      }
+      .map_err(|e| e.to_string())?;
+      self.handoff = Some(conn);
+    }
+    Ok(self.handoff.as_ref().expect("just opened"))
+  }
+
   #[cfg(test)]
   pub fn in_memory() -> ServerState {
     ServerState {
@@ -46,6 +67,9 @@ impl ServerState {
       cfg: Config::default(),
       docket: None,
       docket_path: std::path::PathBuf::new(),
+      handoff: None,
+      handoff_path: std::path::PathBuf::new(),
+      served_handoffs: std::collections::HashSet::new(),
     }
   }
 }
@@ -274,6 +298,27 @@ pub fn list() -> Value {
       }
     },
     {
+      "name": "handoff_write",
+      "description": "Leave the standing briefing for a \
+  namespace: what is mid-flight, decided-but-unfinished, and \
+  sharp-edged, for the NEXT session in this scope. Writing \
+  replaces the previous briefing (its history is kept). Do this \
+  before ending substantive work. The next session receives it \
+  automatically with its first recall.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "namespace": { "type": "string" },
+          "content": {
+            "type": "string",
+            "description": "The briefing, prose with judgment; \
+  multi-line welcome."
+          }
+        },
+        "required": ["namespace", "content"]
+      }
+    },
+    {
       "name": "forget",
       "description": "Permanently delete a memory. Escape \
   hatch for wrong or sensitive content only; for routine \
@@ -303,6 +348,7 @@ pub fn call(
     "confirm" => confirm(state, args),
     "task_file" => task_file(state, args),
     "task_update" => task_update(state, args),
+    "handoff_write" => handoff_write(state, args),
     other => Err(format!("unknown tool {other:?}")),
   };
   match result {
@@ -516,19 +562,44 @@ fn recall(
     .map_err(|e| format!("invalid scope: {e}"))?;
   let hits = kumbarium_store::recall(&state.library, query, &chain, limit)
     .map_err(describe_store_error)?;
+  // Served first, literally (D-036): the FIRST recall this
+  // session makes in a scope carries the standing briefing,
+  // named and dated; later recalls stay clean. Pending
+  // briefings are never served.
+  let mut briefing = None;
+  let shelf_reachable = state.handoff.is_some()
+    || state.handoff_path.as_os_str().is_empty()
+    || state.handoff_path.exists();
+  if !state.served_handoffs.contains(scope) && shelf_reachable {
+    let conn = state.handoff()?;
+    if let Ok(Some(h)) = kumbarium_handoff::standing(conn, scope) {
+      briefing = Some(format!(
+        "STANDING HANDOFF for {} (left by {} at {}):\n{}\n---",
+        h.namespace, h.agent_id, h.created_at, h.content
+      ));
+    }
+    state.served_handoffs.insert(scope.to_string());
+  }
   let ids: Vec<&str> = hits.iter().map(|h| h.entry.id.as_str()).collect();
   audit(
     state,
     kumbarium_audit::EventKind::Recall,
     scope,
-    json!({ "query": query, "returned": ids }),
+    json!({
+      "query": query,
+      "returned": ids,
+      "handoff_served": briefing.is_some(),
+    }),
   )?;
-  if hits.is_empty() {
-    return Ok(vec![format!(
-      "No memories matched {query:?} in scope {scope}."
-    )]);
+  let mut blocks = Vec::new();
+  if let Some(b) = briefing {
+    blocks.push(b);
   }
-  let mut blocks = vec![format!("{} memor(y/ies) found:", hits.len())];
+  if hits.is_empty() {
+    blocks.push(format!("No memories matched {query:?} in scope {scope}."));
+    return Ok(blocks);
+  }
+  blocks.push(format!("{} memor(y/ies) found:", hits.len()));
   for (i, hit) in hits.iter().enumerate() {
     blocks.push(render_hit(&state.library, i + 1, hit));
   }
@@ -673,6 +744,59 @@ fn confidence_basis(e: &kumbarium_store::Entry) -> String {
       format!("never confirmed; created {}", day(&e.created_at))
     }
   }
+}
+
+fn handoff_write(
+  state: &mut ServerState,
+  args: &Value,
+) -> Result<Vec<String>, String> {
+  let namespace =
+    kumbarium_librarian::normalize_namespace(required_str(args, "namespace")?);
+  kumbarium_librarian::validate_namespace(&namespace)
+    .map_err(|e| format!("invalid namespace: {e}"))?;
+  if kumbarium_store::namespace_id(&state.library, &namespace)
+    .map_err(describe_store_error)?
+    .is_none()
+  {
+    return Err(format!(
+      "namespace {namespace:?} is not registered (the user \
+       registers namespaces; ask them if yours is missing)"
+    ));
+  }
+  let content = required_str(args, "content")?.to_string();
+  let status = match task_write_status(state) {
+    kumbarium_docket::Status::Pending => kumbarium_handoff::Status::Pending,
+    _ => kumbarium_handoff::Status::Live,
+  };
+  let agent = state.agent_id.clone();
+  let h = kumbarium_handoff::write_handoff(
+    state.handoff()?,
+    &namespace,
+    &content,
+    &agent,
+    "",
+    status,
+  )
+  .map_err(|e| e.to_string())?;
+  audit(
+    state,
+    kumbarium_audit::EventKind::HandoffWrite,
+    &namespace,
+    json!({ "id": h.id }),
+  )?;
+  let mut line = format!(
+    "Briefing left for {namespace} (id={}). The next session's \
+     first recall in this scope will receive it.",
+    h.id
+  );
+  if h.status == kumbarium_handoff::Status::Pending {
+    line = format!(
+      "Briefing recorded pending (id={}): it awaits human \
+       approval and will NOT be served until approved.",
+      h.id
+    );
+  }
+  Ok(vec![line])
 }
 
 fn validate_goal(goal: &str) -> Result<(), String> {

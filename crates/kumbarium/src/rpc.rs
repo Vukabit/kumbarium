@@ -232,7 +232,7 @@ mod tests {
   }
 
   #[test]
-  fn tools_list_names_all_eight_tools() {
+  fn tools_list_names_all_nine_tools() {
     let mut state = ServerState::in_memory();
     let out = drive(&mut state, &[request(1, "tools/list", json!({}))]);
     let names: Vec<&str> = out[0]["result"]["tools"]
@@ -251,8 +251,108 @@ mod tests {
         "supersede",
         "task_file",
         "task_update",
+        "handoff_write",
         "forget"
       ]
+    );
+  }
+
+  #[test]
+  fn handoff_serves_on_first_recall_only() {
+    let mut state = ServerState::in_memory();
+    kumbarium_store::register_namespace(&state.library, "project/x", "t")
+      .unwrap();
+    let out = drive(
+      &mut state,
+      &[
+        request(
+          1,
+          "tools/call",
+          json!({ "name": "handoff_write", "arguments": {
+            "namespace": "project/x",
+            "content": "mid-flight: the flervain adapter is half wired"
+          }}),
+        ),
+        request(
+          2,
+          "tools/call",
+          json!({ "name": "recall", "arguments": {
+            "query": "anything at all", "scope": "project/x"
+          }}),
+        ),
+        request(
+          3,
+          "tools/call",
+          json!({ "name": "recall", "arguments": {
+            "query": "anything at all", "scope": "project/x"
+          }}),
+        ),
+      ],
+    );
+    let first = out[1]["result"]["content"][0]["text"]
+      .as_str()
+      .unwrap_or_default();
+    assert!(
+      first.contains("STANDING HANDOFF") && first.contains("flervain adapter"),
+      "first recall carries the briefing: {first}"
+    );
+    let second = out[2]["result"]["content"][0]["text"]
+      .as_str()
+      .unwrap_or_default();
+    assert!(
+      !second.contains("STANDING HANDOFF"),
+      "second recall stays clean: {second}"
+    );
+    // The ledger proves receipt.
+    let served: bool = state
+      .audit
+      .query_row(
+        "SELECT count(*) FROM events WHERE kind = 'recall'
+         AND detail LIKE '%\"handoff_served\":true%'",
+        [],
+        |r| r.get::<_, i64>(0),
+      )
+      .map(|n| n == 1)
+      .unwrap();
+    assert!(served, "exactly one recall recorded handoff_served");
+  }
+
+  #[test]
+  fn pending_briefings_are_never_served() {
+    let mut state = ServerState::in_memory();
+    state.cfg.approvals_pending_agents = vec!["unknown-agent".into()];
+    kumbarium_store::register_namespace(&state.library, "project/x", "t")
+      .unwrap();
+    let out = drive(
+      &mut state,
+      &[
+        request(
+          1,
+          "tools/call",
+          json!({ "name": "handoff_write", "arguments": {
+            "namespace": "project/x",
+            "content": "poisoned opening frame"
+          }}),
+        ),
+        request(
+          2,
+          "tools/call",
+          json!({ "name": "recall", "arguments": {
+            "query": "anything", "scope": "project/x"
+          }}),
+        ),
+      ],
+    );
+    let write = out[0]["result"]["content"][0]["text"]
+      .as_str()
+      .unwrap_or_default();
+    assert!(write.contains("pending"), "writer is told: {write}");
+    let recall = out[1]["result"]["content"][0]["text"]
+      .as_str()
+      .unwrap_or_default();
+    assert!(
+      !recall.contains("STANDING HANDOFF") && !recall.contains("poisoned"),
+      "quarantined briefing never reaches a session: {recall}"
     );
   }
 

@@ -255,6 +255,9 @@ pub(crate) fn open_stores() -> Result<Stores, String> {
     cfg,
     docket: None,
     docket_path: p.docket_db.clone(),
+    handoff: None,
+    handoff_path: p.handoff_db.clone(),
+    served_handoffs: std::collections::HashSet::new(),
   };
   Ok((p, state))
 }

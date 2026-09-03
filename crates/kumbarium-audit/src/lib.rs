@@ -43,6 +43,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     "0002_docket_kinds",
     include_str!("../migrations/0002_docket_kinds.sql"),
   ),
+  (
+    3,
+    "0003_handoff_kind",
+    include_str!("../migrations/0003_handoff_kind.sql"),
+  ),
 ];
 
 /// The version pre-squash ledgers sit at: their schema is
@@ -80,6 +85,7 @@ pub enum EventKind {
   TaskUpdate,
   TaskDone,
   TaskDrop,
+  HandoffWrite,
 }
 
 impl EventKind {
@@ -102,6 +108,7 @@ impl EventKind {
       EventKind::TaskUpdate => "task_update",
       EventKind::TaskDone => "task_done",
       EventKind::TaskDrop => "task_drop",
+      EventKind::HandoffWrite => "handoff_write",
     }
   }
 }

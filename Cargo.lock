@@ -251,6 +251,7 @@ dependencies = [
  "directories",
  "kumbarium-audit",
  "kumbarium-docket",
+ "kumbarium-handoff",
  "kumbarium-janitor",
  "kumbarium-librarian",
  "kumbarium-store",
@@ -276,6 +277,15 @@ dependencies = [
 
 [[package]]
 name = "kumbarium-docket"
+version = "0.1.0"
+dependencies = [
+ "kumbarium-util",
+ "rusqlite",
+ "thiserror",
+]
+
+[[package]]
+name = "kumbarium-handoff"
 version = "0.1.0"
 dependencies = [
  "kumbarium-util",

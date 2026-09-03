@@ -1,0 +1,17 @@
+# Handoffs: what is mid-flight, the coordination section's
+# second resource (docs/design/handoffs.md, D-036). One standing
+# briefing per namespace; writing IS superseding; served first,
+# literally, by the first recall a session makes in a scope.
+
+[package]
+name = "kumbarium-handoff"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+kumbarium-util = { path = "../kumbarium-util" }
+rusqlite.workspace = true
+thiserror.workspace = true

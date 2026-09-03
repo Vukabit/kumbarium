@@ -15,6 +15,7 @@ publish = false
 [dependencies]
 kumbarium-audit = { path = "../kumbarium-audit" }
 kumbarium-docket = { path = "../kumbarium-docket" }
+kumbarium-handoff = { path = "../kumbarium-handoff" }
 kumbarium-janitor = { path = "../kumbarium-janitor" }
 kumbarium-librarian = { path = "../kumbarium-librarian" }
 kumbarium-store = { path = "../kumbarium-store" }

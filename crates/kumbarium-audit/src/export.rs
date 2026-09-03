@@ -240,6 +240,7 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
         n("planned")?,
         n("edges")?
       )),
+      "handoff_write" => Some(format!("left a briefing {}", short(s("id")?))),
       "task_file" => {
         let mut line =
           format!("filed {} task {}", s("severity")?, short(s("id")?));
