@@ -19,7 +19,7 @@ pub use backup::{Retention, backup, latest_backup_ms, prune};
 pub use entries::{
   Entry, Hit, Kind, NewEntry, confirm, entries_in, find_by_source, forget, get,
   namespace_id, namespaces, predecessor_of, recall, register_namespace,
-  remember, resolve_id, short_id, supersede,
+  remember, resolve_id, short_id, supersede, version_history,
 };
 pub use links::{Link, Rel, continues_chain, link, links_of, unlink};
 

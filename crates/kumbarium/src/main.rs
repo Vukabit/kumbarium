@@ -1,6 +1,7 @@
 //! Kumbarium: the librarian process. `serve` speaks MCP over
 //! stdio (D-014); the rest is the human-facing CLI.
 
+mod diff;
 mod import;
 mod markdown;
 mod paths;
@@ -55,6 +56,10 @@ pub fn run() -> ExitCode {
     ["list", ns, "--all"] => list_entries(Some(ns), true),
     ["show", id] => show_entry(id, false),
     ["show", id, "--full"] => show_entry(id, true),
+    ["history", id] => history_cmd(id, false),
+    ["history", id, "--diff"] => history_cmd(id, true),
+    ["revert", id] => revert_cmd(id, false),
+    ["revert", id, "--apply"] => revert_cmd(id, true),
     ["audit", "tail"] => audit_tail(20),
     ["audit", "tail", n] => match n.parse() {
       Ok(n) => audit_tail(n),
@@ -449,6 +454,158 @@ fn audit_export() -> ExitCode {
   }
 }
 
+fn history_cmd(id: &str, with_diff: bool) -> ExitCode {
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let versions = match resolve_history(&state, id) {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let n = versions.len();
+  println!(
+    "{}",
+    sty.dim("version   id        created     agent                 bytes")
+  );
+  for (i, e) in versions.iter().enumerate().rev() {
+    let live = if i + 1 == n { " (live)" } else { "" };
+    let day = e.created_at.get(..10).unwrap_or(&e.created_at);
+    println!(
+      "v{:<2}{live:<8} {}  {day}  {:<20}  {}",
+      i + 1,
+      sty.id(kumbarium_store::short_id(&e.id)),
+      e.agent_id,
+      e.content.len()
+    );
+  }
+  if with_diff {
+    for pair in versions.windows(2) {
+      println!(
+        "\n{}",
+        sty.bold(&format!(
+          "-- v{} -> v{} --",
+          version_of(&versions, &pair[0].id),
+          version_of(&versions, &pair[1].id)
+        ))
+      );
+      print_diff(&pair[0].content, &pair[1].content, &sty);
+    }
+  }
+  ExitCode::SUCCESS
+}
+
+fn revert_cmd(id: &str, apply: bool) -> ExitCode {
+  let (_, mut state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let versions = match resolve_history(&state, id) {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let target_full = match kumbarium_store::resolve_id(&state.library, id) {
+    Ok(f) => f,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let head = versions.last().expect("history never empty").clone();
+  let Some(target) = versions.iter().find(|e| e.id == target_full).cloned()
+  else {
+    return fail("target version not found in history");
+  };
+  if target.id == head.id {
+    return fail(&format!(
+      "{} is already the live version; pick an ancestor \
+       (see: kumbarium history {})",
+      kumbarium_store::short_id(&target.id),
+      kumbarium_store::short_id(&target.id)
+    ));
+  }
+  println!(
+    "revert plan: supersede live {} with the content of {} \
+     (v{} of {})",
+    sty.id(kumbarium_store::short_id(&head.id)),
+    sty.id(kumbarium_store::short_id(&target.id)),
+    version_of(&versions, &target.id),
+    versions.len()
+  );
+  print_diff(&head.content, &target.content, &sty);
+  if !apply {
+    println!(
+      "\n{}",
+      sty.yellow(
+        "preview only: nothing written; re-run with --apply \
+         to sign off"
+      )
+    );
+    return ExitCode::SUCCESS;
+  }
+  let new = kumbarium_store::NewEntry {
+    namespace: target.namespace.clone(),
+    kind: target.kind,
+    content: target.content.clone(),
+    agent_id: "kumbarium-cli".into(),
+    source: target.source.clone(),
+    tags: target.tags.clone(),
+  };
+  let ids = match tools::store_split(&mut state, &new, Some(&head.id)) {
+    Ok(ids) => ids,
+    Err(e) => return fail(&e),
+  };
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    kind: kumbarium_audit::EventKind::Supersede,
+    scope: target.namespace.clone(),
+    detail: serde_json::json!({
+      "old_id": head.id,
+      "new_id": ids[0],
+      "revert_to": target.id,
+      "parts": ids.len(),
+    }),
+  };
+  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+    return fail(&format!("reverted, but audit append failed: {e}"));
+  }
+  println!(
+    "\nreverted: {} superseded by {} ({} part(s))",
+    sty.id(kumbarium_store::short_id(&head.id)),
+    sty.id(kumbarium_store::short_id(&ids[0])),
+    ids.len()
+  );
+  ExitCode::SUCCESS
+}
+
+/// Full entries for a fact's version chain, oldest first.
+fn resolve_history(
+  state: &tools::ServerState,
+  id: &str,
+) -> Result<Vec<kumbarium_store::Entry>, String> {
+  let full = kumbarium_store::resolve_id(&state.library, id)
+    .map_err(|e| e.to_string())?;
+  let ids = kumbarium_store::version_history(&state.library, &full)
+    .map_err(|e| e.to_string())?;
+  ids
+    .iter()
+    .map(|v| kumbarium_store::get(&state.library, v).map_err(|e| e.to_string()))
+    .collect()
+}
+
+fn version_of(versions: &[kumbarium_store::Entry], id: &str) -> usize {
+  versions.iter().position(|e| e.id == id).unwrap_or(0) + 1
+}
+
+fn print_diff(old: &str, new: &str, sty: &style::Style) {
+  for (mark, line) in diff::lines(old, new) {
+    match mark {
+      '-' => println!("{}", sty.red(&format!("- {line}"))),
+      '+' => println!("{}", sty.green(&format!("+ {line}"))),
+      _ => println!("  {}", sty.dim(&line)),
+    }
+  }
+}
+
 fn import_claude(rest: &[&str]) -> ExitCode {
   let mut opts = import::Options {
     dirs: Vec::new(),
@@ -512,6 +669,11 @@ Usage:
   kumbarium list [ns] [--all]         browse entries
   kumbarium show <id> [--full]        one entry (--full stitches
                                       a split set in order)
+  kumbarium history <id> [--diff]     a fact's version chain
+  kumbarium revert <id> [--apply]     restore an old version
+                                      (preview only until the
+                                      --apply sign-off; CLI
+                                      only, agents cannot)
   kumbarium audit tail [n]            recent audit events
   kumbarium audit export              minutes markdown to exports/
   kumbarium backup                    snapshot both dbs now

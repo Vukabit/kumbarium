@@ -202,6 +202,44 @@ pub fn predecessor_of(
   Ok(found)
 }
 
+/// The supersession history containing `id`: every version of
+/// the fact, oldest first, live head last. Walks predecessors
+/// via `superseded_by` back-references and successors via the
+/// column itself; cycle-guarded for robustness even though
+/// supersede enforces linearity.
+pub fn version_history(
+  conn: &Connection,
+  id: &str,
+) -> Result<Vec<String>, StoreError> {
+  let mut visited: std::collections::HashSet<String> = [id.to_string()].into();
+  let mut older = Vec::new();
+  let mut current = id.to_string();
+  while let Some(prev) = predecessor_of(conn, &current)? {
+    if !visited.insert(prev.clone()) {
+      break;
+    }
+    older.push(prev.clone());
+    current = prev;
+  }
+  older.reverse();
+  older.push(id.to_string());
+  let mut current = id.to_string();
+  loop {
+    let next: Option<String> = conn.query_row(
+      "SELECT superseded_by FROM entries WHERE id = ?1",
+      [&current],
+      |row| row.get(0),
+    )?;
+    let Some(next) = next else { break };
+    if !visited.insert(next.clone()) {
+      break;
+    }
+    older.push(next.clone());
+    current = next;
+  }
+  Ok(older)
+}
+
 /// Ids of live (non-superseded) entries whose source matches
 /// exactly. Importers use this for idempotency.
 pub fn find_by_source(
@@ -735,6 +773,42 @@ mod tests {
         Err(StoreError::EntryNotFound(_))
       ));
     }
+  }
+
+  #[test]
+  fn version_history_orders_oldest_to_live() {
+    let mut conn = store();
+    let v1 = remember(
+      &mut conn,
+      &entry_in("project/demo-app", "version one of the fact"),
+    )
+    .unwrap();
+    let v2 = supersede(
+      &mut conn,
+      &v1.id,
+      &entry_in("project/demo-app", "version two of the fact"),
+    )
+    .unwrap();
+    let v3 = supersede(
+      &mut conn,
+      &v2.id,
+      &entry_in("project/demo-app", "version three of the fact"),
+    )
+    .unwrap();
+    let expect = [v1.id.clone(), v2.id.clone(), v3.id.clone()];
+    for member in &expect {
+      assert_eq!(
+        version_history(&conn, member).unwrap(),
+        expect,
+        "from {member}"
+      );
+    }
+    let lone = remember(
+      &mut conn,
+      &entry_in("project/demo-app", "unrelated single fact"),
+    )
+    .unwrap();
+    assert_eq!(version_history(&conn, &lone.id).unwrap(), [lone.id]);
   }
 
   #[test]
