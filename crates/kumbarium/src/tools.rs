@@ -542,6 +542,11 @@ fn render_hit(
 }
 
 fn confidence_basis(e: &kumbarium_store::Entry) -> String {
+  // The janitor's stored basis explains the number it set;
+  // before any pass, fall back to the confirm/created stamps.
+  if let Some(basis) = &e.confidence_basis {
+    return basis.clone();
+  }
   let day = |s: &str| s.get(..10).unwrap_or(s).to_string();
   match &e.last_confirmed_at {
     Some(at) => format!("confirmed {}", day(at)),

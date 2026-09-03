@@ -61,6 +61,9 @@ pub struct Entry {
   pub agent_id: String,
   pub source: String,
   pub confidence: f64,
+  /// Why confidence is what it is; written only by the janitor
+  /// (None = neutral prior, no pass yet).
+  pub confidence_basis: Option<String>,
   pub superseded_by: Option<String>,
   pub created_at: String,
   pub updated_at: String,
@@ -160,7 +163,8 @@ pub fn entries_in(
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id,
             e.source, e.confidence, e.superseded_by,
             e.created_at, e.updated_at, e.last_accessed_at,
-            e.last_confirmed_at, e.retired_at, e.note
+            e.last_confirmed_at, e.retired_at, e.note,
+            e.confidence_basis
      FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
      WHERE 1=1",
   );
@@ -370,7 +374,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<Entry, StoreError> {
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id, e.source,
             e.confidence, e.superseded_by, e.created_at,
             e.updated_at, e.last_accessed_at, e.last_confirmed_at,
-            e.retired_at, e.note
+            e.retired_at, e.note, e.confidence_basis
      FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
      WHERE e.id = ?1",
   )?;
@@ -408,7 +412,8 @@ pub fn recall(
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id, e.source,
             e.confidence, e.superseded_by, e.created_at,
             e.updated_at, e.last_accessed_at, e.last_confirmed_at,
-            e.retired_at, e.note, bm25(entries_fts) AS rank
+            e.retired_at, e.note, e.confidence_basis,
+            bm25(entries_fts) AS rank
      FROM entries_fts
      JOIN entries e ON e.rowid = entries_fts.rowid
      JOIN namespaces ns ON ns.id = e.namespace_id
@@ -423,7 +428,7 @@ pub fn recall(
   args.extend(namespaces.iter().cloned());
   let mut stmt = conn.prepare(&sql)?;
   let rows = stmt.query_map(params_from_iter(args.iter()), |row| {
-    Ok((row_to_entry(row)?, row.get::<_, f64>(14)?))
+    Ok((row_to_entry(row)?, row.get::<_, f64>(15)?))
   })?;
   let mut hits = Vec::new();
   for row in rows {
@@ -546,6 +551,32 @@ pub fn confirm(conn: &Connection, id: &str) -> Result<(), StoreError> {
   Ok(())
 }
 
+/// Set an entry's confidence and its stored basis. The janitor is
+/// the only intended caller (D-004: writers never self-assess;
+/// D-025: the janitor is the designated mover of the number).
+pub fn set_confidence(
+  conn: &Connection,
+  id: &str,
+  confidence: f64,
+  basis: &str,
+) -> Result<(), StoreError> {
+  let n = conn.execute(
+    "UPDATE entries
+     SET confidence = ?1, confidence_basis = ?2, updated_at = ?3
+     WHERE id = ?4",
+    params![
+      confidence.clamp(0.0, 1.0),
+      basis,
+      kumbarium_util::now_iso8601(),
+      id,
+    ],
+  )?;
+  if n == 0 {
+    return Err(StoreError::EntryNotFound(id.to_string()));
+  }
+  Ok(())
+}
+
 fn insert_entry(
   conn: &Connection,
   new: &NewEntry,
@@ -606,6 +637,7 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<Entry, rusqlite::Error> {
     last_confirmed_at: row.get(11)?,
     retired_at: row.get(12)?,
     note: row.get(13)?,
+    confidence_basis: row.get(14)?,
     tags: Vec::new(),
   })
 }

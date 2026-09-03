@@ -19,8 +19,8 @@ pub use backup::{Retention, backup, latest_backup_ms, prune};
 pub use entries::{
   Entry, Hit, Kind, NewEntry, Stats, confirm, entries_in, find_by_source,
   forget, get, namespace_id, namespaces, predecessor_of, recall,
-  register_namespace, remember, resolve_id, retire, short_id, stats, supersede,
-  unretire, version_history,
+  register_namespace, remember, resolve_id, retire, set_confidence, short_id,
+  stats, supersede, unretire, version_history,
 };
 pub use links::{Link, Rel, continues_chain, link, links_of, unlink};
 
@@ -40,6 +40,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     include_str!("../migrations/0003_retire.sql"),
   ),
   (4, "0004_note", include_str!("../migrations/0004_note.sql")),
+  (
+    5,
+    "0005_confidence_basis",
+    include_str!("../migrations/0005_confidence_basis.sql"),
+  ),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -147,7 +152,7 @@ mod tests {
   #[test]
   fn fresh_store_reaches_latest_schema() {
     let conn = open_in_memory().unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 4);
+    assert_eq!(schema_version(&conn).unwrap(), 5);
   }
 
   #[test]
@@ -155,7 +160,7 @@ mod tests {
     let conn = open_in_memory().unwrap();
     // A second pass sees itself at latest and applies nothing.
     migrate(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 4);
+    assert_eq!(schema_version(&conn).unwrap(), 5);
   }
 
   #[test]

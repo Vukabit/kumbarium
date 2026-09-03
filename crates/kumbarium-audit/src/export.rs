@@ -224,6 +224,11 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
         n("planned")?,
         n("edges")?
       )),
+      "janitor" => Some(format!(
+        "janitor adjusted {}, {} dormant flagged",
+        plural(n("changed")? as usize, "confidence", "confidences"),
+        n("dormant")?
+      )),
       _ => None,
     }
   })();

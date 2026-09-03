@@ -1,0 +1,17 @@
+# The janitor: the designated mover of the confidence number.
+# v1 is pure ledger math (docs/design/janitor.md, D-025): survival
+# statistics as the backbone, confirms as garnish, no LLM anywhere.
+
+[package]
+name = "kumbarium-janitor"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+kumbarium-audit = { path = "../kumbarium-audit" }
+kumbarium-store = { path = "../kumbarium-store" }
+kumbarium-util = { path = "../kumbarium-util" }
+serde_json.workspace = true
+thiserror.workspace = true

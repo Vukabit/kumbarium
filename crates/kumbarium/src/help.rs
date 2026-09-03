@@ -5,7 +5,7 @@
 
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
-instructions status grep move";
+instructions status grep move janitor";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -25,6 +25,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "grep" => PAGE_GREP,
     "move" => PAGE_MOVE,
     "namespaces" | "scopes" => PAGE_NAMESPACES,
+    "janitor" => PAGE_JANITOR,
     _ => return None,
   })
 }
@@ -336,6 +337,34 @@ Entry counts (live / superseded / retired), split sets, live
 entries per namespace, audit event count and latest, backup
 ages, database sizes. The first command to run when wondering
 what state things are in.
+";
+
+const PAGE_JANITOR: &str = "\
+## janitor: the confidence pass
+
+```
+kum janitor           preview proposed changes
+kum janitor --apply   sign off and write them
+```
+
+The janitor is the only mover of the confidence number. It is
+pure ledger math (D-025), no LLM: every live entry is
+recomputed from the full audit log, so reruns are idempotent.
+
+- survival is the backbone: distinct agent-day exposures via
+  recall, never corrected (asymptote 0.80).
+- confirms are garnish: weighted evidence, self-confirms
+  discounted to a quarter (ceiling 0.95; nothing inside the
+  library can prove a fact was applied, so nothing reaches 1.0).
+- no exposure keeps the 0.50 neutral prior. Entries older than
+  `janitor.dormant_days` (config, default 45) that were never
+  recalled are listed as dormant: retire candidates for YOUR
+  judgment; the janitor never retires.
+
+Confidence informs recall output, it never ranks or filters it
+(D-026). Applying writes each entry's new number plus a stored
+basis line (shown by recall and `kum show`), and witnesses one
+batch janitor event carrying the full change manifest.
 ";
 
 const PAGE_GREP: &str = "\

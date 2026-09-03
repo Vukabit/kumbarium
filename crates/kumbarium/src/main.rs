@@ -66,6 +66,8 @@ pub fn run() -> ExitCode {
     ["revert", id] => revert_cmd(id, false),
     ["revert", id, "--apply"] => revert_cmd(id, true),
     ["confirm", id] => confirm_cmd(id),
+    ["janitor"] => janitor_cmd(false),
+    ["janitor", "--apply"] => janitor_cmd(true),
     ["retire", id] => retire_cmd(id, true),
     ["unretire", id] => retire_cmd(id, false),
     ["status"] => status_cmd(),
@@ -440,7 +442,12 @@ fn show_entry(id: &str, full: bool) -> ExitCode {
   if !e.source.is_empty() {
     println!("source:     {}", e.source);
   }
-  println!("confidence: {:.2}", e.confidence);
+  match &e.confidence_basis {
+    Some(basis) => {
+      println!("confidence: {:.2} ({basis})", e.confidence)
+    }
+    None => println!("confidence: {:.2}", e.confidence),
+  }
   println!("created:    {}", local_display(&e.created_at));
   println!("updated:    {}", local_display(&e.updated_at));
   if let Some(at) = &e.last_accessed_at {
@@ -1348,7 +1355,7 @@ fn config_cmd(init: bool) -> ExitCode {
       sty.yellow("  (custom)")
     }
   };
-  let rows: [(&str, i64, i64); 10] = [
+  let rows: [(&str, i64, i64); 11] = [
     (
       "backup.interval_hours",
       cfg.backup_interval_hours,
@@ -1399,6 +1406,11 @@ fn config_cmd(init: bool) -> ExitCode {
       cfg.recall_default_limit as i64,
       d.recall_default_limit as i64,
     ),
+    (
+      "janitor.dormant_days",
+      cfg.janitor_dormant_days,
+      d.janitor_dormant_days,
+    ),
   ];
   for (key, cur, def) in rows {
     println!("{key:<36} {cur}{}", mark(cur, def));
@@ -1438,6 +1450,107 @@ fn confirm_cmd(id: &str) -> ExitCode {
   ExitCode::SUCCESS
 }
 
+/// The confidence pass (D-025): recompute every live entry from
+/// the full ledger, preview the proposals, apply only on the
+/// --apply sign-off. One batch janitor event witnesses the run.
+fn janitor_cmd(apply: bool) -> ExitCode {
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let events = match kumbarium_audit::events_asc(&state.audit) {
+    Ok(v) => v,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let report = match kumbarium_janitor::pass(
+    &state.library,
+    &events,
+    state.cfg.janitor_dormant_days,
+    kumbarium_util::now_ms(),
+  ) {
+    Ok(r) => r,
+    Err(e) => return fail(&e.to_string()),
+  };
+  if report.proposals.is_empty() && report.dormant.is_empty() {
+    println!("janitor: no changes proposed; evidence unchanged");
+    return ExitCode::SUCCESS;
+  }
+  if !report.proposals.is_empty() {
+    println!(
+      "{}",
+      sty.dim("id        namespace            old      new   basis")
+    );
+    for p in &report.proposals {
+      println!(
+        "{}  {:<20} {:.2} -> {:.2}  {}",
+        sty.id(&format!("{:<8}", kumbarium_store::short_id(&p.id))),
+        p.namespace,
+        p.old,
+        p.new,
+        p.basis
+      );
+    }
+  }
+  if !report.dormant.is_empty() {
+    println!(
+      "\ndormant ({}+ days old, never recalled); retire is \
+       your call:",
+      state.cfg.janitor_dormant_days
+    );
+    for d in &report.dormant {
+      println!(
+        "  {}  {:<20} {} days old",
+        sty.id(&format!("{:<8}", kumbarium_store::short_id(&d.id))),
+        d.namespace,
+        d.age_days
+      );
+    }
+  }
+  if !apply {
+    println!(
+      "\n{}",
+      sty.yellow(
+        "preview only: nothing written; re-run with --apply \
+         to sign off"
+      )
+    );
+    return ExitCode::SUCCESS;
+  }
+  for p in &report.proposals {
+    if let Err(e) =
+      kumbarium_store::set_confidence(&state.library, &p.id, p.new, &p.basis)
+    {
+      return fail(&format!("applying {}: {e}", p.id));
+    }
+  }
+  let applied: Vec<serde_json::Value> = report
+    .proposals
+    .iter()
+    .map(|p| serde_json::json!({ "id": p.id, "from": p.old, "to": p.new }))
+    .collect();
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    kind: kumbarium_audit::EventKind::Janitor,
+    scope: String::new(),
+    detail: serde_json::json!({
+      "changed": report.proposals.len(),
+      "dormant": report.dormant.len(),
+      "dormant_days": state.cfg.janitor_dormant_days,
+      "applied": applied,
+    }),
+  };
+  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+    return fail(&format!("applied, but audit append failed: {e}"));
+  }
+  println!(
+    "\napplied {} confidence change(s); {} dormant flagged",
+    report.proposals.len(),
+    report.dormant.len()
+  );
+  ExitCode::SUCCESS
+}
+
 fn fail(message: &str) -> ExitCode {
   eprintln!("kumbarium: {message}");
   ExitCode::FAILURE
@@ -1459,6 +1572,10 @@ Usage:
                      [--all]          (--all expands collapsed
                                       noted-small versions)
   kumbarium confirm <id>              record a fact proved true
+  kumbarium janitor [--apply]         confidence pass over the
+                                      ledger (preview until the
+                                      --apply sign-off; CLI
+                                      only, agents cannot)
   kumbarium retire <id>               hide from suggestions
   kumbarium unretire <id>             restore to suggestions
   kumbarium revert <id> [--apply]     restore an old version

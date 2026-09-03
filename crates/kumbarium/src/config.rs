@@ -19,6 +19,7 @@ pub struct Config {
   pub split_target: usize,
   pub collapse_max_changed_lines: usize,
   pub recall_default_limit: usize,
+  pub janitor_dormant_days: i64,
 }
 
 impl Default for Config {
@@ -34,6 +35,7 @@ impl Default for Config {
       split_target: kumbarium_librarian::SPLIT_TARGET,
       collapse_max_changed_lines: 4,
       recall_default_limit: 8,
+      janitor_dormant_days: 45,
     }
   }
 }
@@ -67,6 +69,12 @@ collapse_max_changed_lines = 4
 [recall]
 # Hits returned when an agent omits `limit`.
 default_limit = 8
+
+[janitor]
+# A live entry never returned by any recall and at least this
+# old is flagged dormant (a finding for the human, never a
+# confidence penalty).
+dormant_days = 45
 ";
 
 /// Parse config text over the defaults. Unknown or malformed
@@ -119,6 +127,9 @@ pub fn parse(text: &str) -> (Config, Vec<String>) {
       }
       "recall.default_limit" => {
         cfg.recall_default_limit = as_usize.max(1);
+      }
+      "janitor.dormant_days" => {
+        cfg.janitor_dormant_days = value.max(1);
       }
       other => {
         warnings.push(format!("config {other}: unknown key; ignored"));

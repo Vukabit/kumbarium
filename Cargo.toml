@@ -4,6 +4,7 @@
 #   kumbarium-store      the Library: schema, migrations, FTS5, backups
 #   kumbarium-audit      audit db: event types, writer, export
 #   kumbarium-librarian  retrieval, ranking, scoring, curation traits
+#   kumbarium-janitor    confidence pass: survival math over the ledger
 
 [workspace]
 resolver = "3"
@@ -12,6 +13,7 @@ members = [
   "crates/kumbarium-store",
   "crates/kumbarium-audit",
   "crates/kumbarium-librarian",
+  "crates/kumbarium-janitor",
   "crates/kumbarium",
 ]
 

@@ -250,6 +250,7 @@ version = "0.1.0"
 dependencies = [
  "directories",
  "kumbarium-audit",
+ "kumbarium-janitor",
  "kumbarium-librarian",
  "kumbarium-store",
  "kumbarium-util",
@@ -268,6 +269,17 @@ dependencies = [
  "kumbarium-util",
  "rusqlite",
  "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "kumbarium-janitor"
+version = "0.1.0"
+dependencies = [
+ "kumbarium-audit",
+ "kumbarium-store",
+ "kumbarium-util",
  "serde_json",
  "thiserror",
 ]
