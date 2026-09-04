@@ -7,7 +7,7 @@ awaiting action and eventually a judgment (done or dropped).
 The roadmap is not a separate system: it is the same docket
 read at a longer horizon.
 
-Design only; the build waits for sign-off.
+Built as designed.
 
 ## Why it belongs in the library
 

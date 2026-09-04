@@ -7,7 +7,7 @@ where the sharp edges are. The problem statement is every
 compacted conversation and every "continue where the last
 session left off" that today leans on ad-hoc memory files.
 
-Design only; the build waits for sign-off.
+Built as designed.
 
 ## The semantic: one standing note per shelf
 
