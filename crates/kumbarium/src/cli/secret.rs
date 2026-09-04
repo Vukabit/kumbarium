@@ -852,48 +852,6 @@ pub(crate) fn show_secret(
   Ok(ExitCode::SUCCESS)
 }
 
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn rotation_matter_files_once_then_regrades() {
-    let mut state = tools::ServerState::in_memory();
-    let first =
-      sync_rotation_matter(&mut state, "project/x", "api-key", "2026-12-01")
-        .unwrap();
-    assert!(first.contains("filed"), "{first}");
-    let again =
-      sync_rotation_matter(&mut state, "project/x", "api-key", "2026-12-01")
-        .unwrap();
-    assert!(again.contains("already watches"), "{again}");
-    let moved =
-      sync_rotation_matter(&mut state, "project/x", "api-key", "2027-06-01")
-        .unwrap();
-    assert!(moved.contains("re-graded"), "{moved}");
-    // One open matter survives, goal moved, source mechanical.
-    let open = {
-      let conn = state.docket().unwrap();
-      kumbarium_docket::tasks_in(conn, None, false).unwrap()
-    };
-    assert_eq!(open.len(), 1);
-    assert_eq!(open[0].goal.as_deref(), Some("2027-06-01"));
-    assert_eq!(open[0].source, "secret:project/x/api-key");
-    // Both writes witnessed: one filing, one regrade.
-    let (files, updates): (i64, i64) = state
-      .audit
-      .query_row(
-        "SELECT
-           (SELECT count(*) FROM events WHERE kind = 'task_file'),
-           (SELECT count(*) FROM events WHERE kind = 'task_update')",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-      )
-      .unwrap();
-    assert_eq!((files, updates), (1, 1));
-  }
-}
-
 /// The rotation chain (`kum history` fall-through): who rotated
 /// and when, values structurally absent.
 pub(crate) fn secret_history_cmd(
@@ -935,4 +893,46 @@ pub(crate) fn secret_history_cmd(
     );
   }
   ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn rotation_matter_files_once_then_regrades() {
+    let mut state = tools::ServerState::in_memory();
+    let first =
+      sync_rotation_matter(&mut state, "project/x", "api-key", "2026-12-01")
+        .unwrap();
+    assert!(first.contains("filed"), "{first}");
+    let again =
+      sync_rotation_matter(&mut state, "project/x", "api-key", "2026-12-01")
+        .unwrap();
+    assert!(again.contains("already watches"), "{again}");
+    let moved =
+      sync_rotation_matter(&mut state, "project/x", "api-key", "2027-06-01")
+        .unwrap();
+    assert!(moved.contains("re-graded"), "{moved}");
+    // One open matter survives, goal moved, source mechanical.
+    let open = {
+      let conn = state.docket().unwrap();
+      kumbarium_docket::tasks_in(conn, None, false).unwrap()
+    };
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].goal.as_deref(), Some("2027-06-01"));
+    assert_eq!(open[0].source, "secret:project/x/api-key");
+    // Both writes witnessed: one filing, one regrade.
+    let (files, updates): (i64, i64) = state
+      .audit
+      .query_row(
+        "SELECT
+           (SELECT count(*) FROM events WHERE kind = 'task_file'),
+           (SELECT count(*) FROM events WHERE kind = 'task_update')",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+      )
+      .unwrap();
+    assert_eq!((files, updates), (1, 1));
+  }
 }
