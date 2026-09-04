@@ -1,0 +1,70 @@
+# Release: a pushed v* tag builds the binaries on every
+# platform and attaches them to a GitHub release whose notes
+# are the tag's CHANGELOG section (deterministic; the release
+# job refuses a stale changelog rather than shipping one).
+# GitHub-hosted runners only, same stance as ci.yml.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: changelog must be current
+        run: python3 scripts/changelog.py --check
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/changelog.py --notes \
+            "${GITHUB_REF_NAME}" > notes.md
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "kumbarium ${GITHUB_REF_NAME}" \
+            --notes-file notes.md
+
+  build:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            ext: ""
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: build
+        run: cargo build --release --locked
+      - name: package
+        run: |
+          name="kumbarium-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$name"
+          cp "target/release/kumbarium${{ matrix.ext }}" \
+             "target/release/kum${{ matrix.ext }}" \
+             LICENSE-MIT LICENSE-APACHE README.md "$name/"
+          tar -czf "$name.tar.gz" "$name"
+      - name: attach
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            "kumbarium-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
