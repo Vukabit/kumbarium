@@ -330,7 +330,7 @@ dependencies = [
 
 [[package]]
 name = "kumbarium"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "directories",
  "getrandom 0.2.17",
@@ -353,7 +353,7 @@ dependencies = [
 
 [[package]]
 name = "kumbarium-audit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kumbarium-util",
  "rusqlite",
@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "kumbarium-docket"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kumbarium-util",
  "rusqlite",
@@ -373,7 +373,7 @@ dependencies = [
 
 [[package]]
 name = "kumbarium-handoff"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kumbarium-util",
  "rusqlite",
@@ -382,7 +382,7 @@ dependencies = [
 
 [[package]]
 name = "kumbarium-janitor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kumbarium-audit",
  "kumbarium-store",
@@ -393,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "kumbarium-librarian"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proptest",
  "thiserror",
@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "kumbarium-secrets"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chacha20poly1305",
  "getrandom 0.2.17",
@@ -413,7 +413,7 @@ dependencies = [
 
 [[package]]
 name = "kumbarium-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kumbarium-util",
  "rusqlite",
@@ -423,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "kumbarium-util"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fd-lock",
  "proptest",
