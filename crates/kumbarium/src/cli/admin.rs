@@ -191,6 +191,16 @@ pub(crate) fn status_cmd() -> ExitCode {
     }
     println!("{line}");
   }
+  if p.secrets_db.exists()
+    && let Ok(conn) = kumbarium_secrets::open(&p.secrets_db)
+    && let Ok((live, grants)) = kumbarium_secrets::counts(&conn)
+  {
+    let sealing = match kumbarium_secrets::sealing_mode(&conn) {
+      Ok(Some(kumbarium_secrets::Sealing::Plaintext)) => ", PLAINTEXT",
+      _ => "",
+    };
+    println!("  secrets:   {live} stocked, {grants} grants{sealing}");
+  }
   match kumbarium_store::namespaces(&state.library) {
     Ok(rows) => {
       for (path, _, _) in rows {

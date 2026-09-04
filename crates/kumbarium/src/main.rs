@@ -22,6 +22,7 @@ use cli::dock::*;
 use cli::docket::*;
 use cli::entries::*;
 use cli::handoff::*;
+use cli::secret::*;
 use cli::term::*;
 use cli::usage::*;
 
@@ -107,6 +108,9 @@ pub fn run() -> ExitCode {
     ["tasks", rest @ ..] => tasks_cmd(rest),
     ["handoff", ns, rest @ ..] => handoff_cmd(ns, rest),
     ["handoff"] | ["handoffs"] => handoffs_cmd(),
+    ["secret", rest @ ..] => secret_cmd(rest),
+    ["secrets"] => secrets_cmd(None),
+    ["secrets", ns] => secrets_cmd(Some(ns)),
     ["roadmap"] => roadmap_cmd(None),
     ["roadmap", ns] => roadmap_cmd(Some(ns)),
     ["janitor"] => janitor_cmd(false),
@@ -371,6 +375,26 @@ fn maintenance(
   if let Some(conn) = &handoff_conn {
     jobs.push((
       "handoff",
+      conn,
+      kumbarium_store::Retention {
+        recent: cfg.library_recent,
+        dailies: cfg.library_dailies,
+        weeklies: cfg.library_weeklies,
+      },
+    ));
+  }
+  // The restricted stacks back up as ciphertext; the master
+  // key is in the keystore, never in any snapshot (D-038).
+  let secrets_conn = match p.secrets_db.exists() {
+    true => Some(
+      kumbarium_secrets::open(&p.secrets_db)
+        .map_err(|e| format!("opening secrets shelf: {e}"))?,
+    ),
+    false => None,
+  };
+  if let Some(conn) = &secrets_conn {
+    jobs.push((
+      "secrets",
       conn,
       kumbarium_store::Retention {
         recent: cfg.library_recent,

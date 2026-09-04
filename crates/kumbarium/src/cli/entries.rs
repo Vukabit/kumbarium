@@ -291,6 +291,14 @@ pub(crate) fn history_cmd(id: &str, with_diff: bool, all: bool) -> ExitCode {
     if on_docket {
       return super::docket::task_history_cmd(id);
     }
+    let on_secrets = st
+      .secrets()
+      .ok()
+      .map(|c| kumbarium_secrets::resolve_id(c, id).is_ok())
+      .unwrap_or(false);
+    if on_secrets {
+      return super::secret::secret_history_cmd(&mut st, id);
+    }
     return super::handoff::handoff_history_cmd(&mut st, id);
   }
   let versions = match resolve_history(&state, id) {

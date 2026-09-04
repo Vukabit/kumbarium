@@ -6,7 +6,7 @@
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
 instructions status grep move janitor approvals export docket \
-alias handoff";
+alias handoff secrets";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -32,6 +32,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "docket" | "task" | "tasks" | "roadmap" => PAGE_DOCKET,
     "alias" | "aliases" => PAGE_ALIAS,
     "handoff" | "handoffs" => PAGE_HANDOFF,
+    "secret" | "secrets" => PAGE_SECRETS,
     _ => return None,
   })
 }
@@ -314,6 +315,10 @@ across all agents and sessions.
   `task_update` marks them done when
   the work is complete, or regrades severity and goal as
   reality moves.
+- Credential VALUES never belong in memories, tasks, or
+  briefings. Need one? Call `secret_read`; if refused, ask the
+  human to run the `kum secret grant` command the refusal
+  names. Never store what it returns.
 - Namespaces are registered by the user (`kumbarium namespace
   add`); never assume one exists, ask instead.
 ";
@@ -394,6 +399,46 @@ briefing lands pending and is NEVER served; approval makes it
 THE standing note (superseding the live one, so one head
 survives the desk). Agents write via `handoff_write` before
 ending substantive work.
+";
+
+const PAGE_SECRETS: &str = "\
+## secrets: the restricted stacks
+
+```
+kum secret set <ns> <name>      stock or rotate; value from
+     [--i-accept-plaintext]     stdin or an echo-off prompt,
+                                never argv
+kum secret read <ns> <name>     print the value
+kum secret copy <ns> <name>     concealed clipboard copy,
+                                auto-clear in 90 seconds
+kum secret grant <ns> <name> <agent>    allow secret_read
+kum secret revoke <ns> <name> <agent>   withdraw, effective now
+kum secret shred <ns> <name>    destroy the value, keep record
+kum secrets [ns]                names + grants, never values
+```
+
+Witnessed access is the product: every checkout, refusal, and
+grant lands on the hash-chained ledger, so \"who has read the
+deploy key this month\" is a query. Values are sealed at rest
+(XChaCha20-Poly1305; the master key lives in the platform
+keystore, never in any file or backup) and structurally absent
+from every listing, export, and audit event.
+
+Writes are human-only: agents cannot stock or grant, only ask.
+An agent's `secret_read` is deny-by-default; the refusal names
+the grant command so you can decide. Revocation is instant
+because every read re-checks.
+
+Rotation (`set` on an existing name) supersedes like memory,
+but the retired value is SHREDDED: the history keeps who
+rotated and when, never the old credential. `kum history <id>`
+on a secret renders that chain. Secrets ride no recall, no
+briefing, no bundle, ever.
+
+Where no OS keystore exists, the first `set` refuses unless
+told `--i-accept-plaintext`: a loud, sticky, per-shelf choice.
+A PRESENT-but-failing keystore refuses outright, because a
+suppressed keystore is what a downgrade attack looks like.
 ";
 
 const PAGE_ALIAS: &str = "\

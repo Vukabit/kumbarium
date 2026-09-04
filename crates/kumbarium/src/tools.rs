@@ -852,7 +852,7 @@ fn confidence_basis(e: &kumbarium_store::Entry) -> String {
 
 /// The master key for a keystore-sealed shelf, or None for a
 /// plaintext-mode shelf; Blocked and Absent refuse per D-039.
-fn secrets_key(
+pub(crate) fn secrets_key(
   state: &mut ServerState,
 ) -> Result<Option<[u8; kumbarium_secrets::KEY_LEN]>, String> {
   let mode = kumbarium_secrets::sealing_mode(state.secrets()?)

@@ -7,8 +7,9 @@ context strings that no ledger ever sees. The broker gives
 them a shelf with a locked door, a sign-out sheet, and a
 librarian who never forgets who asked.
 
-Design only; the build waits for sign-off, and one decision
-below is explicitly reserved for the human.
+Built as designed (v1: the store, the sealing, the MCP tool,
+the CLI verbs, and the persona fixtures); the one decision
+reserved for the human resolved as the vetted floor below.
 
 ## What the broker honestly buys (stdio tier)
 
