@@ -17,6 +17,7 @@ mod tools;
 use std::process::ExitCode;
 
 use cli::admin::*;
+use cli::brief::*;
 use cli::desk::*;
 use cli::dock::*;
 use cli::docket::*;
@@ -108,6 +109,8 @@ pub fn run() -> ExitCode {
     ["tasks", rest @ ..] => tasks_cmd(rest),
     ["handoff", ns, rest @ ..] => handoff_cmd(ns, rest),
     ["handoff"] | ["handoffs"] => handoffs_cmd(),
+    ["brief", ns] => brief_cmd(ns),
+    ["brief"] => fail("brief needs a scope: kumbarium brief <ns>"),
     ["secret", rest @ ..] => secret_cmd(rest),
     ["secrets"] => secrets_cmd(None),
     ["secrets", ns] => secrets_cmd(Some(ns)),

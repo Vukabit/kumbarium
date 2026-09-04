@@ -584,3 +584,23 @@ while preferences are near-immortal. The janitor still never
 retires, revokes, or closes anything: it is the building's
 walkthrough at closing time, flashlight and clipboard, and the
 keys stay with the human.
+
+## D-041: the binder is a rendering, not a record (2026-09-03)
+
+`kum brief <ns>` assembles the day-one page from shelves that
+already exist: the charter (the namespace's registered
+description), the standing facts ranked survivors-first
+(confidence, then recency; ten shown), the standing briefing,
+the open matters that will not wait, and the restricted
+stacks' names in scope. Three inked stances. It WRITES NOTHING
+and is NOT WITNESSED: browsing is not circulation, recall is;
+the ledger records what agents were served, not what a human
+skimmed. It DOES NOT VIOLATE D-026: confidence still never
+touches retrieval order (recall stays bm25-only); the binder
+is a briefing surface, and stating which facts survived
+circulation is precisely what the number is for. And it is
+HUMAN-SHAPED, CLI-only: agents already receive the same state
+through the D-037 channel (briefing and urgent matters riding
+the first recall), so a brief tool would be a second door to
+the same room; a person can still paste the page into a fresh
+context, which is the binder earning its name.

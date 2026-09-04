@@ -6,7 +6,7 @@
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
 instructions status grep move janitor approvals export docket \
-alias handoff secrets";
+alias handoff secrets brief";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -33,6 +33,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "alias" | "aliases" => PAGE_ALIAS,
     "handoff" | "handoffs" => PAGE_HANDOFF,
     "secret" | "secrets" => PAGE_SECRETS,
+    "brief" | "binder" => PAGE_BRIEF,
     _ => return None,
   })
 }
@@ -468,6 +469,35 @@ Where no OS keystore exists, the first `set` refuses unless
 told `--i-accept-plaintext`: a loud, sticky, per-shelf choice.
 A PRESENT-but-failing keystore refuses outright, because a
 suppressed keystore is what a downgrade attack looks like.
+";
+
+const PAGE_BRIEF: &str = "\
+## brief: the day-one binder
+
+```
+kum brief <ns>
+```
+
+One page before touching anything: the shelf's charter (its
+registered description), the top standing facts ranked by what
+survived circulation (confidence first, recency as tiebreak,
+ten shown), the standing briefing the last session left, the
+open matters that will not wait (urgency, then nearest goal,
+eight shown), and what the restricted stacks hold in scope
+(names and expiry only, structurally never values).
+
+The binder is a RENDERING, not a record: every ingredient
+already lives on a shelf, nothing is written, and reading it
+is not witnessed (browsing is not circulation; recall is).
+Agents keep their own channel: the first recall in a scope
+already carries the briefing and urgent matters (see
+`kum help handoff`); this page is the same state of the world
+shaped for a person, or for pasting into a fresh context.
+
+Ranking here does not violate confidence-never-ranks: recall
+stays bm25-only. The binder is a briefing surface, and stating
+which facts have survived circulation is exactly what
+confidence is FOR.
 ";
 
 const PAGE_ALIAS: &str = "\

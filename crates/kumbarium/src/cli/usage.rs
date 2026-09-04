@@ -184,6 +184,11 @@ the docket:
   kumbarium task history <id>         a matter's chain: every
                                       regrade and goal slip
 
+the binder:
+  kumbarium brief <ns>                the day-one page: charter,
+                                      standing facts, briefing,
+                                      open matters, the stacks
+
 handoffs, the standing briefings:
   kumbarium handoff <ns> <note...>    leave the briefing for
                                       the next session (the
