@@ -162,6 +162,7 @@ pub(crate) fn task_file_cmd(ns: &str, rest: &[&str]) -> ExitCode {
   };
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: kumbarium_audit::EventKind::TaskFile,
     scope: ns,
     detail: serde_json::json!({
@@ -223,6 +224,7 @@ pub(crate) fn task_judge_cmd(id: &str, to_done: bool, note: &str) -> ExitCode {
   };
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind,
     scope: task.namespace.clone(),
     detail: serde_json::json!({ "id": full, "note": note }),
@@ -276,6 +278,7 @@ pub(crate) fn task_grade_cmd(id: &str, rest: &[&str]) -> ExitCode {
     };
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: kumbarium_audit::EventKind::TaskUpdate,
     scope: task.namespace.clone(),
     detail: serde_json::json!({
@@ -648,6 +651,7 @@ pub(crate) fn move_task_cmd(
     };
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: kumbarium_audit::EventKind::TaskUpdate,
     scope: namespace.to_string(),
     detail: serde_json::json!({

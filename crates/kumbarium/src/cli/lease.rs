@@ -158,6 +158,7 @@ pub(crate) fn lease_break_cmd(id: &str) -> ExitCode {
   };
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: kumbarium_audit::EventKind::LeaseBreak,
     scope: broken.namespace.clone(),
     detail: serde_json::json!({

@@ -63,6 +63,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     "0006_lease_kinds",
     include_str!("../migrations/0006_lease_kinds.sql"),
   ),
+  (
+    7,
+    "0007_sessions_rechain",
+    include_str!("../migrations/0007_sessions_rechain.sql"),
+  ),
 ];
 
 /// The version pre-squash ledgers sit at: their schema is
@@ -155,6 +160,9 @@ impl EventKind {
 #[derive(Debug, Clone)]
 pub struct Event {
   pub agent_id: String,
+  /// Minted per serve process (D-044/D-045): agents are
+  /// claimed, sessions are minted. Hashed like every field.
+  pub session_id: String,
   pub kind: EventKind,
   pub scope: String,
   pub detail: serde_json::Value,
@@ -207,17 +215,20 @@ fn append_locked(
     &id,
     &at,
     &event.agent_id,
+    &event.session_id,
     event.kind.as_str(),
     &event.scope,
     &detail,
   );
   conn.execute(
-    "INSERT INTO events (id, at, agent_id, kind, scope, detail, hash)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    "INSERT INTO events
+       (id, at, agent_id, session_id, kind, scope, detail, hash)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     rusqlite::params![
       id,
       at,
       event.agent_id,
+      event.session_id,
       event.kind.as_str(),
       event.scope,
       detail,
@@ -246,17 +257,19 @@ fn head_hash(conn: &Connection) -> Result<String, AuditError> {
 /// The canonical hash of one event given its predecessor's hash.
 /// Every field is length-prefixed, so no delimiter inside any
 /// field can forge a boundary.
+#[allow(clippy::too_many_arguments)]
 fn event_hash(
   prev: &str,
   id: &str,
   at: &str,
   agent_id: &str,
+  session_id: &str,
   kind: &str,
   scope: &str,
   detail: &str,
 ) -> String {
   let mut input = Vec::new();
-  for field in [prev, id, at, agent_id, kind, scope, detail] {
+  for field in [prev, id, at, agent_id, session_id, kind, scope, detail] {
     input.extend_from_slice(field.len().to_string().as_bytes());
     input.push(b':');
     input.extend_from_slice(field.as_bytes());
@@ -278,9 +291,10 @@ pub fn backfill_chain(conn: &Connection) -> Result<(), AuditError> {
   }
   conn.execute_batch("BEGIN IMMEDIATE")?;
   let result = (|| -> Result<(), AuditError> {
-    let rows: Vec<(String, String, String, String, String, String)> = {
+    type Row = (String, String, String, String, String, String, String);
+    let rows: Vec<Row> = {
       let mut stmt = conn.prepare(
-        "SELECT id, at, agent_id, kind, scope, detail
+        "SELECT id, at, agent_id, session_id, kind, scope, detail
          FROM events ORDER BY id ASC",
       )?;
       stmt
@@ -292,13 +306,23 @@ pub fn backfill_chain(conn: &Connection) -> Result<(), AuditError> {
             row.get(3)?,
             row.get(4)?,
             row.get(5)?,
+            row.get(6)?,
           ))
         })?
         .collect::<Result<Vec<_>, _>>()?
     };
     let mut prev = String::new();
-    for (id, at, agent_id, kind, scope, detail) in rows {
-      let hash = event_hash(&prev, &id, &at, &agent_id, &kind, &scope, &detail);
+    for (id, at, agent_id, session_id, kind, scope, detail) in rows {
+      let hash = event_hash(
+        &prev,
+        &id,
+        &at,
+        &agent_id,
+        &session_id,
+        &kind,
+        &scope,
+        &detail,
+      );
       conn.execute(
         "UPDATE events SET hash = ?1 WHERE id = ?2",
         rusqlite::params![hash, id],
@@ -319,28 +343,40 @@ pub fn backfill_chain(conn: &Connection) -> Result<(), AuditError> {
 /// Recompute the whole chain and compare: anyone holding the file
 /// can prove the ledger unaltered, or name the first broken link.
 pub fn verify_chain(conn: &Connection) -> Result<ChainStatus, AuditError> {
+  type Row = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+  );
   let mut stmt = conn.prepare(
-    "SELECT id, at, agent_id, kind, scope, detail,
+    "SELECT id, at, agent_id, session_id, kind, scope, detail,
             COALESCE(hash, '') FROM events ORDER BY id ASC",
   )?;
-  let rows = stmt
+  let rows: Vec<Row> = stmt
     .query_map([], |row| {
       Ok((
-        row.get::<_, String>(0)?,
-        row.get::<_, String>(1)?,
-        row.get::<_, String>(2)?,
-        row.get::<_, String>(3)?,
-        row.get::<_, String>(4)?,
-        row.get::<_, String>(5)?,
-        row.get::<_, String>(6)?,
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
       ))
     })?
     .collect::<Result<Vec<_>, _>>()?;
   let mut prev = String::new();
-  for (index, (id, at, agent_id, kind, scope, detail, stored)) in
+  for (index, (id, at, agent_id, session_id, kind, scope, detail, stored)) in
     rows.iter().enumerate()
   {
-    let expected = event_hash(&prev, id, at, agent_id, kind, scope, detail);
+    let expected =
+      event_hash(&prev, id, at, agent_id, session_id, kind, scope, detail);
     if *stored != expected {
       return Ok(ChainStatus::Broken {
         index: index + 1,
@@ -352,7 +388,7 @@ pub fn verify_chain(conn: &Connection) -> Result<ChainStatus, AuditError> {
   }
   Ok(ChainStatus::Intact {
     events: rows.len(),
-    head: rows.last().map(|r| r.6.clone()),
+    head: rows.last().map(|r| r.7.clone()),
   })
 }
 
@@ -438,6 +474,7 @@ mod tests {
   fn event(kind: EventKind) -> Event {
     Event {
       agent_id: "test-agent".into(),
+      session_id: "test-session".into(),
       kind,
       scope: "project/demo".into(),
       detail: serde_json::json!({ "query": "commit style" }),
@@ -557,6 +594,27 @@ mod tests {
       .unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
     assert_eq!(parsed["query"], "commit style");
+  }
+
+  #[test]
+  fn rewriting_session_attribution_breaks_the_chain() {
+    // D-045's point: who-acted (and from which session) is
+    // inside the hash, so attribution cannot be quietly
+    // reassigned.
+    let conn = open_in_memory().unwrap();
+    append(&conn, &event(EventKind::Remember)).unwrap();
+    append(&conn, &event(EventKind::Recall)).unwrap();
+    conn
+      .execute(
+        "UPDATE events SET session_id = 'someone-else'
+         WHERE kind = 'remember'",
+        [],
+      )
+      .unwrap();
+    match verify_chain(&conn).unwrap() {
+      ChainStatus::Broken { index, .. } => assert_eq!(index, 1),
+      other => panic!("chain should break, got {other:?}"),
+    }
   }
 }
 

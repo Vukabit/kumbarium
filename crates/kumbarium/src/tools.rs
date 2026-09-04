@@ -1507,6 +1507,7 @@ fn audit(
 ) -> Result<(), String> {
   let event = kumbarium_audit::Event {
     agent_id: state.agent_id.clone(),
+    session_id: state.session_id.clone(),
     kind,
     scope: scope.to_string(),
     detail,

@@ -20,7 +20,11 @@ CREATE TABLE events_new (
   hash TEXT
 );
 
-INSERT INTO events_new SELECT * FROM events;
+-- Explicit columns, not SELECT *: these rebuilds must stay
+-- correct if ever re-applied after a later migration widened
+-- the table (the legacy-collapse path does exactly that).
+INSERT INTO events_new (id, at, agent_id, kind, scope, detail, hash)
+  SELECT id, at, agent_id, kind, scope, detail, hash FROM events;
 DROP TABLE events;
 ALTER TABLE events_new RENAME TO events;
 

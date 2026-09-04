@@ -461,6 +461,7 @@ mod tests {
       id: kumbarium_util::generate_id(),
       at: at.to_string(),
       agent_id: agent.to_string(),
+      session_id: String::new(),
       kind: kind.to_string(),
       scope: String::new(),
       detail: detail.to_string(),

@@ -190,7 +190,7 @@ the binder and the dossier:
                                       open matters, the stacks
   kumbarium dossier <agent>           one agent's witnessed
        [--since D] [--until D]        story: served, wrote,
-                                      judged, credentials, the
+       [--session FRAG]               judged, credentials, the
                                       chronological record
 
 the reading room:

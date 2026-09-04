@@ -265,6 +265,7 @@ pub(crate) fn import_bundle_cmd(file: &str, as_pending: bool) -> ExitCode {
   };
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: kumbarium_audit::EventKind::Import,
     scope: summary.scope.clone(),
     detail: serde_json::json!({

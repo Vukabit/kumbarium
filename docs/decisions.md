@@ -675,3 +675,26 @@ token drops into this same field. The seam this opens is
 named: session ids on the ledger at large (per-session
 dossiers, the transcripts vault's correlation key) is its own
 future decision, filed on the docket, not smuggled in here.
+
+## D-045: the session joins the chain, through the open door
+(2026-09-04)
+
+The minted session id (D-044) is stamped on EVERY ledger event
+and HASHED like every other field, one recipe for the whole
+chain: who acted, and from which incarnation, is now
+tamper-evident, and the dossier gains its per-session lens
+(--session). The recipe change walked through the
+PRE-ADOPTION DOOR: with zero external ledgers to keep
+compatible, migration 0007 adds the column and nulls every
+hash, and the standing backfill machinery re-chains the entire
+ledger under the new recipe on next open; historical rows
+carry the empty session. The honest cost, chosen not
+discovered: pre-migration head hashes stop being reproducible,
+and tamper-evidence for that history rests on the migration
+code in this repo. The door is hereby CLOSED: from the first
+external ledger onward (v1.0), a recipe change means a
+hash-version marker per event (the sealed-envelope precedent,
+D-039), never a re-chain. Rebuild migrations also switched
+from SELECT * to explicit column lists so the legacy-collapse
+path stays correct against a widened table; identical behavior
+on every table they could legitimately run against.

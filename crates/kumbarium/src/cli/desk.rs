@@ -168,6 +168,7 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
     .collect();
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: kumbarium_audit::EventKind::Janitor,
     scope: String::new(),
     detail: serde_json::json!({
@@ -540,6 +541,7 @@ pub(crate) fn judge_cmd(
   }
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: if approving {
       kumbarium_audit::EventKind::Approve
     } else {
@@ -608,6 +610,7 @@ fn judge_task(
   }
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: if approving {
       kumbarium_audit::EventKind::Approve
     } else {

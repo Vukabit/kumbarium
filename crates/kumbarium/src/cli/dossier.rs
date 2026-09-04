@@ -56,8 +56,16 @@ fn valid_date(date: &str) -> Result<(), String> {
 pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
   let mut since: Option<String> = None;
   let mut until: Option<String> = None;
+  let mut session: Option<String> = None;
   let mut it = rest.iter();
   while let Some(flag) = it.next() {
+    if *flag == "--session" {
+      match it.next() {
+        Some(frag) => session = Some((*frag).to_string()),
+        None => return fail("--session needs an id fragment"),
+      }
+      continue;
+    }
     let slot = match *flag {
       "--since" => &mut since,
       "--until" => &mut until,
@@ -102,9 +110,18 @@ pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
   };
   let mut t = Tally::default();
   let mut record: Vec<&kumbarium_audit::StoredEvent> = Vec::new();
+  let mut sessions: BTreeSet<String> = BTreeSet::new();
   for ev in &events {
     if !within(&ev.at, since.as_deref(), until.as_deref()) {
       continue;
+    }
+    if let Some(frag) = &session
+      && !ev.session_id.contains(frag.as_str())
+    {
+      continue;
+    }
+    if ev.agent_id == agent && !ev.session_id.is_empty() {
+      sessions.insert(ev.session_id.clone());
     }
     let detail: serde_json::Value =
       serde_json::from_str(&ev.detail).unwrap_or_default();
@@ -212,16 +229,33 @@ pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
     }
   }
 
-  let window = match (&since, &until) {
+  let mut window = match (&since, &until) {
     (None, None) => "all time".to_string(),
     (Some(s), None) => format!("since {s}"),
     (None, Some(u)) => format!("through {u}"),
     (Some(s), Some(u)) => format!("{s} through {u}"),
   };
+  if let Some(frag) = &session {
+    window.push_str(&format!(", session ~{frag}"));
+  }
   println!("{}", sty.bold(&format!("the dossier: {agent}")));
   println!("{}", sty.dim(&format!("window: {window}")));
   println!("{}", sty.dim(&verified));
 
+  if !sessions.is_empty() {
+    let shorts: Vec<&str> = sessions
+      .iter()
+      .map(|s| s.get(s.len().saturating_sub(8)..).unwrap_or(s))
+      .collect();
+    println!(
+      "{}",
+      sty.dim(&format!(
+        "{} minted session(s): {} (narrow with --session <frag>)",
+        sessions.len(),
+        shorts.join(", ")
+      ))
+    );
+  }
   println!("\n{}", sty.bold("what it was served"));
   println!(
     "  {} across {} ({} distinct entries)",

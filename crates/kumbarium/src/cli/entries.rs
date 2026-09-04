@@ -250,6 +250,7 @@ pub(crate) fn retire_cmd(id: &str, retiring: bool) -> ExitCode {
   };
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind,
     scope: entry.namespace.clone(),
     detail: serde_json::json!({ "id": full }),
@@ -466,6 +467,7 @@ pub(crate) fn revert_cmd(id: &str, apply: bool) -> ExitCode {
   };
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: kumbarium_audit::EventKind::Supersede,
     scope: target.namespace.clone(),
     detail: serde_json::json!({
@@ -673,6 +675,7 @@ pub(crate) fn move_cmd(id: &str, namespace: &str) -> ExitCode {
   };
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: kumbarium_audit::EventKind::Supersede,
     scope: namespace.to_string(),
     detail: serde_json::json!({
@@ -714,6 +717,7 @@ pub(crate) fn confirm_cmd(id: &str) -> ExitCode {
     .unwrap_or_default();
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: kumbarium_audit::EventKind::Confirm,
     scope,
     detail: serde_json::json!({ "id": full }),

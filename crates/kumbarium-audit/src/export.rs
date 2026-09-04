@@ -13,6 +13,7 @@ pub struct StoredEvent {
   pub id: String,
   pub at: String,
   pub agent_id: String,
+  pub session_id: String,
   pub kind: String,
   pub scope: String,
   pub detail: String,
@@ -27,11 +28,13 @@ pub fn tail(
 ) -> Result<Vec<StoredEvent>, AuditError> {
   let mut stmt = match scope {
     Some(_) => conn.prepare(
-      "SELECT id, at, agent_id, kind, scope, detail FROM events
+      "SELECT id, at, agent_id, session_id, kind, scope, detail
+       FROM events
        WHERE scope = ?1 ORDER BY at DESC, id DESC LIMIT ?2",
     )?,
     None => conn.prepare(
-      "SELECT id, at, agent_id, kind, scope, detail FROM events
+      "SELECT id, at, agent_id, session_id, kind, scope, detail
+       FROM events
        ORDER BY at DESC, id DESC LIMIT ?1",
     )?,
   };
@@ -40,9 +43,10 @@ pub fn tail(
       id: row.get(0)?,
       at: row.get(1)?,
       agent_id: row.get(2)?,
-      kind: row.get(3)?,
-      scope: row.get(4)?,
-      detail: row.get(5)?,
+      session_id: row.get(3)?,
+      kind: row.get(4)?,
+      scope: row.get(5)?,
+      detail: row.get(6)?,
     })
   };
   let rows = match scope {
@@ -75,7 +79,8 @@ pub fn summary(conn: &Connection) -> Result<(i64, Option<String>), AuditError> {
 pub fn events_asc(conn: &Connection) -> Result<Vec<StoredEvent>, AuditError> {
   query(
     conn,
-    "SELECT id, at, agent_id, kind, scope, detail FROM events
+    "SELECT id, at, agent_id, session_id, kind, scope, detail
+       FROM events
      ORDER BY at ASC, id ASC",
     None,
   )
@@ -92,9 +97,10 @@ fn query(
       id: row.get(0)?,
       at: row.get(1)?,
       agent_id: row.get(2)?,
-      kind: row.get(3)?,
-      scope: row.get(4)?,
-      detail: row.get(5)?,
+      session_id: row.get(3)?,
+      kind: row.get(4)?,
+      scope: row.get(5)?,
+      detail: row.get(6)?,
     })
   };
   let rows = match limit {
@@ -373,6 +379,7 @@ mod tests {
         &conn,
         &Event {
           agent_id: "test-agent".into(),
+          session_id: "test-session".into(),
           kind,
           scope: "project/demo".into(),
           detail: serde_json::json!({ "n": 1 }),

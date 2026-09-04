@@ -272,9 +272,10 @@ when, what, in which scope. `tail` shows the most recent n
 rendering localizes.
 
 The ledger is HASH-CHAINED (D-029): each event stores
-sha256(previous hash + its own fields), so `verify` recomputes
-the whole chain and either confirms it intact (event count +
-head hash) or names the first broken link. Tamper-evidence is
+sha256(previous hash + its own fields, the minted session id
+included, D-045), so `verify` recomputes the whole chain and
+either confirms it intact (event count + head hash) or names
+the first broken link. Tamper-evidence is
 math anyone holding the file can check, not a promise.
 
 ```
@@ -587,6 +588,7 @@ const PAGE_DOSSIER: &str = "\
 
 ```
 kum dossier <agent> [--since YYYY-MM-DD] [--until YYYY-MM-DD]
+                    [--session <fragment>]
 ```
 
 The deterministic postmortem, and the binder's sibling on the
@@ -600,7 +602,11 @@ chronological record itself.
 
 The hash chain is verified first and the verdict printed at
 the top: a dossier states its own trustworthiness before
-stating anything else. The estate figures deliberately outlive
+stating anything else. Events carry the librarian-MINTED
+session id, hashed like every field (D-045), so `--session`
+narrows the story to one incarnation of the agent and the
+attribution cannot be quietly reassigned; the page lists the
+sessions it saw. The estate figures deliberately outlive
 the window (a write from last month corrected yesterday is
 exactly what a postmortem wants to see); the record respects
 it.

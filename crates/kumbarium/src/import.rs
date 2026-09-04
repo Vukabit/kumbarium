@@ -168,6 +168,7 @@ pub fn run(
 
   let event = kumbarium_audit::Event {
     agent_id: AGENT_ID.into(),
+    session_id: state.session_id.clone(),
     kind: kumbarium_audit::EventKind::Import,
     scope: "global".into(),
     detail: json!({

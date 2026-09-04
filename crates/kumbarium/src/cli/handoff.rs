@@ -76,6 +76,7 @@ pub(crate) fn handoff_cmd(ns: &str, rest: &[&str]) -> ExitCode {
   };
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: kumbarium_audit::EventKind::HandoffWrite,
     scope: ns.clone(),
     detail: serde_json::json!({ "id": h.id }),
@@ -279,6 +280,7 @@ pub(crate) fn judge_handoff(
   }
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind: if approving {
       kumbarium_audit::EventKind::Approve
     } else {

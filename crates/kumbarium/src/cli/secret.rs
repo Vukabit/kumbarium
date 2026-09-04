@@ -236,6 +236,7 @@ fn witness(
 ) -> Result<(), String> {
   let event = kumbarium_audit::Event {
     agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
     kind,
     scope: scope.into(),
     detail,
