@@ -871,4 +871,20 @@ mod tests {
       .unwrap();
     assert_eq!((takes, releases), (2, 1));
   }
+
+  #[test]
+  fn serve_manual_page_names_every_tool() {
+    // The doc-drift gate: a tool added to tools/list without a
+    // mention in `kum help serve` fails here, not in a reader's
+    // hands three features later.
+    let page = super::super::help::page("serve").unwrap();
+    let listed = tools::list();
+    for tool in listed["tools"].as_array().unwrap() {
+      let name = tool["name"].as_str().unwrap();
+      assert!(
+        page.contains(name),
+        "help serve page is missing tool {name:?}"
+      );
+    }
+  }
 }
