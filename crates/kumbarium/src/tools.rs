@@ -14,6 +14,11 @@ pub struct ServerState {
   pub library: kumbarium_store::Connection,
   pub audit: kumbarium_store::Connection,
   pub agent_id: String,
+  /// Minted by the librarian, one per serve process (D-044):
+  /// sessions are minted, agents are claimed. Two sessions of
+  /// the same agent name are different holders in the reading
+  /// room.
+  pub session_id: String,
   pub cfg: Config,
   /// The docket shelf, opened lazily: the file does not exist
   /// until the section is first used (D-033).
@@ -101,6 +106,7 @@ impl ServerState {
       library: kumbarium_store::open_in_memory().unwrap(),
       audit: kumbarium_audit::open_in_memory().unwrap(),
       agent_id: "unknown-agent".into(),
+      session_id: kumbarium_util::generate_id(),
       cfg: Config::default(),
       docket: None,
       docket_path: std::path::PathBuf::new(),
@@ -465,8 +471,17 @@ pub fn call(
     let now = kumbarium_util::now_ms();
     let ttl = state.cfg.leases_ttl_minutes;
     let agent = state.agent_id.clone();
+    let session = state.session_id.clone();
     if let Ok(conn) = state.leases() {
-      let _ = kumbarium_leases::renew_for_agent(conn, &agent, now, ttl);
+      let _ = kumbarium_leases::renew_for_session(
+        conn,
+        kumbarium_leases::Holder {
+          agent_id: &agent,
+          session_id: &session,
+        },
+        now,
+        ttl,
+      );
     }
   }
   match result {
@@ -773,7 +788,8 @@ fn recall(
           cards.append(&mut v);
         }
       }
-      cards.retain(|l| l.agent_id != me);
+      let my_session = state.session_id.clone();
+      cards.retain(|l| !(l.agent_id == me && l.session_id == my_session));
       if !cards.is_empty() {
         leases_served = cards.len();
         let mut block = format!(
@@ -781,9 +797,18 @@ fn recall(
            coordinate, avoid collisions):"
         );
         for l in &cards {
+          let same = if l.agent_id == me {
+            " [another session of you]"
+          } else {
+            ""
+          };
           block.push_str(&format!(
-            "\n- {} holds {}/{} (since {})",
-            l.agent_id, l.namespace, l.resource, l.taken_at
+            "\n- {} (session {}){same} holds {}/{} (since {})",
+            l.agent_id,
+            kumbarium_leases::short_id(&l.session_id),
+            l.namespace,
+            l.resource,
+            l.taken_at
           ));
         }
         block.push_str("\n---");
@@ -1017,10 +1042,22 @@ fn lease_take(
   let now = kumbarium_util::now_ms();
   let ttl = state.cfg.leases_ttl_minutes;
   let agent = state.agent_id.clone();
+  let session = state.session_id.clone();
   let (card, others) = {
     let conn = state.leases()?;
-    kumbarium_leases::take(conn, &namespace, &resource, &agent, note, now, ttl)
-      .map_err(|e| e.to_string())?
+    kumbarium_leases::take(
+      conn,
+      &namespace,
+      &resource,
+      kumbarium_leases::Holder {
+        agent_id: &agent,
+        session_id: &session,
+      },
+      note,
+      now,
+      ttl,
+    )
+    .map_err(|e| e.to_string())?
   };
   audit(
     state,
@@ -1041,9 +1078,15 @@ fn lease_take(
     let mut warn =
       String::from("WARNING: you are not alone at this table. Also held by:");
     for l in &others {
+      let same = if l.agent_id == agent {
+        " [ANOTHER SESSION OF YOU]"
+      } else {
+        ""
+      };
       warn.push_str(&format!(
-        "\n- {} (since {}{})",
+        "\n- {} (session {}){same} since {}{}",
         l.agent_id,
+        kumbarium_leases::short_id(&l.session_id),
         l.taken_at,
         l.note
           .as_deref()
@@ -1072,10 +1115,21 @@ fn lease_release(
   let now = kumbarium_util::now_ms();
   let ttl = state.cfg.leases_ttl_minutes;
   let agent = state.agent_id.clone();
+  let session = state.session_id.clone();
   let card = {
     let conn = state.leases()?;
-    kumbarium_leases::release(conn, &namespace, &resource, &agent, now, ttl)
-      .map_err(|e| e.to_string())?
+    kumbarium_leases::release(
+      conn,
+      &namespace,
+      &resource,
+      kumbarium_leases::Holder {
+        agent_id: &agent,
+        session_id: &session,
+      },
+      now,
+      ttl,
+    )
+    .map_err(|e| e.to_string())?
   };
   audit(
     state,

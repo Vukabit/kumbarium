@@ -43,10 +43,20 @@ where, visible to everyone who walks in.
 `library/leases.db` per D-033: lazy file, per-shelf backups,
 namespace stored as the validated path. One table:
 
-- leases: id (UUIDv7), namespace, resource, agent_id, note,
-  taken_at, renewed_at, released_at (NULL = standing),
-  created_at. ACTIVE means released_at IS NULL and now is
-  within ttl of renewed_at; expiry is computed at read time
+- leases: id (UUIDv7), namespace, resource, agent_id,
+  session_id, note, taken_at, renewed_at, released_at (NULL =
+  standing), created_at. SESSIONS ARE MINTED, AGENTS ARE
+  CLAIMED (D-044): the librarian mints a session id per serve
+  process at initialize, and a holder is (agent, session), so
+  two sessions of the SAME agent name are different holders
+  and warn each other, which is the room's primary case
+  (self-reported names alone made same-name sessions invisible
+  to each other, and shared-name activity would have kept
+  zombie cards alive forever). Activity renews per session,
+  never per name. A minted id disambiguates, it does not
+  authenticate: spoofing stays the daemon rung's problem.
+  ACTIVE means released_at IS NULL and now is within ttl of
+  renewed_at; expiry is computed at read time
   from config, never stored, so a config change re-prices the
   room instantly and there is no reaper to schedule.
 

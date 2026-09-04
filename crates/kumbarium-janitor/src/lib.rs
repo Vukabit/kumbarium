@@ -120,6 +120,7 @@ pub struct StaleLease {
   pub namespace: String,
   pub resource: String,
   pub agent_id: String,
+  pub session_id: String,
   pub last_active: String,
 }
 

@@ -98,8 +98,12 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
     );
     for l in &report.stale_leases {
       println!(
-        "  {} held {}/{} (last active {})",
-        l.agent_id, l.namespace, l.resource, l.last_active
+        "  {} (session {}) held {}/{} (last active {})",
+        l.agent_id,
+        kumbarium_leases::short_id(&l.session_id),
+        l.namespace,
+        l.resource,
+        l.last_active
       );
     }
   }
@@ -223,6 +227,7 @@ fn gather_shelves(
         namespace: l.namespace,
         resource: l.resource,
         agent_id: l.agent_id,
+        session_id: l.session_id,
         last_active: l.renewed_at,
       });
     }

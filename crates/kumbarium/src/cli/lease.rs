@@ -88,10 +88,17 @@ pub(crate) fn leases_cmd(ns: Option<&str>) -> ExitCode {
         .map(|n| format!("  ({n})"))
         .unwrap_or_default();
       let lines = hang(body_col(COLS), &format!("{}{}", l.resource, note));
+      let holder = format!(
+        "{} ({})",
+        l.agent_id,
+        l.session_id
+          .get(l.session_id.len().saturating_sub(4)..)
+          .unwrap_or("?")
+      );
       println!(
         "{} {} {} {} {}",
         sty.id(&cell(COLS, 0, kumbarium_leases::short_id(&l.id))),
-        cell(COLS, 1, &l.agent_id),
+        cell(COLS, 1, &holder),
         cell(COLS, 2, &l.namespace),
         sty.dim(&cell(COLS, 3, &local_display(&l.taken_at))),
         lines[0]
@@ -110,10 +117,17 @@ pub(crate) fn leases_cmd(ns: Option<&str>) -> ExitCode {
       )
     );
     for l in &stale {
+      let holder = format!(
+        "{} ({})",
+        l.agent_id,
+        l.session_id
+          .get(l.session_id.len().saturating_sub(4)..)
+          .unwrap_or("?")
+      );
       println!(
         "  {} {} {}/{} (last active {})",
         sty.id(&cell(COLS, 0, kumbarium_leases::short_id(&l.id))),
-        cell(COLS, 1, &l.agent_id),
+        cell(COLS, 1, &holder),
         l.namespace,
         l.resource,
         local_display(&l.renewed_at)

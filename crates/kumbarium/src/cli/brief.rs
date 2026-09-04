@@ -261,8 +261,9 @@ pub(crate) fn brief_cmd(ns: &str) -> ExitCode {
       println!("\n{}", sty.bold("the reading room (agents at work)"));
       for l in &cards {
         println!(
-          "  {} holds {}/{} (since {})",
+          "  {} (session {}) holds {}/{} (since {})",
           l.agent_id,
+          kumbarium_leases::short_id(&l.session_id),
           l.namespace,
           l.resource,
           local_display(&l.taken_at)

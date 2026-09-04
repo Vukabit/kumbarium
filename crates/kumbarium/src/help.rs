@@ -504,6 +504,12 @@ never stored or fired. Expired-but-unreleased cards (the
 crashed-agent shape) show under `kum leases` and in the
 janitor's findings; `kum lease break` clears one, witnessed
 with the holder named.
+
+A holder is (agent, SESSION): the librarian mints a session id
+per serve process (D-044), so two sessions of the same agent
+name warn each other ([ANOTHER SESSION OF YOU]) instead of
+silently sharing one card. Minted ids disambiguate; they do
+not authenticate.
 ";
 
 const PAGE_BRIEF: &str = "\

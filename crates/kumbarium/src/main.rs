@@ -273,6 +273,7 @@ pub(crate) fn open_stores() -> Result<Stores, String> {
     library,
     audit,
     agent_id: "unknown-agent".into(),
+    session_id: kumbarium_util::generate_id(),
     cfg,
     docket: None,
     docket_path: p.docket_db.clone(),

@@ -652,3 +652,26 @@ expired-but-unreleased cards (the crashed-agent shape); the
 human clears one with kum lease break, witnessed with the
 holder named. Released and broken cards keep their rows: the
 drawer, not the bin.
+
+## D-044: sessions are minted, agents are claimed (2026-09-04)
+
+The reading room exposed the identity model's missing leg on
+its first day: an agent NAME is claimed at initialize
+(self-reported, D-038's honesty), so two sessions of the same
+agent, the room's primary collision case, looked like ONE
+holder: the second take silently renewed the first session's
+card, no warning ever, and any same-name activity kept zombie
+cards alive. The fix is an id nobody claims: the librarian
+MINTS a session id (UUIDv7) per serve process, which is honest
+because one serve process is one session, and a holder becomes
+(agent, session). Same agent, different session: warned, with
+the register and the room saying [ANOTHER SESSION OF YOU] out
+loud. Activity renews per session, so an abandoned session's
+card goes stale on schedule while its twin stays busy. The
+minted id DISAMBIGUATES, it does not AUTHENTICATE: a malicious
+client still claims any agent name, and that stays the daemon
+rung's problem; when authn arrives, the authenticated session
+token drops into this same field. The seam this opens is
+named: session ids on the ledger at large (per-session
+dossiers, the transcripts vault's correlation key) is its own
+future decision, filed on the docket, not smuggled in here.
