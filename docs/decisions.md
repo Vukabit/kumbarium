@@ -604,3 +604,24 @@ through the D-037 channel (briefing and urgent matters riding
 the first recall), so a brief tool would be a second door to
 the same room; a person can still paste the page into a fresh
 context, which is the binder earning its name.
+
+## D-042: the dossier reads the other axis (2026-09-03)
+
+`kum dossier <agent> [--since] [--until]` is the deterministic
+postmortem: what one agent was served (recalls, briefings,
+matters), what it wrote and how those writes fared (live,
+pending, rejected, revised by itself, corrected by OTHERS: the
+survival fact stated as counts, never a score, the metric-
+theater trap stays sprung), what the desk judged of its
+submissions, every credential it read or was REFUSED, and the
+chronological record. The binder and the dossier are the two
+axes of reading the witness: scope-wise and agent-wise. Same
+stances as D-041: a rendering, not a record; nothing written,
+nothing witnessed. Two of its own: the HASH CHAIN IS VERIFIED
+FIRST and the verdict printed at the top, because a postmortem
+that cannot vouch for its source must say so before saying
+anything else; and the estate figures deliberately OUTLIVE the
+window (a write from last month corrected yesterday is exactly
+what a postmortem wants to see) while the record respects it.
+This is the compliance packet's seed: who acted, under what
+authority, with the math that nobody edited the story after.

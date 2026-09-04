@@ -184,10 +184,14 @@ the docket:
   kumbarium task history <id>         a matter's chain: every
                                       regrade and goal slip
 
-the binder:
+the binder and the dossier:
   kumbarium brief <ns>                the day-one page: charter,
                                       standing facts, briefing,
                                       open matters, the stacks
+  kumbarium dossier <agent>           one agent's witnessed
+       [--since D] [--until D]        story: served, wrote,
+                                      judged, credentials, the
+                                      chronological record
 
 handoffs, the standing briefings:
   kumbarium handoff <ns> <note...>    leave the briefing for

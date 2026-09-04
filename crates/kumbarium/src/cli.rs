@@ -8,6 +8,7 @@ pub(crate) mod brief;
 pub(crate) mod desk;
 pub(crate) mod dock;
 pub(crate) mod docket;
+pub(crate) mod dossier;
 pub(crate) mod entries;
 pub(crate) mod handoff;
 pub(crate) mod secret;

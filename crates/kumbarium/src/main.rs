@@ -21,6 +21,7 @@ use cli::brief::*;
 use cli::desk::*;
 use cli::dock::*;
 use cli::docket::*;
+use cli::dossier::*;
 use cli::entries::*;
 use cli::handoff::*;
 use cli::secret::*;
@@ -110,6 +111,8 @@ pub fn run() -> ExitCode {
     ["handoff", ns, rest @ ..] => handoff_cmd(ns, rest),
     ["handoff"] | ["handoffs"] => handoffs_cmd(),
     ["brief", ns] => brief_cmd(ns),
+    ["dossier", agent, rest @ ..] => dossier_cmd(agent, rest),
+    ["dossier"] => fail("dossier needs an agent: kumbarium dossier <agent>"),
     ["brief"] => fail("brief needs a scope: kumbarium brief <ns>"),
     ["secret", rest @ ..] => secret_cmd(rest),
     ["secrets"] => secrets_cmd(None),

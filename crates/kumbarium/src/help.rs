@@ -6,7 +6,7 @@
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
 instructions status grep move janitor approvals export docket \
-alias handoff secrets brief";
+alias handoff secrets brief dossier";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -34,6 +34,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "handoff" | "handoffs" => PAGE_HANDOFF,
     "secret" | "secrets" => PAGE_SECRETS,
     "brief" | "binder" => PAGE_BRIEF,
+    "dossier" => PAGE_DOSSIER,
     _ => return None,
   })
 }
@@ -498,6 +499,35 @@ Ranking here does not violate confidence-never-ranks: recall
 stays bm25-only. The binder is a briefing surface, and stating
 which facts have survived circulation is exactly what
 confidence is FOR.
+";
+
+const PAGE_DOSSIER: &str = "\
+## dossier: one agent's witnessed story
+
+```
+kum dossier <agent> [--since YYYY-MM-DD] [--until YYYY-MM-DD]
+```
+
+The deterministic postmortem, and the binder's sibling on the
+other axis: the binder reads a SCOPE, the dossier reads an
+AGENT. From the ledger and the shelves it renders what the
+agent was served (recalls, briefings, matters), what it wrote
+and how those writes fared (live, pending, rejected, revised
+by itself, corrected by OTHERS: the survival fact), what the
+desk judged, every credential it read or was REFUSED, and the
+chronological record itself.
+
+The hash chain is verified first and the verdict printed at
+the top: a dossier states its own trustworthiness before
+stating anything else. The estate figures deliberately outlive
+the window (a write from last month corrected yesterday is
+exactly what a postmortem wants to see); the record respects
+it.
+
+Like the binder it is a rendering, not a record: nothing
+written, not witnessed. This is the seed of the compliance
+packet: who acted, under what authority, with the math to
+prove nobody edited the story afterward.
 ";
 
 const PAGE_ALIAS: &str = "\
