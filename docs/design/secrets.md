@@ -170,7 +170,14 @@ Two different things, deliberately separated:
   D-037's creep machinery already interrupts sessions for
   overdue goals. The broker knows the date; the docket does
   the reminding; the janitor gains an "expired credential
-  still stocked" finding in v2.
+  still stocked" finding in v2. The composition is automatic:
+  `set --expires` files the rotation matter itself, keyed by
+  the mechanical source `secret:<ns>/<name>` so each secret
+  holds at most one open matter (a moved expiry re-grades the
+  goal, and the regrade chains, so goal history is expiry
+  history). The broker never CLOSES a matter: rotation and
+  shred print a pointer to the open matter, and done-or-drop
+  stays a human judgment, like everywhere on the docket.
 
 ## Transport, and the network gate inked in advance
 

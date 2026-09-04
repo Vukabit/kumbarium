@@ -424,9 +424,11 @@ lease ends at read time with nothing cached to outlive it, and
 the grant dies at the end of that day (UTC). VALUE EXPIRY
 (`--expires DATE`) is metadata: the credential expires
 UPSTREAM, the broker records and surfaces the date (the
-listing marks EXPIRED), and never blocks a read. File the
-rotation matter on the docket with that goal date and the
-creep machinery does the reminding.
+listing marks EXPIRED), and never blocks a read. Setting it
+files a rotation matter on the docket automatically (one per
+secret; a moved expiry re-grades its goal), and the creep
+machinery does the reminding. Completing the matter stays
+your call: the broker never closes it.
 
 Witnessed access is the product: every checkout, refusal, and
 grant lands on the hash-chained ledger, so \"who has read the

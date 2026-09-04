@@ -178,6 +178,108 @@ fn witness(
     .map_err(|e| format!("audit append failed: {e}"))
 }
 
+/// The expiry composition (D-038): the broker knows the date,
+/// the docket does the reminding. Exactly one open rotation
+/// matter per secret, keyed by the mechanical source
+/// `secret:<ns>/<name>`: filed on first expiry, its goal
+/// re-graded when the expiry moves. Never closed here;
+/// completion stays a human judgment.
+fn sync_rotation_matter(
+  state: &mut tools::ServerState,
+  ns: &str,
+  name: &str,
+  date: &str,
+) -> Result<String, String> {
+  let source = format!("secret:{ns}/{name}");
+  let existing = {
+    let conn = state.docket()?;
+    kumbarium_docket::tasks_in(conn, Some(&[ns.to_string()]), false)
+      .map_err(|e| e.to_string())?
+      .into_iter()
+      .find(|t| t.source == source)
+  };
+  match existing {
+    Some(t) if t.goal.as_deref() == Some(date) => Ok(format!(
+      "rotation matter {} already watches {date}",
+      kumbarium_docket::short_id(&t.id)
+    )),
+    Some(t) => {
+      let edit = kumbarium_docket::TaskEdit {
+        content: None,
+        severity: None,
+        goal: Some(Some(date.to_string())),
+        namespace: None,
+        note: Some("expiry moved at rotation".into()),
+      };
+      let task = {
+        let conn = state.docket()?;
+        kumbarium_docket::supersede_task(conn, &t.id, &edit, "kumbarium-cli")
+          .map_err(|e| e.to_string())?
+      };
+      witness(
+        state,
+        kumbarium_audit::EventKind::TaskUpdate,
+        ns,
+        serde_json::json!({
+          "old_id": t.id,
+          "new_id": task.id,
+          "severity": task.severity.as_str(),
+          "goal": task.goal,
+          "note": edit.note,
+        }),
+      )?;
+      Ok(format!(
+        "rotation matter re-graded to {date} ({})",
+        kumbarium_docket::short_id(&task.id)
+      ))
+    }
+    None => {
+      let new = kumbarium_docket::NewTask {
+        namespace: ns.to_string(),
+        content: format!("rotate the {name} credential; it expires upstream"),
+        agent_id: "kumbarium-cli".into(),
+        source,
+        severity: kumbarium_docket::Severity::Normal,
+        goal: Some(date.to_string()),
+        status: kumbarium_docket::Status::Live,
+      };
+      let task = {
+        let conn = state.docket()?;
+        kumbarium_docket::file_task(conn, &new).map_err(|e| e.to_string())?
+      };
+      witness(
+        state,
+        kumbarium_audit::EventKind::TaskFile,
+        ns,
+        serde_json::json!({
+          "id": task.id,
+          "severity": task.severity.as_str(),
+          "goal": task.goal,
+        }),
+      )?;
+      Ok(format!(
+        "rotation matter filed on the docket ({}, goal {date}); \
+         creep does the reminding",
+        kumbarium_docket::short_id(&task.id)
+      ))
+    }
+  }
+}
+
+/// The open rotation matter for a secret, if one stands.
+fn open_rotation_matter(
+  state: &mut tools::ServerState,
+  ns: &str,
+  name: &str,
+) -> Option<kumbarium_docket::Task> {
+  let source = format!("secret:{ns}/{name}");
+  let conn = state.docket().ok()?;
+  kumbarium_docket::tasks_in(conn, Some(&[ns.to_string()]), false)
+    .ok()?
+    .into_iter()
+    .find(|t| t.source == source)
+}
+
 /// A calendar day, the same grammar as docket goals.
 fn valid_date(date: &str) -> Result<(), String> {
   let ok = date.len() == 10
@@ -267,12 +369,32 @@ fn set_cmd(ns: &str, name: &str, flags: &[&str]) -> ExitCode {
       sty.id(kumbarium_secrets::short_id(&meta.id))
     );
   }
-  if let Some(date) = &expires {
-    println!(
-      "expiry {date} recorded (metadata; the broker never \
-       enforces it). The docket can do the reminding: kum task \
-       {ns} \"rotate {name}\" --goal {date}"
-    );
+  match &expires {
+    Some(date) => {
+      println!(
+        "expiry {date} recorded (metadata; the broker never \
+         enforces it)"
+      );
+      // The secret is stocked either way: a docket hiccup
+      // warns, never unwinds the set.
+      match sync_rotation_matter(&mut state, &ns, name, date) {
+        Ok(msg) => println!("{msg}"),
+        Err(e) => eprintln!(
+          "kumbarium: expiry recorded, but the docket sync \
+           failed: {e}"
+        ),
+      }
+    }
+    None => {
+      if rotating && let Some(t) = open_rotation_matter(&mut state, &ns, name) {
+        println!(
+          "open rotation matter {} remains; kum task done {} if \
+           this rotation settles it",
+          kumbarium_docket::short_id(&t.id),
+          kumbarium_docket::short_id(&t.id)
+        );
+      }
+    }
   }
   ExitCode::SUCCESS
 }
@@ -563,6 +685,13 @@ fn shred_cmd(ns: &str, name: &str) -> ExitCode {
      record remains",
     sty.id(kumbarium_secrets::short_id(&meta.id))
   );
+  if let Some(t) = open_rotation_matter(&mut state, &ns, name) {
+    println!(
+      "open rotation matter {} remains; kum task done (rotated) \
+       or kum task drop (credential retired) is your call",
+      kumbarium_docket::short_id(&t.id)
+    );
+  }
   ExitCode::SUCCESS
 }
 
@@ -721,6 +850,48 @@ pub(crate) fn show_secret(
     m.namespace, m.name
   );
   Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn rotation_matter_files_once_then_regrades() {
+    let mut state = tools::ServerState::in_memory();
+    let first =
+      sync_rotation_matter(&mut state, "project/x", "api-key", "2026-12-01")
+        .unwrap();
+    assert!(first.contains("filed"), "{first}");
+    let again =
+      sync_rotation_matter(&mut state, "project/x", "api-key", "2026-12-01")
+        .unwrap();
+    assert!(again.contains("already watches"), "{again}");
+    let moved =
+      sync_rotation_matter(&mut state, "project/x", "api-key", "2027-06-01")
+        .unwrap();
+    assert!(moved.contains("re-graded"), "{moved}");
+    // One open matter survives, goal moved, source mechanical.
+    let open = {
+      let conn = state.docket().unwrap();
+      kumbarium_docket::tasks_in(conn, None, false).unwrap()
+    };
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].goal.as_deref(), Some("2027-06-01"));
+    assert_eq!(open[0].source, "secret:project/x/api-key");
+    // Both writes witnessed: one filing, one regrade.
+    let (files, updates): (i64, i64) = state
+      .audit
+      .query_row(
+        "SELECT
+           (SELECT count(*) FROM events WHERE kind = 'task_file'),
+           (SELECT count(*) FROM events WHERE kind = 'task_update')",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+      )
+      .unwrap();
+    assert_eq!((files, updates), (1, 1));
+  }
 }
 
 /// The rotation chain (`kum history` fall-through): who rotated
