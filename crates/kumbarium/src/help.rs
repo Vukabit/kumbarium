@@ -407,15 +407,26 @@ const PAGE_SECRETS: &str = "\
 ```
 kum secret set <ns> <name>      stock or rotate; value from
      [--i-accept-plaintext]     stdin or an echo-off prompt,
-                                never argv
+     [--expires DATE]           never argv
 kum secret read <ns> <name>     print the value
 kum secret copy <ns> <name>     concealed clipboard copy,
                                 auto-clear in 90 seconds
-kum secret grant <ns> <name> <agent>    allow secret_read
+kum secret grant <ns> <name> <agent> [--until DATE]
+                                allow secret_read (leased)
 kum secret revoke <ns> <name> <agent>   withdraw, effective now
 kum secret shred <ns> <name>    destroy the value, keep record
 kum secrets [ns]                names + grants, never values
 ```
+
+Two expiries, deliberately different. A GRANT LEASE
+(`--until DATE`) is enforced: every read re-checks, so the
+lease ends at read time with nothing cached to outlive it, and
+the grant dies at the end of that day (UTC). VALUE EXPIRY
+(`--expires DATE`) is metadata: the credential expires
+UPSTREAM, the broker records and surfaces the date (the
+listing marks EXPIRED), and never blocks a read. File the
+rotation matter on the docket with that goal date and the
+creep machinery does the reminding.
 
 Witnessed access is the product: every checkout, refusal, and
 grant lands on the hash-chained ledger, so \"who has read the

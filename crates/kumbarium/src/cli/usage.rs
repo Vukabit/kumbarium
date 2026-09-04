@@ -214,12 +214,14 @@ the loading dock:
 the restricted stacks:
   kumbarium secret set <ns> <name>    stock or rotate a secret;
        [--i-accept-plaintext]         value from stdin or an
-                                      echo-off prompt, never argv
+       [--expires DATE]               echo-off prompt, never argv
   kumbarium secret read <ns> <name>   print the value
   kumbarium secret copy <ns> <name>   concealed clipboard copy,
                                       auto-clear in 90s
-  kumbarium secret grant <ns> <name> <agent>
+  kumbarium secret grant <ns> <name> <agent> [--until DATE]
                                       allow the agent secret_read
+                                      (--until leases through
+                                      that day, UTC)
   kumbarium secret revoke <ns> <name> <agent>
                                       withdraw it, effective now
   kumbarium secret shred <ns> <name>  destroy the value, keep

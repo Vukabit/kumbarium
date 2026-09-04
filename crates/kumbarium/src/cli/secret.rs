@@ -19,11 +19,17 @@ the restricted stacks: witnessed credential custody
 
   kumbarium secret set <ns> <name>     stock or rotate; value
        [--i-accept-plaintext]          from stdin or an echo-off
-                                       prompt, never argv
+       [--expires DATE]                prompt, never argv
+                                       (--expires: upstream
+                                       expiry, surfaced never
+                                       enforced)
   kumbarium secret read <ns> <name>    print the value
   kumbarium secret copy <ns> <name>    concealed clipboard copy,
                                        auto-clear in 90s
-  kumbarium secret grant <ns> <name> <agent>   allow secret_read
+  kumbarium secret grant <ns> <name> <agent> [--until DATE]
+                                       allow secret_read; the
+                                       lease expires at read
+                                       time, through DATE (UTC)
   kumbarium secret revoke <ns> <name> <agent>  withdraw it
   kumbarium secret shred <ns> <name>   destroy the value, keep
                                        the record
@@ -32,11 +38,10 @@ the restricted stacks: witnessed credential custody
 
 pub(crate) fn secret_cmd(rest: &[&str]) -> ExitCode {
   match rest {
-    ["set", ns, name] => set_cmd(ns, name, false),
-    ["set", ns, name, "--i-accept-plaintext"] => set_cmd(ns, name, true),
+    ["set", ns, name, flags @ ..] => set_cmd(ns, name, flags),
     ["read", ns, name] => read_cmd(ns, name),
     ["copy", ns, name] => copy_cmd(ns, name),
-    ["grant", ns, name, agent] => grant_cmd(ns, name, agent),
+    ["grant", ns, name, agent, flags @ ..] => grant_cmd(ns, name, agent, flags),
     ["revoke", ns, name, agent] => revoke_cmd(ns, name, agent),
     ["shred", ns, name] => shred_cmd(ns, name),
     [] => {
@@ -173,7 +178,36 @@ fn witness(
     .map_err(|e| format!("audit append failed: {e}"))
 }
 
-fn set_cmd(ns: &str, name: &str, accept_plaintext: bool) -> ExitCode {
+/// A calendar day, the same grammar as docket goals.
+fn valid_date(date: &str) -> Result<(), String> {
+  let ok = date.len() == 10
+    && kumbarium_util::parse_iso8601_ms(&format!("{date}T00:00:00.000Z"))
+      .is_some();
+  match ok {
+    true => Ok(()),
+    false => Err(format!("invalid date {date:?}; use YYYY-MM-DD")),
+  }
+}
+
+fn set_cmd(ns: &str, name: &str, flags: &[&str]) -> ExitCode {
+  let mut accept_plaintext = false;
+  let mut expires: Option<String> = None;
+  let mut it = flags.iter();
+  while let Some(flag) = it.next() {
+    match *flag {
+      "--i-accept-plaintext" => accept_plaintext = true,
+      "--expires" => match it.next() {
+        Some(date) => {
+          if let Err(e) = valid_date(date) {
+            return fail(&e);
+          }
+          expires = Some((*date).to_string());
+        }
+        None => return fail("--expires needs YYYY-MM-DD"),
+      },
+      other => return fail(&format!("unknown flag {other:?}")),
+    }
+  }
   let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
@@ -205,6 +239,7 @@ fn set_cmd(ns: &str, name: &str, accept_plaintext: bool) -> ExitCode {
     &value,
     key.as_ref(),
     None,
+    expires.as_deref(),
   ) {
     Ok(m) => m,
     Err(e) => return fail(&e.to_string()),
@@ -230,6 +265,13 @@ fn set_cmd(ns: &str, name: &str, accept_plaintext: bool) -> ExitCode {
       "stocked {ns}/{name} ({}, {sealed}); agents need a grant \
        to read it",
       sty.id(kumbarium_secrets::short_id(&meta.id))
+    );
+  }
+  if let Some(date) = &expires {
+    println!(
+      "expiry {date} recorded (metadata; the broker never \
+       enforces it). The docket can do the reminding: kum task \
+       {ns} \"rotate {name}\" --goal {date}"
     );
   }
   ExitCode::SUCCESS
@@ -381,7 +423,26 @@ fn spawn_clipboard_clear(tool: &str) {
     .spawn();
 }
 
-fn grant_cmd(ns: &str, name: &str, agent: &str) -> ExitCode {
+fn grant_cmd(ns: &str, name: &str, agent: &str, flags: &[&str]) -> ExitCode {
+  // A lease: --until DATE grants through that day (UTC), and
+  // read-time re-checks make expiry honest enforcement, not
+  // metadata (D-038).
+  let mut until: Option<String> = None;
+  let mut it = flags.iter();
+  while let Some(flag) = it.next() {
+    match *flag {
+      "--until" => match it.next() {
+        Some(date) => {
+          if let Err(e) = valid_date(date) {
+            return fail(&e);
+          }
+          until = Some(format!("{date}T23:59:59.999Z"));
+        }
+        None => return fail("--until needs YYYY-MM-DD"),
+      },
+      other => return fail(&format!("unknown flag {other:?}")),
+    }
+  }
   let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
@@ -405,18 +466,34 @@ fn grant_cmd(ns: &str, name: &str, agent: &str) -> ExitCode {
       "no live secret {ns}/{name}; grants name real stock only"
     ));
   }
-  if let Err(e) = kumbarium_secrets::grant(conn, &ns, name, agent, None) {
+  if let Err(e) =
+    kumbarium_secrets::grant(conn, &ns, name, agent, until.as_deref())
+  {
     return fail(&e.to_string());
   }
   if let Err(e) = witness(
     &state,
     kumbarium_audit::EventKind::SecretGrant,
     &ns,
-    serde_json::json!({ "name": name, "grantee": agent }),
+    match &until {
+      Some(ts) => serde_json::json!({
+        "name": name, "grantee": agent, "until": ts,
+      }),
+      None => serde_json::json!({ "name": name, "grantee": agent }),
+    },
   ) {
     return fail(&format!("granted, but {e}"));
   }
-  println!("granted reveal on {ns}/{name} to {agent} (revocable anytime)");
+  match &until {
+    Some(ts) => println!(
+      "granted reveal on {ns}/{name} to {agent} through {} UTC \
+       (revocable anytime; every read re-checks)",
+      &ts[..10]
+    ),
+    None => {
+      println!("granted reveal on {ns}/{name} to {agent} (revocable anytime)")
+    }
+  }
   ExitCode::SUCCESS
 }
 
@@ -538,9 +615,17 @@ pub(crate) fn secrets_cmd(ns: Option<&str>) -> ExitCode {
       "\n{}",
       sty.dim("id        namespace            name                 rotated")
     );
+    let today = kumbarium_util::now_iso8601();
     for m in &rows {
+      let expiry = match &m.expires_at {
+        Some(d) if &today[..10] > d.as_str() => {
+          sty.red(&format!("  EXPIRED {d}"))
+        }
+        Some(d) => sty.dim(&format!("  expires {d}")),
+        None => String::new(),
+      };
       println!(
-        "{}  {:<20} {:<20} {}",
+        "{}  {:<20} {:<20} {}{expiry}",
         sty.id(&format!("{:<8}", kumbarium_secrets::short_id(&m.id))),
         m.namespace,
         m.name,

@@ -20,8 +20,14 @@ use zeroize::Zeroizing;
 
 pub use rusqlite::Connection;
 
-const MIGRATIONS: &[(i64, &str, &str)] =
-  &[(1, "0001_init", include_str!("../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+  (1, "0001_init", include_str!("../migrations/0001_init.sql")),
+  (
+    2,
+    "0002_value_expiry",
+    include_str!("../migrations/0002_value_expiry.sql"),
+  ),
+];
 
 /// Envelope version byte; an unknown version fails closed
 /// (D-039). v1 = XChaCha20-Poly1305, 24-byte nonce prefix.
@@ -104,6 +110,7 @@ pub struct SecretMeta {
   pub agent_id: String,
   pub superseded_by: Option<String>,
   pub note: Option<String>,
+  pub expires_at: Option<String>,
   pub shredded_at: Option<String>,
   pub created_at: String,
   pub updated_at: String,
@@ -310,6 +317,7 @@ pub fn set_secret(
   value: &[u8],
   key: Option<&[u8; KEY_LEN]>,
   note: Option<&str>,
+  expires_at: Option<&str>,
 ) -> Result<SecretMeta, SecretsError> {
   if value.is_empty() {
     return Err(SecretsError::EmptyValue);
@@ -329,7 +337,7 @@ pub fn set_secret(
     }
   };
   conn.execute_batch("BEGIN IMMEDIATE")?;
-  let result = set_locked(conn, namespace, name, &sealed, note);
+  let result = set_locked(conn, namespace, name, &sealed, note, expires_at);
   match &result {
     Ok(_) => conn.execute_batch("COMMIT")?,
     Err(_) => {
@@ -345,6 +353,7 @@ fn set_locked(
   name: &str,
   sealed: &[u8],
   note: Option<&str>,
+  expires_at: Option<&str>,
 ) -> Result<SecretMeta, SecretsError> {
   let prior: Option<String> = conn
     .query_row(
@@ -363,10 +372,10 @@ fn set_locked(
   let now = kumbarium_util::now_iso8601();
   conn.execute(
     "INSERT INTO secrets
-       (id, namespace, name, sealed, agent_id, note,
+       (id, namespace, name, sealed, agent_id, note, expires_at,
         created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, 'kumbarium-cli', ?5, ?6, ?6)",
-    params![id, namespace, name, sealed, note, now],
+     VALUES (?1, ?2, ?3, ?4, 'kumbarium-cli', ?5, ?6, ?7, ?7)",
+    params![id, namespace, name, sealed, note, expires_at, now],
   )?;
   if let Some(prev) = prior {
     // Rotation: chain forward AND shred the retired value.
@@ -454,7 +463,7 @@ pub fn shred(
 pub fn meta(conn: &Connection, id: &str) -> Result<SecretMeta, SecretsError> {
   let mut stmt = conn.prepare(
     "SELECT id, namespace, name, agent_id, superseded_by, note,
-            shredded_at, created_at, updated_at
+            expires_at, shredded_at, created_at, updated_at
      FROM secrets WHERE id = ?1",
   )?;
   stmt.query_row([id], row_to_meta).map_err(|e| match e {
@@ -496,7 +505,7 @@ pub fn list(
 ) -> Result<Vec<SecretMeta>, SecretsError> {
   let mut sql = String::from(
     "SELECT id, namespace, name, agent_id, superseded_by, note,
-            shredded_at, created_at, updated_at
+            expires_at, shredded_at, created_at, updated_at
      FROM secrets
      WHERE superseded_by IS NULL AND shredded_at IS NULL",
   );
@@ -673,9 +682,10 @@ fn row_to_meta(row: &rusqlite::Row<'_>) -> Result<SecretMeta, rusqlite::Error> {
     agent_id: row.get(3)?,
     superseded_by: row.get(4)?,
     note: row.get(5)?,
-    shredded_at: row.get(6)?,
-    created_at: row.get(7)?,
-    updated_at: row.get(8)?,
+    expires_at: row.get(6)?,
+    shredded_at: row.get(7)?,
+    created_at: row.get(8)?,
+    updated_at: row.get(9)?,
   })
 }
 
@@ -694,6 +704,7 @@ mod tests {
       "deploy-key",
       b"hunter2-but-long",
       Some(&KEY),
+      None,
       None,
     )
     .unwrap();
@@ -726,7 +737,8 @@ mod tests {
   #[test]
   fn wrong_key_and_unknown_version_fail_closed() {
     let conn = open_in_memory().unwrap();
-    set_secret(&conn, "global", "tok", b"value-one", Some(&KEY), None).unwrap();
+    set_secret(&conn, "global", "tok", b"value-one", Some(&KEY), None, None)
+      .unwrap();
     let wrong = [9u8; KEY_LEN];
     assert!(matches!(
       read_secret(&conn, "global", "tok", Some(&wrong)),
@@ -744,8 +756,9 @@ mod tests {
   #[test]
   fn rotation_chains_and_shreds_the_ancestor() {
     let conn = open_in_memory().unwrap();
-    let v1 = set_secret(&conn, "global", "api", b"old-value", Some(&KEY), None)
-      .unwrap();
+    let v1 =
+      set_secret(&conn, "global", "api", b"old-value", Some(&KEY), None, None)
+        .unwrap();
     let v2 = set_secret(
       &conn,
       "global",
@@ -753,6 +766,7 @@ mod tests {
       b"new-value",
       Some(&KEY),
       Some("quarterly rotation"),
+      None,
     )
     .unwrap();
     let value = read_secret(&conn, "global", "api", Some(&KEY)).unwrap();
@@ -774,7 +788,8 @@ mod tests {
   #[test]
   fn grants_deny_by_default_and_leases_expire() {
     let conn = open_in_memory().unwrap();
-    set_secret(&conn, "global", "tok", b"value", Some(&KEY), None).unwrap();
+    set_secret(&conn, "global", "tok", b"value", Some(&KEY), None, None)
+      .unwrap();
     assert!(!check_grant(&conn, "global", "tok", "claude-code").unwrap());
     grant(&conn, "global", "tok", "claude-code", None).unwrap();
     assert!(check_grant(&conn, "global", "tok", "claude-code").unwrap());
@@ -792,12 +807,56 @@ mod tests {
     grant(&conn, "global", "tok", "claude-code", None).unwrap();
     assert!(revoke(&conn, "global", "tok", "claude-code").unwrap());
     assert!(!check_grant(&conn, "global", "tok", "claude-code").unwrap());
+    // A lease in the future serves until it does not.
+    grant(
+      &conn,
+      "global",
+      "tok",
+      "claude-code",
+      Some("2999-12-31T23:59:59.999Z"),
+    )
+    .unwrap();
+    assert!(check_grant(&conn, "global", "tok", "claude-code").unwrap());
+  }
+
+  #[test]
+  fn value_expiry_is_metadata_never_a_gate() {
+    let conn = open_in_memory().unwrap();
+    let m = set_secret(
+      &conn,
+      "global",
+      "cert",
+      b"pem-bytes-here",
+      Some(&KEY),
+      None,
+      Some("2020-01-01"),
+    )
+    .unwrap();
+    assert_eq!(m.expires_at.as_deref(), Some("2020-01-01"));
+    // Long expired upstream, and the broker still serves it:
+    // surfacing is the listing's job, blocking is nobody's.
+    let value = read_secret(&conn, "global", "cert", Some(&KEY)).unwrap();
+    assert_eq!(&value[..], b"pem-bytes-here");
+    // Rotation writes a fresh row; expiry does not carry over
+    // uninvited (the new credential has its own date or none).
+    let m2 = set_secret(
+      &conn,
+      "global",
+      "cert",
+      b"fresh-pem",
+      Some(&KEY),
+      None,
+      None,
+    )
+    .unwrap();
+    assert_eq!(m2.expires_at, None);
   }
 
   #[test]
   fn shred_destroys_material_and_keeps_the_record() {
     let conn = open_in_memory().unwrap();
-    set_secret(&conn, "global", "doomed", b"value", Some(&KEY), None).unwrap();
+    set_secret(&conn, "global", "doomed", b"value", Some(&KEY), None, None)
+      .unwrap();
     let m = shred(&conn, "global", "doomed").unwrap();
     assert!(m.shredded_at.is_some());
     assert!(matches!(
@@ -811,10 +870,10 @@ mod tests {
   #[test]
   fn plaintext_mode_is_explicit_and_sticky() {
     let conn = open_in_memory().unwrap();
-    set_secret(&conn, "global", "tok", b"value", None, None).unwrap();
+    set_secret(&conn, "global", "tok", b"value", None, None, None).unwrap();
     assert_eq!(sealing_mode(&conn).unwrap(), Some(Sealing::Plaintext));
     // The shelf never silently changes sealing mode.
-    let err = set_secret(&conn, "global", "tok2", b"v", Some(&KEY), None);
+    let err = set_secret(&conn, "global", "tok2", b"v", Some(&KEY), None, None);
     assert!(matches!(err, Err(SecretsError::SealingMismatch(_, _))));
     let value = read_secret(&conn, "global", "tok", None).unwrap();
     assert_eq!(&value[..], b"value");
@@ -823,8 +882,10 @@ mod tests {
   #[test]
   fn nonces_are_fresh_per_seal() {
     let conn = open_in_memory().unwrap();
-    set_secret(&conn, "global", "a", b"same-value", Some(&KEY), None).unwrap();
-    set_secret(&conn, "global", "b", b"same-value", Some(&KEY), None).unwrap();
+    set_secret(&conn, "global", "a", b"same-value", Some(&KEY), None, None)
+      .unwrap();
+    set_secret(&conn, "global", "b", b"same-value", Some(&KEY), None, None)
+      .unwrap();
     let blobs: Vec<Vec<u8>> = conn
       .prepare("SELECT sealed FROM secrets ORDER BY name")
       .unwrap()

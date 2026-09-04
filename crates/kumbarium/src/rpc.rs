@@ -404,6 +404,7 @@ mod tests {
         b"tok-swordfish-9",
         None,
         None,
+        None,
       )
       .unwrap();
     }
