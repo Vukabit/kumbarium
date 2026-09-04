@@ -260,7 +260,7 @@ upkeep:
   kumbarium namespace add <path> [d]  register a namespace
   kumbarium namespace list            list namespaces
   kumbarium status                    library health at a glance
-  kumbarium backup                    snapshot both dbs now
+  kumbarium backup                    snapshot every shelf now
   kumbarium config [--init|--open]    effective tunables
                                       (--init writes template,
                                       --open edits it)

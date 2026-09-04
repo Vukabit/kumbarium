@@ -256,13 +256,15 @@ const PAGE_BACKUP: &str = "\
 kum backup
 ```
 
-Forces a snapshot of both databases now: VACUUM INTO a temp
-file, integrity-checked, atomically renamed into backups/.
-Normally you never run this: every `serve` startup snapshots
-automatically when 12h have elapsed. Retention is tiered
-(library: 2 recent + 7 dailies + 4 weeklies) and computed from
-the flat timestamped filenames; unrecognized files are never
-touched.
+Forces a snapshot of every shelf that exists (memory, audit,
+docket, handoff, secrets, leases; each to its own backups/
+subdirectory): VACUUM INTO a temp file, integrity-checked,
+atomically renamed in. Secrets back up as ciphertext; the
+master key is never in any snapshot. Normally you never run
+this: every `serve` startup snapshots automatically when 12h
+have elapsed. Retention is tiered (2 recent + 7 dailies + 4
+weeklies) and computed from the flat timestamped filenames;
+unrecognized files are never touched.
 ";
 
 const PAGE_SERVE: &str = "\
@@ -275,10 +277,12 @@ kum serve
 Speaks MCP over stdio: newline-delimited JSON-RPC 2.0. Not for
 humans; agents' clients spawn it (`claude mcp add kumbarium --
 ~/.cargo/bin/kumbarium serve`). Tools: remember, link, recall,
-confirm, supersede, forget, task_file, task_update. Every call
-is audited under the identity the client declared at
-initialize. stdout carries protocol only; diagnostics go to
-stderr.
+confirm, supersede, forget, task_file, task_update,
+handoff_write, lease_take, lease_release, secret_read. Every
+call is audited under the agent identity the client declared
+at initialize, alongside a librarian-MINTED session id
+(D-044): agents are claimed, sessions are minted. stdout
+carries protocol only; diagnostics go to stderr.
 ";
 
 /// The copy-paste block for an agent's root instruction file.
@@ -375,10 +379,12 @@ const PAGE_STATUS: &str = "\
 kum status
 ```
 
-Entry counts (live / superseded / retired), split sets, live
-entries per namespace, audit event count and latest, backup
-ages, database sizes. The first command to run when wondering
-what state things are in.
+Entry counts (live / superseded / retired), split sets, the
+desk's pending queue, docket and secrets counts, active
+reading-room leases, live entries per namespace, audit event
+count and latest, backup ages per shelf, database sizes. The
+first command to run when wondering what state things are
+in.
 ";
 
 const PAGE_HANDOFF: &str = "\
@@ -751,6 +757,8 @@ The watchdog findings, advisory and write-free:
   ledger event arrived around the librarian; treat as
   tampering until explained. Revoke (witnessed), then rotate.
 - expired credentials still stocked: rotation owed.
+- abandoned reading-room leases: expired, never released (the
+  crashed-agent shape); kum lease break clears one.
 - creeping matters: a goal that moved later twice or more.
 - served-then-corrected: a fact superseded within 48h of a
   DIFFERENT agent's recall that served it (same-agent is the
