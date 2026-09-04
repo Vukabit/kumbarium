@@ -247,43 +247,79 @@ pub(crate) fn inbox_cmd() -> ExitCode {
     println!("inbox empty: nothing awaiting approval");
     return ExitCode::SUCCESS;
   }
-  println!(
-    "{}",
-    sty.dim(
-      "id        submitted (local)    agent                \
-namespace            content"
-    )
-  );
+  const INBOX_COLS: &[Col] = &[
+    Col {
+      title: "id",
+      width: 8,
+    },
+    Col {
+      title: "submitted (local)",
+      width: 19,
+    },
+    Col {
+      title: "agent",
+      width: 20,
+    },
+    Col {
+      title: "namespace",
+      width: 20,
+    },
+    Col {
+      title: "content",
+      width: 0,
+    },
+  ];
+  println!("{}", sty.dim(&table_header(INBOX_COLS)));
   for e in pending {
     let first = e.content.lines().next().unwrap_or("");
     let excerpt: String = first.chars().take(40).collect();
     println!(
-      "{}  {}  {:<20} {:<20} {}",
-      sty.id(&format!("{:<8}", kumbarium_store::short_id(&e.id))),
-      sty.dim(&local_display(&e.created_at)),
-      e.agent_id,
-      e.namespace,
+      "{} {} {} {} {}",
+      sty.id(&cell(INBOX_COLS, 0, kumbarium_store::short_id(&e.id))),
+      sty.dim(&cell(INBOX_COLS, 1, &local_display(&e.created_at))),
+      cell(INBOX_COLS, 2, &e.agent_id),
+      cell(INBOX_COLS, 3, &e.namespace),
       excerpt
     );
   }
   if !pending_tasks.is_empty() {
     println!(
       "\n{}",
-      sty.dim(
-        "pending tasks (the docket's queue):\nid        \
-submitted (local)    agent                namespace            \
-matter"
-      )
+      sty.dim(&format!(
+        "pending tasks (the docket's queue):\n{}",
+        table_header(&[
+          Col {
+            title: "id",
+            width: 8
+          },
+          Col {
+            title: "submitted (local)",
+            width: 19
+          },
+          Col {
+            title: "agent",
+            width: 20
+          },
+          Col {
+            title: "namespace",
+            width: 20
+          },
+          Col {
+            title: "matter",
+            width: 0
+          },
+        ])
+      ))
     );
     for t in &pending_tasks {
       let first = t.content.lines().next().unwrap_or("");
       let excerpt: String = first.chars().take(40).collect();
       println!(
-        "{}  {}  {:<20} {:<20} [{}] {}",
-        sty.id(&format!("{:<8}", kumbarium_docket::short_id(&t.id))),
-        sty.dim(&local_display(&t.created_at)),
-        t.agent_id,
-        t.namespace,
+        "{} {} {} {} [{}] {}",
+        sty.id(&cell(INBOX_COLS, 0, kumbarium_docket::short_id(&t.id))),
+        sty.dim(&cell(INBOX_COLS, 1, &local_display(&t.created_at))),
+        cell(INBOX_COLS, 2, &t.agent_id),
+        cell(INBOX_COLS, 3, &t.namespace),
         t.severity.as_str(),
         excerpt
       );
@@ -292,21 +328,41 @@ matter"
   if !pending_briefs.is_empty() {
     println!(
       "\n{}",
-      sty.dim(
-        "pending briefings (NEVER served until approved):\nid        \
-submitted (local)    agent                namespace            \
-briefing"
-      )
+      sty.dim(&format!(
+        "pending briefings (NEVER served until approved):\n{}",
+        table_header(&[
+          Col {
+            title: "id",
+            width: 8
+          },
+          Col {
+            title: "submitted (local)",
+            width: 19
+          },
+          Col {
+            title: "agent",
+            width: 20
+          },
+          Col {
+            title: "namespace",
+            width: 20
+          },
+          Col {
+            title: "briefing",
+            width: 0
+          },
+        ])
+      ))
     );
     for h in &pending_briefs {
       let first = h.content.lines().next().unwrap_or("");
       let excerpt: String = first.chars().take(40).collect();
       println!(
-        "{}  {}  {:<20} {:<20} {}",
-        sty.id(&format!("{:<8}", kumbarium_handoff::short_id(&h.id))),
-        sty.dim(&local_display(&h.created_at)),
-        h.agent_id,
-        h.namespace,
+        "{} {} {} {} {}",
+        sty.id(&cell(INBOX_COLS, 0, kumbarium_handoff::short_id(&h.id))),
+        sty.dim(&cell(INBOX_COLS, 1, &local_display(&h.created_at))),
+        cell(INBOX_COLS, 2, &h.agent_id),
+        cell(INBOX_COLS, 3, &h.namespace),
         excerpt
       );
     }

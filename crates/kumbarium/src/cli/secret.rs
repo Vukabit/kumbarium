@@ -807,10 +807,25 @@ pub(crate) fn secrets_cmd(ns: Option<&str>) -> ExitCode {
   if rows.is_empty() {
     println!("no secrets stocked");
   } else {
-    println!(
-      "\n{}",
-      sty.dim("id        namespace            name                 rotated")
-    );
+    const COLS: &[Col] = &[
+      Col {
+        title: "id",
+        width: 8,
+      },
+      Col {
+        title: "namespace",
+        width: 20,
+      },
+      Col {
+        title: "name",
+        width: 20,
+      },
+      Col {
+        title: "rotated",
+        width: 0,
+      },
+    ];
+    println!("\n{}", sty.dim(&table_header(COLS)));
     let today = kumbarium_util::now_iso8601();
     for m in &rows {
       let expiry = match &m.expires_at {
@@ -821,10 +836,10 @@ pub(crate) fn secrets_cmd(ns: Option<&str>) -> ExitCode {
         None => String::new(),
       };
       println!(
-        "{}  {:<20} {:<20} {}{expiry}",
-        sty.id(&format!("{:<8}", kumbarium_secrets::short_id(&m.id))),
-        m.namespace,
-        m.name,
+        "{} {} {} {}{expiry}",
+        sty.id(&cell(COLS, 0, kumbarium_secrets::short_id(&m.id))),
+        cell(COLS, 1, &m.namespace),
+        cell(COLS, 2, &m.name),
         sty.dim(&local_display(&m.updated_at))
       );
     }

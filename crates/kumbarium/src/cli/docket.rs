@@ -386,22 +386,38 @@ pub(crate) fn tasks_cmd(rest: &[&str]) -> ExitCode {
   }
   let now = kumbarium_util::now_ms();
   timeline_order(&mut tasks, now);
-  println!(
-    "{}",
-    sty.dim(
-      "id        sev    goal                age  namespace            \
-matter"
-    )
-  );
-  // Matter column start: 8+2 + 6+1 + 19+2 + 3+2 + 20+1 = 64.
-  // Overflow hanging-wraps there on a terminal, exactly like
-  // `audit tail`; piped output stays single-line for grep.
-  const MATTER_COL: usize = 64;
-  let wrap_width = term_width()
-    .filter(|w| *w > MATTER_COL + 16)
-    .map(|w| w - MATTER_COL);
+  const COLS: &[Col] = &[
+    Col {
+      title: "id",
+      width: 8,
+    },
+    Col {
+      title: "sev",
+      width: 6,
+    },
+    Col {
+      title: "goal",
+      width: 19,
+    },
+    Col {
+      title: "age",
+      width: 3,
+    },
+    Col {
+      title: "namespace",
+      width: 20,
+    },
+    Col {
+      title: "matter",
+      width: 0,
+    },
+  ];
+  println!("{}", sty.dim(&table_header(COLS)));
   for t in &tasks {
     let days = days_to_goal(t.goal.as_deref(), now);
+    // The goal cell is painted mid-cell, so it pads by its
+    // PLAIN length (escapes are zero display width) to the
+    // spec's width like every other cell.
     let goal_cell = goal_paint(&sty, days, t.goal.as_deref());
     let plain_goal_len = t
       .goal
@@ -412,30 +428,28 @@ matter"
         _ => g.len(),
       })
       .unwrap_or(1);
-    let pad = 19usize.saturating_sub(plain_goal_len);
+    let pad = COLS[2].width.saturating_sub(plain_goal_len);
     let mark = match t.state {
       kumbarium_docket::TaskState::Done => " [done]",
       kumbarium_docket::TaskState::Dropped => " [dropped]",
       kumbarium_docket::TaskState::Open => "",
     };
     let matter = t.content.lines().next().unwrap_or("");
-    let chunks = match wrap_width {
-      Some(width) => wrap_words(matter, width),
-      None => vec![matter.to_string()],
-    };
+    let lines = hang(body_col(COLS), matter);
     println!(
-      "{}  {} {}{:pad$}  {:>3}  {:<20} {}{}",
-      sty.id(kumbarium_docket::short_id(&t.id)),
+      "{} {} {}{:pad$} {:>aw$} {} {}{}",
+      sty.id(&cell(COLS, 0, kumbarium_docket::short_id(&t.id))),
       severity_paint(&sty, t.severity),
       goal_cell,
       "",
       age_of(&t.created_at, now),
-      t.namespace,
-      chunks.first().map(String::as_str).unwrap_or(""),
+      cell(COLS, 4, &t.namespace),
+      lines[0],
       sty.dim(mark),
+      aw = COLS[3].width,
     );
-    for chunk in chunks.iter().skip(1) {
-      println!("{:MATTER_COL$}{chunk}", "");
+    for line in &lines[1..] {
+      println!("{line}");
     }
   }
   ExitCode::SUCCESS

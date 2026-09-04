@@ -111,34 +111,42 @@ pub(crate) fn handoffs_cmd() -> ExitCode {
     println!("no standing briefings on any shelf");
     return ExitCode::SUCCESS;
   }
-  println!(
-    "{}",
-    sty.dim(
-      "id        left (local)         by                   \
-namespace            briefing"
-    )
-  );
-  // Briefing column start: 8+2 + 19+2 + 20+1 + 20+1 = 73.
-  const BRIEF_COL: usize = 73;
-  let wrap_width = term_width()
-    .filter(|w| *w > BRIEF_COL + 16)
-    .map(|w| w - BRIEF_COL);
+  const COLS: &[Col] = &[
+    Col {
+      title: "id",
+      width: 8,
+    },
+    Col {
+      title: "left (local)",
+      width: 19,
+    },
+    Col {
+      title: "by",
+      width: 20,
+    },
+    Col {
+      title: "namespace",
+      width: 20,
+    },
+    Col {
+      title: "briefing",
+      width: 0,
+    },
+  ];
+  println!("{}", sty.dim(&table_header(COLS)));
   for h in &all {
     let first = h.content.lines().next().unwrap_or("");
-    let chunks = match wrap_width {
-      Some(width) => wrap_words(first, width),
-      None => vec![first.to_string()],
-    };
+    let lines = hang(body_col(COLS), first);
     println!(
-      "{}  {}  {:<20} {:<20} {}",
-      sty.id(&format!("{:<8}", kumbarium_handoff::short_id(&h.id))),
-      sty.dim(&local_display(&h.created_at)),
-      h.agent_id,
-      h.namespace,
-      chunks.first().map(String::as_str).unwrap_or("")
+      "{} {} {} {} {}",
+      sty.id(&cell(COLS, 0, kumbarium_handoff::short_id(&h.id))),
+      sty.dim(&cell(COLS, 1, &local_display(&h.created_at))),
+      cell(COLS, 2, &h.agent_id),
+      cell(COLS, 3, &h.namespace),
+      lines[0]
     );
-    for chunk in chunks.iter().skip(1) {
-      println!("{:BRIEF_COL$}{chunk}", "");
+    for line in &lines[1..] {
+      println!("{line}");
     }
   }
   ExitCode::SUCCESS

@@ -190,3 +190,122 @@ pub(crate) fn fail(message: &str) -> ExitCode {
   eprintln!("kumbarium: {message}");
   ExitCode::FAILURE
 }
+
+/// One column of a table. A table's whole geometry is a
+/// `&[Col]`: the header, every cell pad, and the wrap column
+/// all derive from the same spec, so they cannot drift apart.
+/// (The recurring bug this retires: headers space-padded by
+/// hand to widths the rows quietly stopped using, and wrapped
+/// rows continuing at column zero.)
+pub(crate) struct Col {
+  pub title: &'static str,
+  pub width: usize,
+}
+
+/// The header line for a spec: titles padded to their widths,
+/// single-space separated; the LAST column never pads, it runs
+/// to the margin. Style it dim at the call site.
+pub(crate) fn table_header(cols: &[Col]) -> String {
+  let mut out = String::new();
+  for (i, c) in cols.iter().enumerate() {
+    if i + 1 == cols.len() {
+      out.push_str(c.title);
+    } else {
+      out.push_str(&format!("{:<w$} ", c.title, w = c.width));
+    }
+  }
+  out
+}
+
+/// Pad cell text to column `i`'s spec width. Pad FIRST, style
+/// after: ANSI escapes are zero display width but count as
+/// bytes, so `{:<w$}` over styled text misaligns.
+pub(crate) fn cell(cols: &[Col], i: usize, text: &str) -> String {
+  format!("{:<w$}", text, w = cols[i].width)
+}
+
+/// The display column where the last, free-running field
+/// starts: every earlier width plus its separator. This is the
+/// hanging indent for wrapped rows.
+pub(crate) fn body_col(cols: &[Col]) -> usize {
+  cols[..cols.len() - 1].iter().map(|c| c.width + 1).sum()
+}
+
+/// Wrap a row's last field for the terminal: element 0 is the
+/// remainder printed on the row line itself, the rest arrive
+/// pre-indented to `col` so a wrapped row still reads as one
+/// row. Piped output is always a single line (rows stay
+/// grep-able for scripts).
+pub(crate) fn hang(col: usize, body: &str) -> Vec<String> {
+  match term_width().filter(|w| *w > col + 16) {
+    Some(w) => {
+      let chunks = wrap_words(body, w - col);
+      let mut out = vec![chunks.first().cloned().unwrap_or_default()];
+      for chunk in chunks.iter().skip(1) {
+        out.push(format!("{:col$}{chunk}", ""));
+      }
+      out
+    }
+    None => vec![body.to_string()],
+  }
+}
+
+/// A free paragraph under a uniform indent, wrapped to the
+/// terminal (blank source lines survive as paragraph breaks);
+/// piped output keeps the source lines verbatim, indented.
+pub(crate) fn indent_block(indent: usize, text: &str) -> Vec<String> {
+  let width = term_width().filter(|w| *w > indent + 16);
+  let mut out = Vec::new();
+  for line in text.lines() {
+    if line.trim().is_empty() {
+      out.push(String::new());
+      continue;
+    }
+    match width {
+      Some(w) => {
+        for chunk in wrap_words(line, w - indent) {
+          out.push(format!("{:indent$}{chunk}", ""));
+        }
+      }
+      None => out.push(format!("{:indent$}{line}", "")),
+    }
+  }
+  out
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  const SPEC: &[Col] = &[
+    Col {
+      title: "id",
+      width: 8,
+    },
+    Col {
+      title: "kind",
+      width: 13,
+    },
+    Col {
+      title: "detail",
+      width: 0,
+    },
+  ];
+
+  #[test]
+  fn geometry_derives_from_one_spec() {
+    assert_eq!(table_header(SPEC), "id       kind          detail");
+    assert_eq!(cell(SPEC, 0, "abcd1234"), "abcd1234");
+    assert_eq!(cell(SPEC, 1, "recall"), "recall       ");
+    // The wrap column is the header's own arithmetic: no
+    // hand-counted "8+2 + 13+1" comments to go stale.
+    assert_eq!(body_col(SPEC), 9 + 14);
+  }
+
+  #[test]
+  fn hang_is_single_line_when_piped() {
+    // Tests run piped (term_width None): one grep-able line.
+    let lines = hang(23, &"long ".repeat(50));
+    assert_eq!(lines.len(), 1);
+  }
+}

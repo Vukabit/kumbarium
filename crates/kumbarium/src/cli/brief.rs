@@ -105,11 +105,37 @@ pub(crate) fn brief_cmd(ns: &str) -> ExitCode {
     println!("  the shelf is empty; first session writes the charter");
   }
   // One line per fact: the binder is a table of contents, not
-  // the book (kum show reads any of them in full).
-  const FACT_COL: usize = 52;
+  // the book (kum show reads any of them in full), so overflow
+  // truncates rather than wrapping.
+  const FACT_COLS: &[Col] = &[
+    Col {
+      title: "",
+      width: 1,
+    },
+    Col {
+      title: "id",
+      width: 8,
+    },
+    Col {
+      title: "conf",
+      width: 4,
+    },
+    Col {
+      title: "kind",
+      width: 13,
+    },
+    Col {
+      title: "namespace",
+      width: 20,
+    },
+    Col {
+      title: "fact",
+      width: 0,
+    },
+  ];
   let fact_width = term_width()
-    .filter(|w| *w > FACT_COL + 16)
-    .map(|w| w - FACT_COL);
+    .filter(|w| *w > body_col(FACT_COLS) + 16)
+    .map(|w| w - body_col(FACT_COLS));
   for e in facts.iter().take(FACT_CAP) {
     let first = e.content.lines().next().unwrap_or("");
     let first = match fact_width {
@@ -120,11 +146,11 @@ pub(crate) fn brief_cmd(ns: &str) -> ExitCode {
       _ => first.to_string(),
     };
     println!(
-      "  {} {:.2} {} {}  {first}",
-      sty.id(kumbarium_store::short_id(&e.id)),
+      "  {} {:.2} {} {} {first}",
+      sty.id(&cell(FACT_COLS, 1, kumbarium_store::short_id(&e.id))),
       e.confidence,
-      sty.kind(&format!("{:<13}", e.kind.as_str())),
-      sty.dim(&format!("{:<20}", e.namespace)),
+      sty.kind(&cell(FACT_COLS, 3, e.kind.as_str())),
+      sty.dim(&cell(FACT_COLS, 4, &e.namespace)),
     );
   }
   if total > FACT_CAP {
@@ -147,8 +173,8 @@ pub(crate) fn brief_cmd(ns: &str) -> ExitCode {
             local_display(&h.created_at)
           ))
         );
-        for line in h.content.lines() {
-          println!("  {line}");
+        for line in indent_block(2, &h.content) {
+          println!("{line}");
         }
       }
       Ok(None) => println!("  none standing for this shelf"),
@@ -174,6 +200,24 @@ pub(crate) fn brief_cmd(ns: &str) -> ExitCode {
   if matters.is_empty() {
     println!("  the docket is clear in this scope");
   }
+  const MATTER_COLS: &[Col] = &[
+    Col {
+      title: "",
+      width: 1,
+    },
+    Col {
+      title: "id",
+      width: 8,
+    },
+    Col {
+      title: "sev",
+      width: 6,
+    },
+    Col {
+      title: "matter",
+      width: 0,
+    },
+  ];
   for t in matters.iter().take(MATTER_CAP) {
     let goal = t
       .goal
@@ -181,11 +225,16 @@ pub(crate) fn brief_cmd(ns: &str) -> ExitCode {
       .map(|g| format!(" (goal {g})"))
       .unwrap_or_default();
     let first = t.content.lines().next().unwrap_or("");
+    let lines = hang(body_col(MATTER_COLS), &format!("{first}{goal}"));
     println!(
-      "  {} {:<6} {first}{goal}",
-      sty.id(kumbarium_docket::short_id(&t.id)),
-      t.severity.as_str(),
+      "  {} {} {}",
+      sty.id(&cell(MATTER_COLS, 1, kumbarium_docket::short_id(&t.id))),
+      cell(MATTER_COLS, 2, t.severity.as_str()),
+      lines[0],
     );
+    for line in &lines[1..] {
+      println!("{line}");
+    }
   }
   if open > MATTER_CAP {
     println!(

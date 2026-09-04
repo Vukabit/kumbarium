@@ -60,37 +60,45 @@ pub(crate) fn audit_tail(n: usize, scope: Option<&str>) -> ExitCode {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
+  const COLS: &[Col] = &[
+    Col {
+      title: "at (local)",
+      width: 19,
+    },
+    Col {
+      title: "kind",
+      width: 15,
+    },
+    Col {
+      title: "agent",
+      width: 20,
+    },
+    Col {
+      title: "scope",
+      width: 20,
+    },
+    Col {
+      title: "detail",
+      width: 0,
+    },
+  ];
   match kumbarium_audit::tail(&state.audit, n, scope) {
     Ok(events) => {
       let sty = style::Style::detect();
-      println!(
-        "{}",
-        sty.dim(
-          "at (local)           kind            agent                \
-scope                detail"
-        )
-      );
-      // Columns before detail: 19+2 + 15+1 + 20+1 + 20+1 = 79.
-      const DETAIL_COL: usize = 79;
-      let wrap_width = term_width()
-        .filter(|w| *w > DETAIL_COL + 16)
-        .map(|w| w - DETAIL_COL);
+      println!("{}", sty.dim(&table_header(COLS)));
       for e in events {
         let detail = kumbarium_audit::describe_event(&e.kind, &e.detail);
-        let chunks = match wrap_width {
-          Some(width) => wrap_words(&detail, width),
-          None => vec![detail.clone()],
-        };
+        let lines = hang(body_col(COLS), &detail);
         println!(
-          "{}  {} {:<20} {:<20} {}",
-          sty.dim(&local_display(&e.at)),
-          sty.event(&format!("{:<15}", e.kind)),
-          e.agent_id,
-          e.scope,
-          chunks.first().map(String::as_str).unwrap_or("")
+          "{} {} {} {} {}",
+          sty.dim(&cell(COLS, 0, &local_display(&e.at))),
+          sty.event(&cell(COLS, 1, &e.kind)),
+          cell(COLS, 2, &e.agent_id),
+          cell(COLS, 3, &e.scope),
+          lines[0]
         );
-        for chunk in chunks.iter().skip(1) {
-          println!("{:DETAIL_COL$}{chunk}", "");
+        for line in &lines[1..] {
+          println!("{line}");
         }
       }
       ExitCode::SUCCESS
