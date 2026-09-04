@@ -33,7 +33,7 @@ struct RosterRow {
 /// never scores (the metric-theater trap stays sprung): the
 /// numbers are for YOUR judgment, and `kum dossier <agent>` is
 /// the deep story behind any row.
-pub(crate) fn agents_cmd() -> ExitCode {
+pub(crate) fn agents_cmd(all: bool) -> ExitCode {
   let (p, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
@@ -96,6 +96,19 @@ pub(crate) fn agents_cmd() -> ExitCode {
       roster.entry(l.agent_id).or_default().leases += 1;
     }
   }
+  let retired: std::collections::HashSet<&str> = state
+    .cfg
+    .agents_retired
+    .iter()
+    .map(String::as_str)
+    .collect();
+  let hidden = roster
+    .keys()
+    .filter(|a| retired.contains(a.as_str()))
+    .count();
+  if !all {
+    roster.retain(|agent, _| !retired.contains(agent.as_str()));
+  }
   if roster.is_empty() {
     println!("no identities witnessed yet");
     return ExitCode::SUCCESS;
@@ -146,6 +159,11 @@ pub(crate) fn agents_cmd() -> ExitCode {
   let mut rows: Vec<(&String, &RosterRow)> = roster.iter().collect();
   rows.sort_by(|a, b| b.1.last_at.cmp(&a.1.last_at));
   for (agent, r) in rows {
+    let mark = if retired.contains(agent.as_str()) {
+      sty.yellow(" [retired]")
+    } else {
+      String::new()
+    };
     let last = if r.last_at.is_empty() {
       "(pre-ledger)".to_string()
     } else {
@@ -158,7 +176,7 @@ pub(crate) fn agents_cmd() -> ExitCode {
       corr_cell
     };
     println!(
-      "{} {} {:>4} {:>6} {:>4} {} {:>6} {}",
+      "{} {} {:>4} {:>6} {:>4} {} {:>6} {}{mark}",
       cell(COLS, 0, agent),
       sty.dim(&cell(COLS, 1, &last)),
       r.sessions.len(),
@@ -167,6 +185,15 @@ pub(crate) fn agents_cmd() -> ExitCode {
       corr,
       r.grants,
       r.leases,
+    );
+  }
+  if hidden > 0 && !all {
+    println!(
+      "{}",
+      sty.dim(&format!(
+        "({hidden} retired identities hidden; kum agents --all \
+         shows them)"
+      ))
     );
   }
   println!(

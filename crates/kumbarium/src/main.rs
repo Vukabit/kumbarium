@@ -114,7 +114,8 @@ pub fn run() -> ExitCode {
     ["brief", ns] => brief_cmd(ns),
     ["dossier", agent, rest @ ..] => dossier_cmd(agent, rest),
     ["dossier"] => fail("dossier needs an agent: kumbarium dossier <agent>"),
-    ["agents"] => agents_cmd(),
+    ["agents"] => agents_cmd(false),
+    ["agents", "--all"] => agents_cmd(true),
     ["agent", name] => dossier_cmd(name, &[]),
     ["agent", name, rest @ ..] => dossier_cmd(name, rest),
     ["agent"] => {

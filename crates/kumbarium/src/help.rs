@@ -589,9 +589,22 @@ const PAGE_AGENTS: &str = "\
 ## agents: the roster
 
 ```
-kum agents              every witnessed identity, at a glance
+kum agents [--all]      every witnessed identity, at a glance
 kum agent <name>        the deep story (alias for dossier)
 ```
+
+Cleanup is CURATION, never erasure: the ledger keeps every
+identity's history forever, so a stale identity is RETIRED in
+config, not deleted:
+
+```
+[agents]
+retired = \"demo, smoke, session-one\"
+```
+
+Retired identities leave the default roster and return under
+`--all`, marked. Reversible by editing config; the dossier and
+the ledger never hide anyone.
 
 Every identity that ever touched the library, derived from the
 ledger and the shelves: last seen, minted sessions, event

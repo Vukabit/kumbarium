@@ -29,6 +29,11 @@ pub struct Config {
   /// Agents whose writes always land pending, comma-separated
   /// in config.
   pub approvals_pending_agents: Vec<String>,
+  /// Identities hidden from the default roster (kum agents):
+  /// retired-not-erased, the entry-retire stance applied to
+  /// agents. History stays on the ledger; --all shows them
+  /// marked. Comma-separated in config.
+  pub agents_retired: Vec<String>,
   /// Personal command vocabulary (D-035): name -> kumbarium
   /// argv prefix. Internal-only by construction (the value is
   /// spliced as arguments, never shelled); names that would
@@ -53,6 +58,7 @@ impl Default for Config {
       leases_ttl_minutes: 120,
       approvals_default_pending: false,
       approvals_pending_agents: Vec::new(),
+      agents_retired: Vec::new(),
       aliases: Vec::new(),
     }
   }
@@ -93,6 +99,12 @@ default_limit = 8
 # old is flagged dormant (a finding for the human, never a
 # confidence penalty).
 dormant_days = 45
+
+[agents]
+# Identities hidden from the default roster: retired, never
+# erased (the ledger keeps their history; kum agents --all
+# shows them marked). For test puppets and offboarded agents.
+# retired = \"demo, smoke\"
 
 [leases]
 # A reading-room lease lives this long past its holder's last
@@ -172,6 +184,15 @@ pub fn parse(text: &str) -> (Config, Vec<String>) {
              live|pending; default kept"
           )),
         }
+        continue;
+      }
+      "agents.retired" => {
+        cfg.agents_retired = raw_value
+          .split(',')
+          .map(str::trim)
+          .filter(|a| !a.is_empty())
+          .map(str::to_string)
+          .collect();
         continue;
       }
       "approvals.pending_agents" => {

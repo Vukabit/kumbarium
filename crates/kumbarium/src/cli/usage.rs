@@ -188,8 +188,9 @@ the binder and the dossier:
   kumbarium brief <ns>                the day-one page: charter,
                                       standing facts, briefing,
                                       open matters, the stacks
-  kumbarium agents                    the roster: every witnessed
+  kumbarium agents [--all]            the roster: every witnessed
                                       identity, what it holds
+                                      (--all includes retired)
   kumbarium dossier <agent>           one agent's witnessed
        [--since D] [--until D]        story: served, wrote,
        [--session FRAG]               judged, credentials, the
