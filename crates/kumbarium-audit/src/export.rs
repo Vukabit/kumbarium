@@ -262,6 +262,23 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
         "concealed-copied secret {:?} (auto-clear)",
         s("name")?
       )),
+      "secret_exec" => Some(format!(
+        "ran {} with secret {:?} injected (output redacted)",
+        s("command")?,
+        s("name")?
+      )),
+      "secret_leakscan" => {
+        let hits = v.get("hits").and_then(|x| x.as_i64()).unwrap_or(0);
+        let scanned = v.get("scanned").and_then(|x| x.as_i64()).unwrap_or(0);
+        Some(if hits == 0 {
+          format!("leak scan clean ({scanned} secrets swept)")
+        } else {
+          format!(
+            "leak scan found {hits} EXPOSURE(S) across \
+             {scanned} secrets"
+          )
+        })
+      }
       "task_file" => {
         let mut line =
           format!("filed {} task {}", s("severity")?, short(s("id")?));

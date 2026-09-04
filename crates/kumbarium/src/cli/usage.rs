@@ -226,6 +226,11 @@ the restricted stacks:
                                       withdraw it, effective now
   kumbarium secret shred <ns> <name>  destroy the value, keep
                                       the record
+  kumbarium secret exec <ns> <name> -- cmd...
+                                      run with the value in the
+                                      env, output redacted
+  kumbarium secret leakscan [ns]      sweep shelves for exposed
+                                      secret bytes
   kumbarium secrets [ns]              names, grants, sealing;
                                       never values
 

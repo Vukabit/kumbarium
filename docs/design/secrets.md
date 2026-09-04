@@ -272,8 +272,44 @@ and if refused, ask the human for a grant.
 - No wildcard grants, no grant delegation.
 - Secrets never travel in bundles (inked forever, not just
   v1).
-- No environment injection / exec wrapper (a fine v2:
-  `kum secret exec <name> -- cmd`; out of scope now).
+- (Since promoted: the exec wrapper shipped as
+  `kum secret exec`; see the custody tools below.)
+
+## The custody tools: prevention and detection
+
+The error path is the sharpest leak channel at the custody
+terminus: a failing command echoes its credential (a curl URL
+carrying the token, a 401 header dump, a stack trace with the
+env), and that output lands in transcripts and pasted-in
+memories the broker never sees. Two tools answer it, one on
+each side:
+
+- PREVENTION: `kum secret exec <ns> <name> [--as VAR] -- cmd
+  args...` runs the command with the value injected into the
+  CHILD'S environment (never argv, never scrollback, never a
+  model context), and the child's stdout and stderr stream back
+  through a REDACTOR that owns both pipes and knows the value:
+  occurrences are replaced with `[kumbarium:redacted
+  <ns>/<name>]`, split-across-chunk occurrences included. The
+  exit code passes through; the ledger records secret_exec with
+  the command word only (argv tails can carry fragments better
+  left off the ledger), witnessed before the value moves. This
+  is the human-invoked, tension-free half of use-not-see; the
+  agent-facing half stays deferred.
+- DETECTION: `kum secret leakscan [ns]` unseals every live
+  secret in-process and sweeps memories, tasks, briefings, and
+  ledger details for the bytes, reporting shelf + row id only,
+  never content. Witnessed as secret_leakscan (scanned/hits
+  counts, value-free by shape). Exit 1 on any exposure, so the
+  scan can gate. Values shorter than 8 bytes are skipped, said
+  out loud (they sweep everything and mean nothing). Exported
+  files on disk are not swept, also said out loud.
+
+The honest limit stands: an agent that SAW a value via
+secret_read can leak it in prose to a client transcript outside
+these walls. Redaction at the exec boundary plus detection on
+our own shelves is everything enforceable from here; the rest
+is the snippet's teaching.
 
 ## Testing shape (when built)
 

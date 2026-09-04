@@ -33,6 +33,13 @@ the restricted stacks: witnessed credential custody
   kumbarium secret revoke <ns> <name> <agent>  withdraw it
   kumbarium secret shred <ns> <name>   destroy the value, keep
                                        the record
+  kumbarium secret exec <ns> <name> [--as VAR] -- cmd args...
+                                       run cmd with the value in
+                                       its env; stdout/stderr
+                                       stream back REDACTED
+  kumbarium secret leakscan [ns]       sweep every shelf for
+                                       exposed secret bytes;
+                                       exit 1 on any hit
   kumbarium secrets [ns]               names, grants, sealing;
                                        never values";
 
@@ -44,6 +51,9 @@ pub(crate) fn secret_cmd(rest: &[&str]) -> ExitCode {
     ["grant", ns, name, agent, flags @ ..] => grant_cmd(ns, name, agent, flags),
     ["revoke", ns, name, agent] => revoke_cmd(ns, name, agent),
     ["shred", ns, name] => shred_cmd(ns, name),
+    ["exec", ns, name, rest @ ..] => exec_cmd(ns, name, rest),
+    ["leakscan"] => leakscan_cmd(None),
+    ["leakscan", ns] => leakscan_cmd(Some(ns)),
     [] => {
       let sty = style::Style::detect();
       println!("{}", paint_cli_page(SECRETS_USAGE, &sty));
@@ -895,9 +905,406 @@ pub(crate) fn secret_history_cmd(
   ExitCode::SUCCESS
 }
 
+/// The env-var name a secret injects as by default:
+/// `crates-io-token` becomes `CRATES_IO_TOKEN`.
+fn env_name(name: &str) -> String {
+  let mut var: String = name
+    .chars()
+    .map(|c| {
+      if c.is_ascii_alphanumeric() {
+        c.to_ascii_uppercase()
+      } else {
+        '_'
+      }
+    })
+    .collect();
+  if var.starts_with(|c: char| c.is_ascii_digit()) {
+    var.insert(0, '_');
+  }
+  var
+}
+
+/// Copy `reader` to `writer`, replacing every occurrence of
+/// `needle` with `mask`. Holds back needle.len()-1 bytes across
+/// chunk boundaries so a value split between two reads still
+/// dies; the tail flushes at EOF.
+fn redact_stream(
+  mut reader: impl std::io::Read,
+  mut writer: impl std::io::Write,
+  needle: &[u8],
+  mask: &[u8],
+) -> std::io::Result<()> {
+  let find = |hay: &[u8]| hay.windows(needle.len()).position(|w| w == needle);
+  let keep = needle.len().saturating_sub(1);
+  let mut held: Vec<u8> = Vec::new();
+  let mut chunk = [0u8; 8192];
+  loop {
+    let n = reader.read(&mut chunk)?;
+    let eof = n == 0;
+    held.extend_from_slice(&chunk[..n]);
+    while let Some(pos) = find(&held) {
+      writer.write_all(&held[..pos])?;
+      writer.write_all(mask)?;
+      held.drain(..pos + needle.len());
+    }
+    if eof {
+      writer.write_all(&held)?;
+      return writer.flush();
+    }
+    if held.len() > keep {
+      let flush = held.len() - keep;
+      writer.write_all(&held[..flush])?;
+      held.drain(..flush);
+    }
+    writer.flush()?;
+  }
+}
+
+/// `kum secret exec <ns> <name> [--as VAR] -- cmd args...`:
+/// the value goes into the child's ENVIRONMENT (never argv,
+/// never this process's stdout), and the child's stdout and
+/// stderr stream back through the redactor, so a failing
+/// command that echoes its credential (a curl URL, a 401
+/// header dump, a stack trace) prints a mask instead. The
+/// agent-facing use-not-see tension stays deferred: this is
+/// the human-invoked half.
+fn exec_cmd(ns: &str, name: &str, rest: &[&str]) -> ExitCode {
+  let mut var: Option<String> = None;
+  let mut i = 0;
+  while i < rest.len() {
+    match rest[i] {
+      "--as" => match rest.get(i + 1) {
+        Some(v) => {
+          var = Some((*v).to_string());
+          i += 2;
+        }
+        None => return fail("--as needs a variable name"),
+      },
+      "--" => {
+        i += 1;
+        break;
+      }
+      other => {
+        return fail(&format!(
+          "unexpected {other:?}; secret exec needs `--` before \
+           the command"
+        ));
+      }
+    }
+  }
+  let cmd = &rest[i..];
+  if cmd.is_empty() {
+    return fail("no command after `--`");
+  }
+  let var = var.unwrap_or_else(|| env_name(name));
+  if var.is_empty()
+    || var.starts_with(|c: char| c.is_ascii_digit())
+    || !var.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+  {
+    return fail(&format!("invalid env var name {var:?}"));
+  }
+  let (_, mut state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let ns = kumbarium_librarian::normalize_namespace(ns);
+  if let Err(e) = kumbarium_librarian::validate_namespace(&ns) {
+    return fail(&format!("invalid namespace: {e}"));
+  }
+  let key = match tools::secrets_key(&mut state) {
+    Ok(k) => k,
+    Err(e) => return fail(&e),
+  };
+  // Witness BEFORE the value moves (fail-closed, D-038). The
+  // command word is metadata worth keeping; the argv tail is
+  // not (it can carry paths and fragments better left off the
+  // ledger).
+  if let Err(e) = witness(
+    &state,
+    kumbarium_audit::EventKind::SecretExec,
+    &ns,
+    serde_json::json!({ "name": name, "command": cmd[0] }),
+  ) {
+    return fail(&e);
+  }
+  let conn = match state.secrets() {
+    Ok(c) => c,
+    Err(e) => return fail(&e),
+  };
+  let value =
+    match kumbarium_secrets::read_secret(conn, &ns, name, key.as_ref()) {
+      Ok(v) => v,
+      Err(e) => return fail(&e.to_string()),
+    };
+  let value_text = String::from_utf8_lossy(&value).to_string();
+  let mask = format!("[kumbarium:redacted {ns}/{name}]");
+  let child = std::process::Command::new(cmd[0])
+    .args(&cmd[1..])
+    .env(&var, &value_text)
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped())
+    .spawn();
+  let mut child = match child {
+    Ok(c) => c,
+    Err(e) => return fail(&format!("spawning {}: {e}", cmd[0])),
+  };
+  let out = child.stdout.take().expect("piped");
+  let err = child.stderr.take().expect("piped");
+  let needle = value_text.clone().into_bytes();
+  let mask_out = mask.clone().into_bytes();
+  let t_out = std::thread::spawn(move || {
+    let _ = redact_stream(out, std::io::stdout(), &needle, &mask_out);
+  });
+  let needle = value_text.into_bytes();
+  let mask_err = mask.into_bytes();
+  let t_err = std::thread::spawn(move || {
+    let _ = redact_stream(err, std::io::stderr(), &needle, &mask_err);
+  });
+  let status = child.wait();
+  let _ = t_out.join();
+  let _ = t_err.join();
+  match status {
+    Ok(st) => {
+      let code = st.code().unwrap_or(1).clamp(0, 255) as u8;
+      ExitCode::from(code)
+    }
+    Err(e) => fail(&format!("waiting on {}: {e}", cmd[0])),
+  }
+}
+
+/// One shelf sweep: every row whose text contains the value.
+fn scan_shelf(
+  conn: &kumbarium_secrets::Connection,
+  sql: &str,
+  value: &str,
+) -> Vec<String> {
+  let Ok(mut stmt) = conn.prepare(sql) else {
+    return Vec::new();
+  };
+  stmt
+    .query_map([value], |row| row.get::<_, String>(0))
+    .map(|rows| rows.flatten().collect())
+    .unwrap_or_default()
+}
+
+/// Sweep the shelves and the ledger for one secret's bytes.
+/// Returns (shelf label, row id) per exposure; the content
+/// itself never surfaces.
+fn scan_for_value(
+  state: &mut tools::ServerState,
+  value: &str,
+) -> Vec<(&'static str, String)> {
+  let mut hits: Vec<(&'static str, String)> = Vec::new();
+  for id in scan_shelf(
+    &state.library,
+    "SELECT id FROM entries WHERE instr(content, ?1) > 0",
+    value,
+  ) {
+    hits.push(("memory", id));
+  }
+  if let Ok(conn) = state.docket() {
+    for id in scan_shelf(
+      conn,
+      "SELECT id FROM tasks WHERE instr(content, ?1) > 0",
+      value,
+    ) {
+      hits.push(("docket", id));
+    }
+  }
+  if let Ok(conn) = state.handoff() {
+    for id in scan_shelf(
+      conn,
+      "SELECT id FROM handoffs WHERE instr(content, ?1) > 0",
+      value,
+    ) {
+      hits.push(("handoff", id));
+    }
+  }
+  for id in scan_shelf(
+    &state.audit,
+    "SELECT id FROM events WHERE instr(detail, ?1) > 0",
+    value,
+  ) {
+    hits.push(("ledger", id));
+  }
+  hits
+}
+
+/// Values shorter than this sweep everything and mean nothing.
+const LEAKSCAN_MIN: usize = 8;
+
+/// `kum secret leakscan [ns]`: unseal every live secret in
+/// process and sweep memories, tasks, briefings, and ledger
+/// details for its bytes. Detection for the custody terminus:
+/// what left the broker's hands and landed where it must never
+/// rest. Exit 1 on any exposure, so the scan can gate.
+fn leakscan_cmd(ns: Option<&str>) -> ExitCode {
+  let (p, mut state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  if !p.secrets_db.exists() {
+    println!("nothing stocked, nothing to sweep");
+    return ExitCode::SUCCESS;
+  }
+  let ns = match ns {
+    Some(raw) => {
+      let n = kumbarium_librarian::normalize_namespace(raw);
+      if let Err(e) = kumbarium_librarian::validate_namespace(&n) {
+        return fail(&format!("invalid namespace: {e}"));
+      }
+      Some(n)
+    }
+    None => None,
+  };
+  let key = match tools::secrets_key(&mut state) {
+    Ok(k) => k,
+    Err(e) => return fail(&e),
+  };
+  let rows = {
+    let conn = match state.secrets() {
+      Ok(c) => c,
+      Err(e) => return fail(&e),
+    };
+    match kumbarium_secrets::list(conn, ns.as_deref()) {
+      Ok(r) => r,
+      Err(e) => return fail(&e.to_string()),
+    }
+  };
+  let mut scanned = 0i64;
+  let mut exposures = 0i64;
+  for m in &rows {
+    let value = {
+      let conn = match state.secrets() {
+        Ok(c) => c,
+        Err(e) => return fail(&e),
+      };
+      match kumbarium_secrets::read_secret(
+        conn,
+        &m.namespace,
+        &m.name,
+        key.as_ref(),
+      ) {
+        Ok(v) => v,
+        Err(e) => return fail(&e.to_string()),
+      }
+    };
+    if value.len() < LEAKSCAN_MIN {
+      println!(
+        "{}/{}: skipped (value shorter than {LEAKSCAN_MIN} \
+         bytes sweeps everything and means nothing)",
+        m.namespace, m.name
+      );
+      continue;
+    }
+    scanned += 1;
+    let text = String::from_utf8_lossy(&value).to_string();
+    let hits = scan_for_value(&mut state, &text);
+    if hits.is_empty() {
+      println!("{}/{}: clean", m.namespace, m.name);
+    } else {
+      exposures += hits.len() as i64;
+      for (shelf, id) in &hits {
+        println!(
+          "{}/{}: {} on the {shelf} shelf ({}); scrub it \
+           (forget / shred the row), then rotate the credential",
+          m.namespace,
+          m.name,
+          sty.red("EXPOSED"),
+          &id[id.len().saturating_sub(8)..]
+        );
+      }
+    }
+  }
+  println!(
+    "{}",
+    sty.dim(
+      "swept memories, tasks, briefings, ledger details; \
+       exported files on disk are not swept"
+    )
+  );
+  if let Err(e) = witness(
+    &state,
+    kumbarium_audit::EventKind::SecretLeakscan,
+    ns.as_deref().unwrap_or(""),
+    serde_json::json!({ "scanned": scanned, "hits": exposures }),
+  ) {
+    return fail(&format!("swept, but {e}"));
+  }
+  if exposures > 0 {
+    eprintln!("kumbarium: {exposures} exposure(s) found");
+    return ExitCode::FAILURE;
+  }
+  ExitCode::SUCCESS
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn redactor_kills_values_split_across_chunks() {
+    // A reader that yields one byte at a time forces the value
+    // across every chunk boundary there is.
+    struct OneByte<'a>(&'a [u8], usize);
+    impl std::io::Read for OneByte<'_> {
+      fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.1 >= self.0.len() {
+          return Ok(0);
+        }
+        buf[0] = self.0[self.1];
+        self.1 += 1;
+        Ok(1)
+      }
+    }
+    let input = b"error: auth failed for token=tok-swordfish-9 (twice: \
+tok-swordfish-9), retrying";
+    let mut out = Vec::new();
+    redact_stream(
+      OneByte(input, 0),
+      &mut out,
+      b"tok-swordfish-9",
+      b"[redacted]",
+    )
+    .unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert!(!text.contains("swordfish"), "{text}");
+    assert_eq!(text.matches("[redacted]").count(), 2);
+    assert!(text.ends_with("retrying"));
+  }
+
+  #[test]
+  fn env_names_derive_mechanically() {
+    assert_eq!(env_name("crates-io-token"), "CRATES_IO_TOKEN");
+    assert_eq!(env_name("2fa.seed"), "_2FA_SEED");
+  }
+
+  #[test]
+  fn leakscan_finds_planted_bytes_and_never_flags_clean_shelves() {
+    let mut state = tools::ServerState::in_memory();
+    let planted = "vk-vantrike-0441-leak";
+    {
+      let conn = state.docket().unwrap();
+      kumbarium_docket::file_task(
+        conn,
+        &kumbarium_docket::NewTask {
+          namespace: "project/x".into(),
+          content: format!("use {planted} for the deploy"),
+          agent_id: "unit-test".into(),
+          source: "unit-test".into(),
+          severity: kumbarium_docket::Severity::Normal,
+          goal: None,
+          status: kumbarium_docket::Status::Live,
+        },
+      )
+      .unwrap();
+    }
+    let hits = scan_for_value(&mut state, planted);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].0, "docket");
+    assert!(scan_for_value(&mut state, "never-written-anywhere").is_empty());
+  }
 
   #[test]
   fn rotation_matter_files_once_then_regrades() {

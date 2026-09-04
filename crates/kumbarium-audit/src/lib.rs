@@ -53,6 +53,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     "0004_secret_kinds",
     include_str!("../migrations/0004_secret_kinds.sql"),
   ),
+  (
+    5,
+    "0005_custody_kinds",
+    include_str!("../migrations/0005_custody_kinds.sql"),
+  ),
 ];
 
 /// The version pre-squash ledgers sit at: their schema is
@@ -97,6 +102,8 @@ pub enum EventKind {
   SecretRevoke,
   SecretShred,
   SecretCopy,
+  SecretExec,
+  SecretLeakscan,
 }
 
 impl EventKind {
@@ -126,6 +133,8 @@ impl EventKind {
       EventKind::SecretRevoke => "secret_revoke",
       EventKind::SecretShred => "secret_shred",
       EventKind::SecretCopy => "secret_copy",
+      EventKind::SecretExec => "secret_exec",
+      EventKind::SecretLeakscan => "secret_leakscan",
     }
   }
 }

@@ -415,8 +415,24 @@ kum secret grant <ns> <name> <agent> [--until DATE]
                                 allow secret_read (leased)
 kum secret revoke <ns> <name> <agent>   withdraw, effective now
 kum secret shred <ns> <name>    destroy the value, keep record
+kum secret exec <ns> <name> [--as VAR] -- cmd args...
+                                run with the value injected
+kum secret leakscan [ns]        sweep shelves for exposures
 kum secrets [ns]                names + grants, never values
 ```
+
+The custody tools. `exec` puts the value in the COMMAND'S
+environment (never argv, never your scrollback, never a model
+context) and streams the command's output back through a
+redactor: a failing curl that echoes its token prints
+`[kumbarium:redacted ...]` instead. The variable name derives
+from the secret's name (`crates-io-token` injects as
+`CRATES_IO_TOKEN`; override with `--as VAR`), and the exit
+code passes through. `leakscan` is the other half, detection:
+it unseals every live secret in-process and sweeps memories,
+tasks, briefings, and ledger details for the bytes, reporting
+row ids only, never content. Exit 1 on any exposure, so it
+can gate.
 
 Two expiries, deliberately different. A GRANT LEASE
 (`--until DATE`) is enforced: every read re-checks, so the
