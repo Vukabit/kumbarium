@@ -46,12 +46,44 @@ the restricted stacks: witnessed credential custody
 pub(crate) fn secret_cmd(rest: &[&str]) -> ExitCode {
   match rest {
     ["set", ns, name, flags @ ..] => set_cmd(ns, name, flags),
+    ["set", ..] => fail("secret set needs <ns> <name>"),
+    // Retrieval verbs take a bare unique name (resolve-or-
+    // refuse, like id fragments); write verbs never do (the
+    // full address is deliberate friction on writes).
     ["read", ns, name] => read_cmd(ns, name),
+    ["read", name] => match resolve_unique_name(name) {
+      Ok((ns, name)) => read_cmd(&ns, &name),
+      Err(e) => fail(&e),
+    },
+    ["read", ..] => fail("secret read needs <ns> <name> (or a unique name)"),
     ["copy", ns, name] => copy_cmd(ns, name),
+    ["copy", name] => match resolve_unique_name(name) {
+      Ok((ns, name)) => copy_cmd(&ns, &name),
+      Err(e) => fail(&e),
+    },
+    ["copy", ..] => fail("secret copy needs <ns> <name> (or a unique name)"),
     ["grant", ns, name, agent, flags @ ..] => grant_cmd(ns, name, agent, flags),
+    ["grant", ..] => {
+      fail("secret grant needs <ns> <name> <agent> [--until DATE]")
+    }
     ["revoke", ns, name, agent] => revoke_cmd(ns, name, agent),
+    ["revoke", ..] => fail("secret revoke needs <ns> <name> <agent>"),
     ["shred", ns, name] => shred_cmd(ns, name),
+    ["shred", ..] => fail("secret shred needs <ns> <name>"),
+    // exec: one positional before the flags is a bare name,
+    // two are ns + name.
+    ["exec", name, rest @ ..]
+      if rest.first().is_some_and(|w| *w == "--" || *w == "--as") =>
+    {
+      match resolve_unique_name(name) {
+        Ok((ns, name)) => exec_cmd(&ns, &name, rest),
+        Err(e) => fail(&e),
+      }
+    }
     ["exec", ns, name, rest @ ..] => exec_cmd(ns, name, rest),
+    ["exec", ..] => {
+      fail("secret exec needs <ns> <name> [--as VAR] -- cmd args...")
+    }
     ["leakscan"] => leakscan_cmd(None),
     ["leakscan", ns] => leakscan_cmd(Some(ns)),
     [] => {
@@ -59,7 +91,32 @@ pub(crate) fn secret_cmd(rest: &[&str]) -> ExitCode {
       println!("{}", paint_cli_page(SECRETS_USAGE, &sty));
       ExitCode::SUCCESS
     }
-    _ => fail("unrecognized secret command; the map: kum secret"),
+    [verb, ..] => {
+      fail(&format!("no secret verb {verb:?}; the map: kum secret"))
+    }
+  }
+}
+
+/// Resolve a bare name to its shelf: exactly one live secret
+/// bears it, or the answer is a refusal that lists the
+/// candidates (never a guess, same stance as ambiguous ids).
+fn resolve_unique_name(name: &str) -> Result<(String, String), String> {
+  let (_, mut state) = open_stores()?;
+  let conn = state.secrets()?;
+  let rows = kumbarium_secrets::list(conn, None).map_err(|e| e.to_string())?;
+  let matches: Vec<_> = rows.iter().filter(|m| m.name == name).collect();
+  match matches.as_slice() {
+    [] => Err(format!("no live secret named {name:?} on any shelf")),
+    [one] => Ok((one.namespace.clone(), one.name.clone())),
+    many => Err(format!(
+      "{name:?} lives on {} shelves ({}); name the namespace",
+      many.len(),
+      many
+        .iter()
+        .map(|m| m.namespace.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+    )),
   }
 }
 
