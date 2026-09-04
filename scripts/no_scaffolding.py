@@ -5,9 +5,8 @@
 review scaffolding or unfinished stubs; none should ship in a library's
 non-test code. This scans `crates/*/src/**.rs` and flags them, using the
 tests-last convention to skip the `#[cfg(test)]` region (where a `println!`
-in a test is fine). CLI crates (`xtask`) and `examples/` are out of scope
-by construction: `src/` excludes `examples/`, and this scans `crates/`
-only, not `xtask`, where progress prints are legitimate.
+in a test is fine). Only `crates/*/src` is scanned; scripts and
+`tests/` may print freely.
 
 Exit 0 clean, 1 on any hit, 2 on a usage error.
 

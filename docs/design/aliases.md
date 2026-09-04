@@ -17,7 +17,8 @@ args, dispatch once.
 
 1. INTERNAL-ONLY, never shell. An alias expands to a kumbarium
    argv prefix and nothing else; there is no `!` form. This is
-   the write-path rule applied again: config.toml is writable
+   the standing rule that config never supplies executables:
+   config.toml is writable
    by anything running as the user, a compromised agent
    included, and the moment config can reach the shell, every
    writer of that file becomes a code-execution principal. With

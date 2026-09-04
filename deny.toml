@@ -24,8 +24,8 @@ allow = [
   "0BSD",
 ]
 # Per-crate overrides after review (an ambiguous SPDX field or a
-# deliberately-accepted weak-copyleft dep). MPL-2.0 example from
-# [redacted]'s precedent: option-ext (transitive via directories ->
+# deliberately-accepted weak-copyleft dep). MPL-2.0 example:
+# option-ext (transitive via directories ->
 # dirs-sys) is a tiny helper used UNMODIFIED, so MPL file-level
 # copyleft never reaches this code (MPL-2.0 sec 3.3). Scoped to
 # the one crate, never a blanket allow.

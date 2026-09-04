@@ -5,7 +5,7 @@
 goal (it won't split some long strings / paths). This gate is the HARD
 80-column enforcer across every text file under the repo, `.rs` included
 (display width, not just rustfmt's soft pass) plus `.md`, `.toml`, `.py`,
-`.wgsl`, and the rest, because the project's rule is an 80-column max
+and the rest, because the project's rule is an 80-column max
 width on every file under the repo, measured in DISPLAY COLUMNS.
 
 Width is DISPLAY columns: East-Asian wide / fullwidth code points count 2,
@@ -18,11 +18,11 @@ EXEMPTIONS (never linted; reformatting them is wrong):
     ignored: the gitignored per-developer config + internal design docs,
     ...), matching CI, which only ever sees committed + trackable
     content. Pass an explicit PATH to lint a file regardless of git status.
-  - Byte-exact data directories: `assets/` (vendored fonts / SVGs /
-    license text, provenance-hashed), `testdata/` (KAT / reference
-    vectors), and `proptest-regressions/` (proptest's generated failure-
-    seed corpus). All must stay byte-exact; wrapping their long data lines
-    is wrong, and none is prose/source the 80-column rule is meant for.
+  - Byte-exact data directories: `assets/`, `testdata/`, and
+    `proptest-regressions/` (generated failure-seed corpora, reference
+    vectors, vendored data). All must stay byte-exact; wrapping their
+    long data lines is wrong, and none is prose/source the 80-column
+    rule is meant for.
   - Machine-generated files (a leading `// @generated` / `# @generated`
     marker, or a name matching a GENERATED_NAMES entry). Regenerate them;
     do not hand-wrap.
@@ -44,12 +44,12 @@ import unicodedata
 MAX_WIDTH = 80
 
 # Directory names pruned entirely from the walk.
-SKIP_DIRS = {".git", "target", "node_modules", ".vendor", "vendor"}
+SKIP_DIRS = {".git", "target", ".vendor", "vendor"}
 
 # Text extensions we lint. Anything else is treated as binary / opaque and
 # skipped (a font, an image, a lockfile-style blob).
 TEXT_EXTS = {
-  ".rs", ".md", ".toml", ".py", ".wgsl", ".sh", ".yml", ".yaml",
+  ".rs", ".md", ".toml", ".py", ".sh", ".yml", ".yaml",
   ".txt", ".json", ".cfg", ".ron", ".css", ".html",
 }
 

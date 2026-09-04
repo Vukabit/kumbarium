@@ -98,7 +98,8 @@ Namespace stored as the validated PATH, gate-checked. Rows:
   writes in v1), superseded_by, note, created_at, updated_at.
 - grants: (namespace, name, agent_id, mode, expires_at NULL,
   created_at), managed and witnessed; deny by default; mode is
-  'reveal' in v1 with 'use' reserved (see the custody conviction); expires_at is the lease column, enforced at
+  'reveal' in v1 with 'use' reserved (see the custody
+  conviction); expires_at is the lease column, enforced at
   read time from v1.5; no wildcard agents in v1 (a wildcard is
   a decision someone should have to type out per-secret at the
   daemon tier, not before).

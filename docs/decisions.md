@@ -81,8 +81,8 @@ later earn their place.
 
 Permissive licenses only (deny.toml enforces) AND as few deps as
 possible: prefer building our own code; supply-chain attacks are
-rising. The standing stance: vendor exactly what
-we need, nothing more. Weighs directly on the MCP SDK choice
+rising. The standing stance: vendor exactly what we need,
+nothing more. Weighs directly on the MCP SDK choice
 (D-009): hand-rolling the stdio JSON-RPC transport is on the
 table.
 
@@ -458,8 +458,8 @@ Config aliases land (docs/design/aliases.md, built as designed):
 expanded once at dispatch. The three rules are load-bearing:
 internal-only with no shell form EVER (anything running as the
 user can write config.toml, a compromised agent included; the
-write-path rule applied again, so a poisoned alias can only
-invoke a kumbarium command the attacker could already run,
+no-config-supplied-executables rule, so a poisoned alias can
+only invoke a kumbarium command the attacker could already run,
 witnessed as itself, and the ledger never sees the nickname);
 builtins and reserved roadmap words refused at parse so the
 documented surface is unforgeable; one expansion so chains
