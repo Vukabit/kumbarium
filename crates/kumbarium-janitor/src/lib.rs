@@ -199,9 +199,10 @@ pub fn pass(
     .collect();
 
   let mut evidence: HashMap<String, Evidence> = HashMap::new();
-  // Every recall of every id, ms-stamped, for the pogo check
-  // (the id may be dead by now; that is the point).
-  let mut recalled_at: HashMap<String, Vec<i64>> = HashMap::new();
+  // Every recall of every id, ms-stamped with its asker, for
+  // the pogo check (the id may be dead by now; that is the
+  // point).
+  let mut recalled_at: HashMap<String, Vec<(i64, String)>> = HashMap::new();
   let mut report = Report::default();
   for ev in events {
     let Ok(detail) = serde_json::from_str::<serde_json::Value>(&ev.detail)
@@ -223,7 +224,10 @@ pub fn pass(
           e.agents.insert(ev.agent_id.clone());
           e.agent_days.insert((ev.agent_id.clone(), day.clone()));
           if let Some(ms) = at_ms {
-            recalled_at.entry(id.to_string()).or_default().push(ms);
+            recalled_at
+              .entry(id.to_string())
+              .or_default()
+              .push((ms, ev.agent_id.clone()));
           }
         }
       }
@@ -258,11 +262,21 @@ pub fn pass(
         let Some(sup_ms) = kumbarium_util::parse_iso8601_ms(&ev.at) else {
           continue;
         };
+        // Only a CROSS-AGENT serve counts: the same agent
+        // recalling and then superseding is the instructed
+        // correction ritual (recall the stale entry, supersede
+        // the id it returned), not the library misfiring.
+        // Agent A served, agent B corrected: that fact
+        // circulated wrong.
         let served_recently = recalled_at.get(old_id).and_then(|times| {
           times
             .iter()
-            .filter(|t| **t <= sup_ms && sup_ms - **t <= POGO_WINDOW_MS)
-            .map(|t| sup_ms - *t)
+            .filter(|(t, agent)| {
+              *t <= sup_ms
+                && sup_ms - *t <= POGO_WINDOW_MS
+                && *agent != ev.agent_id
+            })
+            .map(|(t, _)| sup_ms - *t)
             .min()
         });
         if let Some(gap) = served_recently {
@@ -674,7 +688,7 @@ mod tests {
     let sup = format!("{{\"old_id\":\"{id}\",\"new_id\":\"n1\"}}");
     let events = vec![
       event("recall", "a1", "2026-09-01T10:00:00.000Z", &recall),
-      event("supersede", "a1", "2026-09-01T13:00:00.000Z", &sup),
+      event("supersede", "a2", "2026-09-01T13:00:00.000Z", &sup),
     ];
     let report = pass(
       &conn,
@@ -687,10 +701,25 @@ mod tests {
     assert_eq!(report.pogo.len(), 1);
     assert_eq!(report.pogo[0].id, id);
     assert_eq!(report.pogo[0].gap_hours, 3);
-    // A cold correction (days later) is not pogo.
+    // The same agent recalling then superseding is the
+    // instructed correction ritual, never pogo.
+    let ritual = vec![
+      event("recall", "a1", "2026-09-01T10:00:00.000Z", &recall),
+      event("supersede", "a1", "2026-09-01T13:00:00.000Z", &sup),
+    ];
+    let report = pass(
+      &conn,
+      &ritual,
+      &Shelves::default(),
+      45,
+      kumbarium_util::now_ms(),
+    )
+    .unwrap();
+    assert!(report.pogo.is_empty());
+    // A cold correction (days later) is not pogo either.
     let cold = vec![
       event("recall", "a1", "2026-09-01T10:00:00.000Z", &recall),
-      event("supersede", "a1", "2026-09-08T10:00:00.000Z", &sup),
+      event("supersede", "a2", "2026-09-08T10:00:00.000Z", &sup),
     ];
     let report = pass(
       &conn,

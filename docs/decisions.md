@@ -566,10 +566,12 @@ caveat), as + 0.05 * l / (l + 2). The 0.95 ceiling is doctrine
 from demoting confirms 0.15 -> 0.10; the survival backbone
 (0.30) never moves. Garnish rebalances, backbones do not.
 Second, the WATCHDOG findings, all advisory and write-free:
-served-then-corrected (a supersede within 48h of a recall that
-returned the old version means the library actively served a
-wrong fact; the negative evidence already lies on the dead
-version, so the finding informs rather than punishes),
+served-then-corrected (a CROSS-AGENT supersede within 48h of a
+recall that returned the old version means the library actively
+served a wrong fact; same-agent recall-then-supersede is the
+instructed correction ritual and never counts; the negative
+evidence already lies on the dead version, so the finding
+informs rather than punishes),
 creeping matters (a goal moved later twice or more across its
 chain; pulled-in goals are not slips), UNWITNESSED GRANTS (a
 grants row with no matching ledger event arrived around the

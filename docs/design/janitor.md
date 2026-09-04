@@ -118,7 +118,11 @@ else; the janitor never retires, never revokes, never closes.
   Retire candidates for the human.
 - served-then-corrected (pogo): entry id, scope, and the gap in
   hours between the serving recall and the correcting
-  supersede.
+  supersede. CROSS-AGENT only: the same agent recalling then
+  superseding is the instructed correction ritual (recall the
+  stale entry, supersede the id it returned), so it never
+  counts; agent A served, agent B corrected is the library
+  circulating a wrong fact.
 - creeping matters: an open docket matter whose goal moved
   LATER two or more times across its chain (the CLI walks the
   chain, the janitor counts the slips). A pulled-in goal is not

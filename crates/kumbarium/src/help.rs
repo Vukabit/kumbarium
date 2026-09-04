@@ -653,7 +653,8 @@ The watchdog findings, advisory and write-free:
 - expired credentials still stocked: rotation owed.
 - creeping matters: a goal that moved later twice or more.
 - served-then-corrected: a fact superseded within 48h of a
-  recall that served it; circulation misfired there.
+  DIFFERENT agent's recall that served it (same-agent is the
+  correction ritual); circulation misfired there.
 
 Confidence informs recall output, it never ranks or filters it
 (D-026). Applying writes each entry's new number plus a stored
