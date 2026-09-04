@@ -169,8 +169,9 @@ Two different things, deliberately separated:
   expiring credential is a docket matter with a goal date, and
   D-037's creep machinery already interrupts sessions for
   overdue goals. The broker knows the date; the docket does
-  the reminding; the janitor gains an "expired credential
-  still stocked" finding in v2. The composition is automatic:
+  the reminding; the janitor's watchdog
+  surfaces "expired credential still stocked" findings. The
+  composition is automatic:
   `set --expires` files the rotation matter itself, keyed by
   the mechanical source `secret:<ns>/<name>` so each secret
   holds at most one open matter (a moved expiry re-grades the

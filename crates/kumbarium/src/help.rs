@@ -620,31 +620,46 @@ shows who promoted.
 ";
 
 const PAGE_JANITOR: &str = "\
-## janitor: the confidence pass
+## janitor: the confidence pass and the watchdog
 
 ```
-kum janitor           preview proposed changes
-kum janitor --apply   sign off and write them
+kum janitor           preview proposed changes + findings
+kum janitor --apply   sign off and write the changes
 ```
 
 The janitor is the only mover of the confidence number. It is
-pure ledger math (D-025), no LLM: every live entry is
+pure ledger math (D-025, D-040), no LLM: every live entry is
 recomputed from the full audit log, so reruns are idempotent.
 
 - survival is the backbone: distinct agent-day exposures via
   recall, never corrected (asymptote 0.80).
 - confirms are garnish: weighted evidence, self-confirms
-  discounted to a quarter (ceiling 0.95; nothing inside the
-  library can prove a fact was applied, so nothing reaches 1.0).
-- no exposure keeps the 0.50 neutral prior. Entries older than
-  `janitor.dormant_days` (config, default 45) that were never
-  recalled are listed as dormant: retire candidates for YOUR
-  judgment; the janitor never retires.
+  discounted to a quarter.
+- link authority is garnish too: ledger link events vote for
+  the linked-to entry, cross-agent votes full, self-links a
+  tenth (ceiling 0.95 held; nothing inside the library can
+  prove a fact was applied, so nothing reaches 1.0).
+- no exposure keeps the 0.50 neutral prior. Never-recalled
+  entries older than their KIND'S window go dormant:
+  project_state at half of `janitor.dormant_days` (default
+  45), decisions at 1x, references 2x, preferences 4x. Retire
+  candidates for YOUR judgment; the janitor never retires.
+
+The watchdog findings, advisory and write-free:
+
+- UNWITNESSED GRANTS (first, in red): a secrets grant with no
+  ledger event arrived around the librarian; treat as
+  tampering until explained. Revoke (witnessed), then rotate.
+- expired credentials still stocked: rotation owed.
+- creeping matters: a goal that moved later twice or more.
+- served-then-corrected: a fact superseded within 48h of a
+  recall that served it; circulation misfired there.
 
 Confidence informs recall output, it never ranks or filters it
 (D-026). Applying writes each entry's new number plus a stored
 basis line (shown by recall and `kum show`), and witnesses one
-batch janitor event carrying the full change manifest.
+batch janitor event carrying the full change manifest and the
+finding counts.
 ";
 
 const PAGE_GREP: &str = "\

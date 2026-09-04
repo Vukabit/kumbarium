@@ -1,4 +1,4 @@
-# Janitor design (v1: the confidence pass)
+# Janitor design (the confidence pass and the watchdog)
 
 The janitor is the designated mover of the confidence number
 (D-004: writers never self-assess; confirm is evidence, never
@@ -78,24 +78,30 @@ the shabby ones. This also keeps survival statistics honest:
 exposure stays driven by what agents ask, not by what the
 janitor previously concluded.
 
-## Search-engine lessons (v2 signal inputs)
+## Search-engine lessons (the v2 signals, shipped)
 
 Kumbarium's dual scoring already mirrors the core web-search
 split (query-dependent relevance vs query-independent
 authority), and survival is the "long click" (used without
-bouncing back). Three more signals map cleanly and are banked
-for the v2 pass, all deterministic and provenance-weighted:
+bouncing back). Three more signals mapped cleanly and shipped
+in v2, all deterministic and provenance-weighted:
 
-- link authority: inlink degree over entry_links as votes,
-  weighted by WHO linked (cross-agent inlinks high, self-links
-  near zero, the PageRank caveat solved by provenance).
-- pogo-sticking: a supersede landing shortly after a recall of
-  the same entry is stronger negative evidence than a cold
-  correction; the library actively served a wrong fact. Both
-  events are timestamped, so time-proximity weighting is free.
-- kind-deserves-freshness: dormancy curves per kind
-  (project_state rots in weeks, preferences are near-immortal,
-  decisions between) instead of one flat dormant_days.
+- LINK AUTHORITY joined the formula (D-040): inlinks counted
+  from the ledger's link events as votes for the LINKED-TO
+  entry, weighted by who cast them (cross-agent 1.0, a
+  self-link 0.1: the PageRank caveat solved by provenance).
+  Term: + 0.05 * l / (l + 2). To hold the 0.95 ceiling, the
+  confirm weight demoted 0.15 -> 0.10; the survival backbone
+  (0.30) never moves.
+- POGO-STICKING is a finding, not a penalty: a supersede
+  landing within 48h of a recall that returned the old version
+  means the library ACTIVELY served a wrong fact, stronger
+  signal than a cold correction. The negative evidence already
+  lands on the dead version by definition; the finding tells
+  the human where circulation misfired.
+- KIND-DESERVES-FRESHNESS: the dormancy window is per kind, as
+  multiples of the one config knob: project_state 1/2x,
+  decision 1x, reference 2x, preference 4x of dormant_days.
 
 The disanalogy is the advantage: search ranks an adversarial
 open web with opaque models because it must; the janitor ranks
@@ -104,10 +110,33 @@ deterministic, explainable, and auditable.
 
 ## Findings (advisory, zero writes)
 
-- dormant: live, older than `janitor_dormant_days` (config,
-  default 45), never returned by any recall. Listed as retire
-  candidates for the human; the janitor never retires (retire
-  is human-only, settled with D-retire).
+The pass proposes confidence changes and REPORTS everything
+else; the janitor never retires, never revokes, never closes.
+
+- dormant: live, older than its kind's window (see
+  kind-deserves-freshness), never returned by any recall.
+  Retire candidates for the human.
+- served-then-corrected (pogo): entry id, scope, and the gap in
+  hours between the serving recall and the correcting
+  supersede.
+- creeping matters: an open docket matter whose goal moved
+  LATER two or more times across its chain (the CLI walks the
+  chain, the janitor counts the slips). A pulled-in goal is not
+  a slip.
+- UNWITNESSED GRANTS, the tamper shape and the sharpest
+  finding: a row in the secrets grants table with no matching
+  secret_grant event on the ledger arrived around the
+  librarian (direct sqlite is the obvious path). Rendered
+  first, in red, with the remediation (witnessed revoke, then
+  rotate). This is the watchdog the witness always implied:
+  the tables claim what the ledger never saw.
+- expired credentials still stocked: a live secret whose
+  value-expiry metadata has passed; rotation owed.
+
+The shelf inputs (goal chains, grant rows, expiry metadata;
+never values) are extracted by the CLI so the pass stays pure
+computation; a missing shelf is an empty input, never a
+guess.
 
 ## Surface and sign-off
 

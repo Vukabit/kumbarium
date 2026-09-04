@@ -10,7 +10,7 @@ use super::term::*;
 /// the full ledger, preview the proposals, apply only on the
 /// --apply sign-off. One batch janitor event witnesses the run.
 pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
-  let (_, state) = match open_stores() {
+  let (p, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
@@ -19,18 +19,45 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
     Ok(v) => v,
     Err(e) => return fail(&e.to_string()),
   };
+  let shelves = gather_shelves(&p, &mut state);
   let report = match kumbarium_janitor::pass(
     &state.library,
     &events,
+    &shelves,
     state.cfg.janitor_dormant_days,
     kumbarium_util::now_ms(),
   ) {
     Ok(r) => r,
     Err(e) => return fail(&e.to_string()),
   };
-  if report.proposals.is_empty() && report.dormant.is_empty() {
+  let quiet = report.proposals.is_empty()
+    && report.dormant.is_empty()
+    && report.pogo.is_empty()
+    && report.creep.is_empty()
+    && report.unwitnessed_grants.is_empty()
+    && report.expired_stock.is_empty();
+  if quiet {
     println!("janitor: no changes proposed; evidence unchanged");
     return ExitCode::SUCCESS;
+  }
+  // The tamper shape leads: everything else can wait a screen.
+  if !report.unwitnessed_grants.is_empty() {
+    println!(
+      "{}",
+      sty.red(
+        "UNWITNESSED GRANTS: rows in the grants table with no \
+         secret_grant event on the ledger. Something wrote \
+         around the librarian; treat as tampering until \
+         explained:"
+      )
+    );
+    for g in &report.unwitnessed_grants {
+      println!("  {}/{} -> {}", g.namespace, g.name, g.agent_id);
+    }
+    println!(
+      "  (kum secret revoke removes them, witnessed; then \
+       rotate the credentials involved)\n"
+    );
   }
   if !report.proposals.is_empty() {
     println!(
@@ -60,6 +87,43 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
         sty.id(&format!("{:<8}", kumbarium_store::short_id(&d.id))),
         d.namespace,
         d.age_days
+      );
+    }
+  }
+  if !report.expired_stock.is_empty() {
+    println!("\nexpired credentials still stocked; rotation owed:");
+    for e in &report.expired_stock {
+      println!(
+        "  {}/{} {}",
+        e.namespace,
+        e.name,
+        sty.red(&format!("expired {}", e.expires_at))
+      );
+    }
+  }
+  if !report.creep.is_empty() {
+    println!("\ncreeping matters (the goal moved later twice or more):");
+    for c in &report.creep {
+      println!(
+        "  {}  {:<20} {} slips, now {}",
+        sty.id(&format!("{:<8}", kumbarium_docket::short_id(&c.id))),
+        c.namespace,
+        c.slips,
+        c.goal.as_deref().unwrap_or("(no goal)")
+      );
+    }
+  }
+  if !report.pogo.is_empty() {
+    println!(
+      "\nserved-then-corrected (the library handed out a fact \
+       that was superseded within 48h):"
+    );
+    for pg in &report.pogo {
+      println!(
+        "  {}  {:<20} corrected {}h after serving",
+        sty.id(&format!("{:<8}", kumbarium_store::short_id(&pg.id))),
+        pg.scope,
+        pg.gap_hours
       );
     }
   }
@@ -93,6 +157,10 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
       "changed": report.proposals.len(),
       "dormant": report.dormant.len(),
       "dormant_days": state.cfg.janitor_dormant_days,
+      "pogo": report.pogo.len(),
+      "creep": report.creep.len(),
+      "unwitnessed_grants": report.unwitnessed_grants.len(),
+      "expired_stock": report.expired_stock.len(),
       "applied": applied,
     }),
   };
@@ -105,6 +173,54 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
     report.dormant.len()
   );
   ExitCode::SUCCESS
+}
+
+/// Extract the v2 shelf inputs (goal chains, grants, secret
+/// expiry metadata; never values) so the janitor pass stays
+/// pure computation. Missing shelves mean empty inputs.
+fn gather_shelves(
+  p: &super::super::paths::Paths,
+  state: &mut tools::ServerState,
+) -> kumbarium_janitor::Shelves {
+  let mut shelves = kumbarium_janitor::Shelves::default();
+  if p.docket_db.exists()
+    && let Ok(conn) = state.docket()
+    && let Ok(open) = kumbarium_docket::tasks_in(conn, None, false)
+  {
+    for t in open {
+      let Ok(chain) = kumbarium_docket::history(conn, &t.id) else {
+        continue;
+      };
+      shelves.goal_chains.push(kumbarium_janitor::GoalChain {
+        id: t.id.clone(),
+        namespace: t.namespace.clone(),
+        goals: chain.iter().filter_map(|v| v.goal.clone()).collect(),
+      });
+    }
+  }
+  if p.secrets_db.exists()
+    && let Ok(conn) = state.secrets()
+  {
+    if let Ok(grants) = kumbarium_secrets::grants(conn, None) {
+      for g in grants {
+        shelves.grants.push(kumbarium_janitor::GrantRow {
+          namespace: g.namespace,
+          name: g.name,
+          agent_id: g.agent_id,
+        });
+      }
+    }
+    if let Ok(live) = kumbarium_secrets::list(conn, None) {
+      for m in live {
+        shelves.secrets.push(kumbarium_janitor::SecretStock {
+          namespace: m.namespace,
+          name: m.name,
+          expires_at: m.expires_at,
+        });
+      }
+    }
+  }
+  shelves
 }
 
 /// The circulation desk's queue: pending entries, oldest first.

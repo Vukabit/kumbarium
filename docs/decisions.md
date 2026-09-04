@@ -554,3 +554,31 @@ Present/Absent/Blocked tri-state: absent substrate falls back
 loudly behind an explicit human flag, a blocked keystore
 REFUSES, because suppression is what downgrade attacks look
 like.
+
+## D-040: the janitor's second shift (2026-09-03)
+
+The v2 pass, in two moves. First, LINK AUTHORITY joins the
+confidence formula: ledger link events are votes for the
+LINKED-TO entry, weighted by who cast them (cross-agent 1.0, a
+self-link 0.1: provenance defuses the vote-for-yourself
+caveat), as + 0.05 * l / (l + 2). The 0.95 ceiling is doctrine
+(nothing inside the walls proves application), so the room came
+from demoting confirms 0.15 -> 0.10; the survival backbone
+(0.30) never moves. Garnish rebalances, backbones do not.
+Second, the WATCHDOG findings, all advisory and write-free:
+served-then-corrected (a supersede within 48h of a recall that
+returned the old version means the library actively served a
+wrong fact; the negative evidence already lies on the dead
+version, so the finding informs rather than punishes),
+creeping matters (a goal moved later twice or more across its
+chain; pulled-in goals are not slips), UNWITNESSED GRANTS (a
+grants row with no matching ledger event arrived around the
+librarian: the tamper shape, rendered first and in red, with
+witnessed revocation as the remediation), and expired
+credentials still stocked. Dormancy also went per-kind:
+project_state at half the configured window, decisions at 1x,
+references 2x, preferences 4x, because state rots in weeks
+while preferences are near-immortal. The janitor still never
+retires, revokes, or closes anything: it is the building's
+walkthrough at closing time, flashlight and clipboard, and the
+keys stay with the human.
