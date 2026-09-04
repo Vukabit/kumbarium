@@ -243,6 +243,34 @@ pub(crate) fn brief_cmd(ns: &str) -> ExitCode {
     );
   }
 
+  // The reading room: who is at work in this chain, now.
+  let ttl = state.cfg.leases_ttl_minutes;
+  if p.leases_db.exists()
+    && let Ok(conn) = state.leases()
+  {
+    let now = kumbarium_util::now_ms();
+    let mut cards = Vec::new();
+    for scope in &chain {
+      if let Ok(mut v) =
+        kumbarium_leases::active_in(conn, Some(scope), now, ttl)
+      {
+        cards.append(&mut v);
+      }
+    }
+    if !cards.is_empty() {
+      println!("\n{}", sty.bold("the reading room (agents at work)"));
+      for l in &cards {
+        println!(
+          "  {} holds {}/{} (since {})",
+          l.agent_id,
+          l.namespace,
+          l.resource,
+          local_display(&l.taken_at)
+        );
+      }
+    }
+  }
+
   // The restricted stacks: names only, structurally.
   if p.secrets_db.exists()
     && let Ok(conn) = state.secrets()

@@ -22,6 +22,7 @@ pub struct Config {
   pub collapse_max_changed_lines: usize,
   pub recall_default_limit: usize,
   pub janitor_dormant_days: i64,
+  pub leases_ttl_minutes: i64,
   /// Write policy (D-027): what a write becomes for agents not
   /// listed in `pending_agents`. true = pending-by-default.
   pub approvals_default_pending: bool,
@@ -49,6 +50,7 @@ impl Default for Config {
       collapse_max_changed_lines: 4,
       recall_default_limit: 8,
       janitor_dormant_days: 45,
+      leases_ttl_minutes: 120,
       approvals_default_pending: false,
       approvals_pending_agents: Vec::new(),
       aliases: Vec::new(),
@@ -91,6 +93,12 @@ default_limit = 8
 # old is flagged dormant (a finding for the human, never a
 # confidence penalty).
 dormant_days = 45
+
+[leases]
+# A reading-room lease lives this long past its holder's last
+# witnessed activity; expiry is computed at read time, so
+# changing this re-prices the room instantly.
+ttl_minutes = 120
 
 [approvals]
 # Write policy (D-027). live = writes circulate immediately
@@ -202,6 +210,9 @@ pub fn parse(text: &str) -> (Config, Vec<String>) {
       }
       "recall.default_limit" => {
         cfg.recall_default_limit = as_usize.max(1);
+      }
+      "leases.ttl_minutes" => {
+        cfg.leases_ttl_minutes = value.max(1);
       }
       "janitor.dormant_days" => {
         cfg.janitor_dormant_days = value.max(1);

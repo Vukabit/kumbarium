@@ -24,6 +24,7 @@ use cli::docket::*;
 use cli::dossier::*;
 use cli::entries::*;
 use cli::handoff::*;
+use cli::lease::*;
 use cli::secret::*;
 use cli::term::*;
 use cli::usage::*;
@@ -114,6 +115,12 @@ pub fn run() -> ExitCode {
     ["dossier", agent, rest @ ..] => dossier_cmd(agent, rest),
     ["dossier"] => fail("dossier needs an agent: kumbarium dossier <agent>"),
     ["brief"] => fail("brief needs a scope: kumbarium brief <ns>"),
+    ["leases"] => leases_cmd(None),
+    ["leases", ns] => leases_cmd(Some(ns)),
+    ["lease", "break", id] => lease_break_cmd(id),
+    ["lease", ..] => {
+      fail("the reading room: kum leases [ns] | kum lease break <id>")
+    }
     ["secret", rest @ ..] => secret_cmd(rest),
     ["secrets"] => secrets_cmd(None),
     ["secrets", ns] => secrets_cmd(Some(ns)),
@@ -274,6 +281,8 @@ pub(crate) fn open_stores() -> Result<Stores, String> {
     served_handoffs: std::collections::HashSet::new(),
     secrets: None,
     secrets_path: p.secrets_db.clone(),
+    leases: None,
+    leases_path: p.leases_db.clone(),
   };
   Ok((p, state))
 }
@@ -401,6 +410,24 @@ fn maintenance(
   if let Some(conn) = &secrets_conn {
     jobs.push((
       "secrets",
+      conn,
+      kumbarium_store::Retention {
+        recent: cfg.library_recent,
+        dailies: cfg.library_dailies,
+        weeklies: cfg.library_weeklies,
+      },
+    ));
+  }
+  let leases_conn = match p.leases_db.exists() {
+    true => Some(
+      kumbarium_leases::open(&p.leases_db)
+        .map_err(|e| format!("opening leases shelf: {e}"))?,
+    ),
+    false => None,
+  };
+  if let Some(conn) = &leases_conn {
+    jobs.push((
+      "leases",
       conn,
       kumbarium_store::Retention {
         recent: cfg.library_recent,

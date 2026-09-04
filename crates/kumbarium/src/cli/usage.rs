@@ -193,6 +193,12 @@ the binder and the dossier:
                                       judged, credentials, the
                                       chronological record
 
+the reading room:
+  kumbarium leases [ns]               who is at work where
+                                      (active + stale cards)
+  kumbarium lease break <id>          clear a stuck card
+                                      (witnessed, holder named)
+
 handoffs, the standing briefings:
   kumbarium handoff <ns> <note...>    leave the briefing for
                                       the next session (the

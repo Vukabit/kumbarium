@@ -28,6 +28,9 @@ pub struct ServerState {
   /// D-037); access is pull-only through secret_read.
   pub secrets: Option<kumbarium_secrets::Connection>,
   pub secrets_path: std::path::PathBuf,
+  /// The reading room (D-043): lazy like every shelf.
+  pub leases: Option<kumbarium_leases::Connection>,
+  pub leases_path: std::path::PathBuf,
   /// Scopes whose standing briefing this session has already
   /// been served (the FIRST recall in a scope prepends it,
   /// D-036; later recalls stay clean).
@@ -63,6 +66,21 @@ impl ServerState {
     Ok(self.secrets.as_ref().expect("just opened"))
   }
 
+  /// The reading room's connection, opening the shelf on first
+  /// use.
+  pub fn leases(&mut self) -> Result<&kumbarium_leases::Connection, String> {
+    if self.leases.is_none() {
+      let conn = if self.leases_path.as_os_str().is_empty() {
+        kumbarium_leases::open_in_memory()
+      } else {
+        kumbarium_leases::open(&self.leases_path)
+      }
+      .map_err(|e| e.to_string())?;
+      self.leases = Some(conn);
+    }
+    Ok(self.leases.as_ref().expect("just opened"))
+  }
+
   /// The handoff connection, opening the shelf on first use.
   pub fn handoff(&mut self) -> Result<&kumbarium_handoff::Connection, String> {
     if self.handoff.is_none() {
@@ -91,6 +109,8 @@ impl ServerState {
       served_handoffs: std::collections::HashSet::new(),
       secrets: None,
       secrets_path: std::path::PathBuf::new(),
+      leases: None,
+      leases_path: std::path::PathBuf::new(),
     }
   }
 }
@@ -343,6 +363,48 @@ pub fn list() -> Value {
       }
     },
     {
+      "name": "lease_take",
+      "description": "Reserve your working area in the reading \
+  room: namespace + a short resource label (a crate, a file \
+  area, a subsystem). NEVER blocks: if another agent holds an \
+  overlapping lease you are told, loudly, and both stand; \
+  coordinate instead of colliding. The lease renews itself on \
+  any activity of yours and lapses quietly when you go idle, so \
+  releasing is a courtesy, not a duty. Take one when starting \
+  substantive work on a distinct area.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "namespace": { "type": "string" },
+          "resource": {
+            "type": "string",
+            "description": "What you are working on, one short \
+  label, e.g. 'crates/kumbarium-store' or 'docs'."
+          },
+          "note": {
+            "type": "string",
+            "description": "Optional one-liner on what you are \
+  doing there."
+          }
+        },
+        "required": ["namespace", "resource"]
+      }
+    },
+    {
+      "name": "lease_release",
+      "description": "Release your own reading-room lease when \
+  you finish with an area (a courtesy; idle leases lapse on \
+  their own). You can only release your own.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "namespace": { "type": "string" },
+          "resource": { "type": "string" }
+        },
+        "required": ["namespace", "resource"]
+      }
+    },
+    {
       "name": "secret_read",
       "description": "Read a credential from the restricted \
   stacks, by namespace and name. Works only if the human has \
@@ -392,8 +454,21 @@ pub fn call(
     "task_update" => task_update(state, args),
     "handoff_write" => handoff_write(state, args),
     "secret_read" => secret_read(state, args),
+    "lease_take" => lease_take(state, args),
+    "lease_release" => lease_release(state, args),
     other => Err(format!("unknown tool {other:?}")),
   };
+  // Any witnessed activity renews the caller's reading-room
+  // cards: the ledger is the heartbeat (D-043). The shelf is
+  // never created just to renew.
+  if result.is_ok() && (state.leases.is_some() || state.leases_path.exists()) {
+    let now = kumbarium_util::now_ms();
+    let ttl = state.cfg.leases_ttl_minutes;
+    let agent = state.agent_id.clone();
+    if let Ok(conn) = state.leases() {
+      let _ = kumbarium_leases::renew_for_agent(conn, &agent, now, ttl);
+    }
+  }
   match result {
     Ok(blocks) => (blocks, false),
     Err(msg) => (vec![msg], true),
@@ -613,7 +688,9 @@ fn recall(
   // stay clean. Pending rows are never served.
   let mut briefing = None;
   let mut matters = None;
+  let mut room = None;
   let mut matters_served = 0usize;
+  let mut leases_served = 0usize;
   if !state.served_handoffs.contains(scope) {
     let handoff_reachable = state.handoff.is_some()
       || state.handoff_path.as_os_str().is_empty()
@@ -678,6 +755,41 @@ fn recall(
         }
       }
     }
+    // The reading room rides too (D-043): who is at work in
+    // this chain, so occupancy is learned without a tool to
+    // forget. The agent's own cards are not news to it.
+    let leases_reachable = state.leases.is_some()
+      || state.leases_path.as_os_str().is_empty()
+      || state.leases_path.exists();
+    if leases_reachable {
+      let now = kumbarium_util::now_ms();
+      let ttl = state.cfg.leases_ttl_minutes;
+      let me = state.agent_id.clone();
+      let conn = state.leases()?;
+      let mut cards = Vec::new();
+      for ns in &chain {
+        if let Ok(mut v) = kumbarium_leases::active_in(conn, Some(ns), now, ttl)
+        {
+          cards.append(&mut v);
+        }
+      }
+      cards.retain(|l| l.agent_id != me);
+      if !cards.is_empty() {
+        leases_served = cards.len();
+        let mut block = format!(
+          "THE READING ROOM for {scope} (agents at work; \
+           coordinate, avoid collisions):"
+        );
+        for l in &cards {
+          block.push_str(&format!(
+            "\n- {} holds {}/{} (since {})",
+            l.agent_id, l.namespace, l.resource, l.taken_at
+          ));
+        }
+        block.push_str("\n---");
+        room = Some(block);
+      }
+    }
     state.served_handoffs.insert(scope.to_string());
   }
   let ids: Vec<&str> = hits.iter().map(|h| h.entry.id.as_str()).collect();
@@ -690,6 +802,7 @@ fn recall(
       "returned": ids,
       "handoff_served": briefing.is_some(),
       "matters_served": matters_served,
+      "leases_served": leases_served,
     }),
   )?;
   let mut blocks = Vec::new();
@@ -698,6 +811,9 @@ fn recall(
   }
   if let Some(m) = matters {
     blocks.push(m);
+  }
+  if let Some(r) = room {
+    blocks.push(r);
   }
   if hits.is_empty() {
     blocks.push(format!("No memories matched {query:?} in scope {scope}."));
@@ -874,6 +990,103 @@ pub(crate) fn secrets_key(
       }
     }
   }
+}
+
+fn lease_take(
+  state: &mut ServerState,
+  args: &Value,
+) -> Result<Vec<String>, String> {
+  let namespace =
+    kumbarium_librarian::normalize_namespace(required_str(args, "namespace")?);
+  kumbarium_librarian::validate_namespace(&namespace)
+    .map_err(|e| format!("invalid namespace: {e}"))?;
+  if kumbarium_store::namespace_id(&state.library, &namespace)
+    .map_err(describe_store_error)?
+    .is_none()
+  {
+    return Err(format!(
+      "namespace {namespace:?} is not registered (the user \
+       registers namespaces; ask them if yours is missing)"
+    ));
+  }
+  let resource = required_str(args, "resource")?.trim().to_string();
+  if resource.is_empty() || resource.len() > 200 || resource.contains('\n') {
+    return Err("resource must be one short label".into());
+  }
+  let note = args.get("note").and_then(Value::as_str);
+  let now = kumbarium_util::now_ms();
+  let ttl = state.cfg.leases_ttl_minutes;
+  let agent = state.agent_id.clone();
+  let (card, others) = {
+    let conn = state.leases()?;
+    kumbarium_leases::take(conn, &namespace, &resource, &agent, note, now, ttl)
+      .map_err(|e| e.to_string())?
+  };
+  audit(
+    state,
+    kumbarium_audit::EventKind::LeaseTake,
+    &namespace,
+    json!({
+      "id": card.id,
+      "resource": resource,
+      "overlapping": others.len(),
+    }),
+  )?;
+  let mut blocks = vec![format!(
+    "Lease taken on {namespace}/{resource} (id {}, lapses \
+     after {ttl} idle minutes; your activity renews it).",
+    kumbarium_leases::short_id(&card.id)
+  )];
+  if !others.is_empty() {
+    let mut warn =
+      String::from("WARNING: you are not alone at this table. Also held by:");
+    for l in &others {
+      warn.push_str(&format!(
+        "\n- {} (since {}{})",
+        l.agent_id,
+        l.taken_at,
+        l.note
+          .as_deref()
+          .map(|n| format!(": {n}"))
+          .unwrap_or_default()
+      ));
+    }
+    warn.push_str(
+      "\nCoordinate before touching the same files; the lease \
+       warns, it does not protect.",
+    );
+    blocks.push(warn);
+  }
+  Ok(blocks)
+}
+
+fn lease_release(
+  state: &mut ServerState,
+  args: &Value,
+) -> Result<Vec<String>, String> {
+  let namespace =
+    kumbarium_librarian::normalize_namespace(required_str(args, "namespace")?);
+  kumbarium_librarian::validate_namespace(&namespace)
+    .map_err(|e| format!("invalid namespace: {e}"))?;
+  let resource = required_str(args, "resource")?.trim().to_string();
+  let now = kumbarium_util::now_ms();
+  let ttl = state.cfg.leases_ttl_minutes;
+  let agent = state.agent_id.clone();
+  let card = {
+    let conn = state.leases()?;
+    kumbarium_leases::release(conn, &namespace, &resource, &agent, now, ttl)
+      .map_err(|e| e.to_string())?
+  };
+  audit(
+    state,
+    kumbarium_audit::EventKind::LeaseRelease,
+    &namespace,
+    json!({ "id": card.id, "resource": resource }),
+  )?;
+  Ok(vec![format!(
+    "Released {namespace}/{resource}. The table is yours no \
+     longer."
+  )])
 }
 
 fn secret_read(

@@ -6,7 +6,7 @@
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
 instructions status grep move janitor approvals export docket \
-alias handoff secrets brief dossier";
+alias handoff secrets brief dossier leases";
 
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
@@ -35,6 +35,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "secret" | "secrets" => PAGE_SECRETS,
     "brief" | "binder" => PAGE_BRIEF,
     "dossier" => PAGE_DOSSIER,
+    "lease" | "leases" => PAGE_LEASES,
     _ => return None,
   })
 }
@@ -317,6 +318,11 @@ across all agents and sessions.
   `task_update` marks them done when
   the work is complete, or regrades severity and goal as
   reality moves.
+- Starting substantive work on a distinct area? Take a
+  reading-room lease (`lease_take`: scope + a short resource
+  label). If the room warns that another agent holds it,
+  coordinate instead of colliding. Leases lapse on idle;
+  releasing is a courtesy.
 - Credential VALUES never belong in memories, tasks, or
   briefings. Need one? Call `secret_read`; if refused, ask the
   human to run the `kum secret grant` command the refusal
@@ -470,6 +476,34 @@ Where no OS keystore exists, the first `set` refuses unless
 told `--i-accept-plaintext`: a loud, sticky, per-shelf choice.
 A PRESENT-but-failing keystore refuses outright, because a
 suppressed keystore is what a downgrade attack looks like.
+";
+
+const PAGE_LEASES: &str = "\
+## leases: the reading room
+
+```
+kum leases [ns]         the register: active + stale cards
+kum lease break <id>    clear a stuck card (witnessed)
+```
+
+The coordination section's third resource: what agents are
+DOING, right now. An agent takes a lease (`lease_take`:
+namespace + a short resource label) when it starts substantive
+work on an area, and the room rides the FIRST recall any other
+session makes in that scope, so occupancy is learned without a
+tool to forget.
+
+The stances, briefly (docs/design/leases.md, D-043): a
+collision WARNS, never blocks (identity is self-reported at
+this tier, so blocking would be theater, and a crashed agent
+must never padlock the library); a lease lives
+`leases.ttl_minutes` (config, default 120) past its holder's
+last witnessed activity, so the ledger is the heartbeat and
+releasing is a courtesy; expiry is computed at read time,
+never stored or fired. Expired-but-unreleased cards (the
+crashed-agent shape) show under `kum leases` and in the
+janitor's findings; `kum lease break` clears one, witnessed
+with the holder named.
 ";
 
 const PAGE_BRIEF: &str = "\

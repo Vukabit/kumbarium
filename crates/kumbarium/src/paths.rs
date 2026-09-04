@@ -22,6 +22,7 @@ pub struct Paths {
   pub docket_db: PathBuf,
   pub handoff_db: PathBuf,
   pub secrets_db: PathBuf,
+  pub leases_db: PathBuf,
   pub audit_db: PathBuf,
   pub lock_file: PathBuf,
   pub backups_dir: PathBuf,
@@ -43,6 +44,7 @@ pub fn resolve() -> Result<Paths, PathsError> {
       docket_db: home.join("library").join("docket.db"),
       handoff_db: home.join("library").join("handoff.db"),
       secrets_db: home.join("library").join("secrets.db"),
+      leases_db: home.join("library").join("leases.db"),
       audit_db: home.join("audit.db"),
       lock_file: home.join("kumbarium.lock"),
       backups_dir: home.join("backups"),
@@ -62,6 +64,7 @@ pub fn resolve() -> Result<Paths, PathsError> {
     docket_db: data.join("library").join("docket.db"),
     handoff_db: data.join("library").join("handoff.db"),
     secrets_db: data.join("library").join("secrets.db"),
+    leases_db: data.join("library").join("leases.db"),
     audit_db: data.join("audit.db"),
     lock_file: data.join("kumbarium.lock"),
     backups_dir: data.join("backups"),
@@ -77,6 +80,7 @@ impl fmt::Display for Paths {
     writeln!(f, "docket:   {}", self.docket_db.display())?;
     writeln!(f, "handoff:  {}", self.handoff_db.display())?;
     writeln!(f, "secrets:  {}", self.secrets_db.display())?;
+    writeln!(f, "leases:   {}", self.leases_db.display())?;
     writeln!(f, "audit:    {}", self.audit_db.display())?;
     writeln!(f, "lock:     {}", self.lock_file.display())?;
     writeln!(f, "backups:  {}", self.backups_dir.display())?;

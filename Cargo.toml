@@ -8,6 +8,7 @@
 #   kumbarium-docket     tasks and the roadmap: the coordination shelf
 #   kumbarium-handoff    standing briefings: what is mid-flight per shelf
 #   kumbarium-secrets    the restricted stacks: sealed credential custody
+#   kumbarium-leases     the reading room: what agents are doing, now
 
 [workspace]
 resolver = "3"
@@ -20,6 +21,7 @@ members = [
   "crates/kumbarium-docket",
   "crates/kumbarium-handoff",
   "crates/kumbarium-secrets",
+  "crates/kumbarium-leases",
   "crates/kumbarium",
 ]
 

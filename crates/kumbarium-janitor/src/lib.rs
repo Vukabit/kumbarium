@@ -113,6 +113,16 @@ pub struct UnwitnessedGrant {
   pub agent_id: String,
 }
 
+/// An expired-but-unreleased reading-room lease: the
+/// crashed-agent shape. The janitor reports; the human breaks.
+#[derive(Debug, Clone)]
+pub struct StaleLease {
+  pub namespace: String,
+  pub resource: String,
+  pub agent_id: String,
+  pub last_active: String,
+}
+
 /// A live secret whose upstream expiry has passed: still
 /// stocked, still served, rotation owed.
 #[derive(Debug, Clone)]
@@ -155,6 +165,7 @@ pub struct Shelves {
   pub goal_chains: Vec<GoalChain>,
   pub grants: Vec<GrantRow>,
   pub secrets: Vec<SecretStock>,
+  pub stale_leases: Vec<StaleLease>,
 }
 
 /// What one pass concluded. `proposals` are appliable changes;
@@ -167,6 +178,7 @@ pub struct Report {
   pub creep: Vec<Creep>,
   pub unwitnessed_grants: Vec<UnwitnessedGrant>,
   pub expired_stock: Vec<ExpiredStock>,
+  pub stale_leases: Vec<StaleLease>,
 }
 
 /// Per-entry evidence tallied from the ledger.
@@ -329,6 +341,11 @@ pub fn pass(
       });
     }
   }
+
+  // The reading room's abandoned cards pass straight through:
+  // the caller computed staleness with the live config ttl,
+  // the janitor gives them a place in the one report.
+  report.stale_leases = shelves.stale_leases.clone();
 
   // Expired credentials still stocked (value expiry is
   // metadata; this is where it gets surfaced with teeth).

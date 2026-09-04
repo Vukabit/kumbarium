@@ -625,3 +625,30 @@ window (a write from last month corrected yesterday is exactly
 what a postmortem wants to see) while the record respects it.
 This is the compliance packet's seed: who acted, under what
 authority, with the math that nobody edited the story after.
+
+## D-043: the reading room warns, never blocks (2026-09-04)
+
+Coordination leases, the section's third resource: what agents
+are DOING, right now. Four stances, settled together. A lease
+names a NAMESPACE plus a free RESOURCE string, fine enough for
+parallel work inside one repo, and spelling drift between
+agents is tolerable precisely because of the second stance:
+collisions WARN, NEVER BLOCK. Identity is self-reported at
+this tier, so blocking would be theater performed for an
+audience that could lie about its name, and a crashed agent
+must never padlock the library; real mutual exclusion can
+arrive at the daemon rung with authn, on this same table,
+without a migration. Third, TTL WITH ACTIVITY RENEWAL: a lease
+lives leases.ttl_minutes (default 120) past its holder's last
+witnessed event, so the ledger is the heartbeat, there is no
+renewal protocol to forget, and release is a courtesy, not a
+duty. Expiry is an ABSENCE computed at read time, never a
+stored deadline or a fired event: no reaper to schedule, and a
+config change re-prices the room instantly. Fourth, TOOLS PLUS
+SERVING: lease_take and lease_release carry intent, and the
+room itself rides the first recall in a scope (D-037) so
+occupancy is learned, not queried. The janitor surfaces
+expired-but-unreleased cards (the crashed-agent shape); the
+human clears one with kum lease break, witnessed with the
+holder named. Released and broken cards keep their rows: the
+drawer, not the bin.

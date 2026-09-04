@@ -35,7 +35,8 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
     && report.pogo.is_empty()
     && report.creep.is_empty()
     && report.unwitnessed_grants.is_empty()
-    && report.expired_stock.is_empty();
+    && report.expired_stock.is_empty()
+    && report.stale_leases.is_empty();
   if quiet {
     println!("janitor: no changes proposed; evidence unchanged");
     return ExitCode::SUCCESS;
@@ -87,6 +88,18 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
         sty.id(&format!("{:<8}", kumbarium_store::short_id(&d.id))),
         d.namespace,
         d.age_days
+      );
+    }
+  }
+  if !report.stale_leases.is_empty() {
+    println!(
+      "\nabandoned reading-room leases (expired, never \
+       released; kum lease break <id> clears):"
+    );
+    for l in &report.stale_leases {
+      println!(
+        "  {} held {}/{} (last active {})",
+        l.agent_id, l.namespace, l.resource, l.last_active
       );
     }
   }
@@ -161,6 +174,7 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
       "creep": report.creep.len(),
       "unwitnessed_grants": report.unwitnessed_grants.len(),
       "expired_stock": report.expired_stock.len(),
+      "stale_leases": report.stale_leases.len(),
       "applied": applied,
     }),
   };
@@ -195,6 +209,21 @@ fn gather_shelves(
         id: t.id.clone(),
         namespace: t.namespace.clone(),
         goals: chain.iter().filter_map(|v| v.goal.clone()).collect(),
+      });
+    }
+  }
+  let leases_ttl = state.cfg.leases_ttl_minutes;
+  if p.leases_db.exists()
+    && let Ok(conn) = state.leases()
+    && let Ok(stale) =
+      kumbarium_leases::stale_in(conn, kumbarium_util::now_ms(), leases_ttl)
+  {
+    for l in stale {
+      shelves.stale_leases.push(kumbarium_janitor::StaleLease {
+        namespace: l.namespace,
+        resource: l.resource,
+        agent_id: l.agent_id,
+        last_active: l.renewed_at,
       });
     }
   }

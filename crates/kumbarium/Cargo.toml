@@ -17,6 +17,7 @@ kumbarium-audit = { path = "../kumbarium-audit" }
 kumbarium-docket = { path = "../kumbarium-docket" }
 kumbarium-handoff = { path = "../kumbarium-handoff" }
 kumbarium-secrets = { path = "../kumbarium-secrets" }
+kumbarium-leases = { path = "../kumbarium-leases" }
 getrandom.workspace = true
 kumbarium-janitor = { path = "../kumbarium-janitor" }
 kumbarium-librarian = { path = "../kumbarium-librarian" }

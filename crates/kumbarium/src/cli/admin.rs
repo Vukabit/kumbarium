@@ -209,6 +209,18 @@ pub(crate) fn status_cmd() -> ExitCode {
     };
     println!("  secrets:   {live} stocked, {grants} grants{sealing}");
   }
+  if p.leases_db.exists()
+    && let Ok(conn) = kumbarium_leases::open(&p.leases_db)
+    && let Ok(active) = kumbarium_leases::active_in(
+      &conn,
+      None,
+      kumbarium_util::now_ms(),
+      state.cfg.leases_ttl_minutes,
+    )
+    && !active.is_empty()
+  {
+    println!("  reading room: {} active lease(s)", active.len());
+  }
   match kumbarium_store::namespaces(&state.library) {
     Ok(rows) => {
       for (path, _, _) in rows {

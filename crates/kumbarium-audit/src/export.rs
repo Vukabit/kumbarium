@@ -267,6 +267,23 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
         s("command")?,
         s("name")?
       )),
+      "lease_take" => {
+        let mut line = format!("took a lease on {:?}", s("resource")?);
+        if let Some(n) = v.get("overlapping").and_then(|x| x.as_u64())
+          && n > 0
+        {
+          line.push_str(&format!(" (WARNED: {n} other holder(s))"));
+        }
+        Some(line)
+      }
+      "lease_release" => {
+        Some(format!("released the lease on {:?}", s("resource")?))
+      }
+      "lease_break" => Some(format!(
+        "broke {}'s lease on {:?}",
+        s("holder")?,
+        s("resource")?
+      )),
       "secret_leakscan" => {
         let hits = v.get("hits").and_then(|x| x.as_i64()).unwrap_or(0);
         let scanned = v.get("scanned").and_then(|x| x.as_i64()).unwrap_or(0);

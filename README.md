@@ -126,12 +126,12 @@ The repo ships its own examiners, and their reports:
   ends of the ladder. Misuse is documentation feedback here.
 
 All of it in `docs/reports/`, and every design decision with
-its reasoning in `docs/decisions.md` (forty-two and
+its reasoning in `docs/decisions.md` (forty-three and
 counting).
 
 ## Design stance
 
-Rust 2024, nine crates, one binary. SQLite (bundled, WAL, FTS5)
+Rust 2024, ten crates, one binary. SQLite (bundled, WAL, FTS5)
 for both the library and the ledger. No async runtime, no MCP
 framework, no diff library, no hash library: the JSON-RPC
 loop, LCS diff, SHA-256, TOML subset, and terminal rendering

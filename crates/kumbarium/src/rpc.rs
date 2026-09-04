@@ -232,7 +232,7 @@ mod tests {
   }
 
   #[test]
-  fn tools_list_names_all_ten_tools() {
+  fn tools_list_names_every_tool() {
     let mut state = ServerState::in_memory();
     let out = drive(&mut state, &[request(1, "tools/list", json!({}))]);
     let names: Vec<&str> = out[0]["result"]["tools"]
@@ -252,6 +252,8 @@ mod tests {
         "task_file",
         "task_update",
         "handoff_write",
+        "lease_take",
+        "lease_release",
         "secret_read",
         "forget"
       ]
@@ -764,5 +766,109 @@ mod tests {
       })],
     );
     assert!(out.is_empty());
+  }
+
+  #[test]
+  fn the_reading_room_warns_and_rides_first_recall() {
+    let mut state = ServerState::in_memory();
+    kumbarium_store::register_namespace(&state.library, "project/x", "t")
+      .unwrap();
+    // Agent A takes a card.
+    state.agent_id = "agent-a".into();
+    let out = drive(
+      &mut state,
+      &[request(
+        1,
+        "tools/call",
+        json!({
+          "name": "lease_take",
+          "arguments": {
+            "namespace": "project/x",
+            "resource": "store-crate",
+          }
+        }),
+      )],
+    );
+    let text = out[0]["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("Lease taken"), "{text}");
+    // Agent B takes the same table: granted, warned.
+    state.agent_id = "agent-b".into();
+    let out = drive(
+      &mut state,
+      &[request(
+        2,
+        "tools/call",
+        json!({
+          "name": "lease_take",
+          "arguments": {
+            "namespace": "project/x",
+            "resource": "store-crate",
+          }
+        }),
+      )],
+    );
+    let joined = out[0]["result"]["content"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .filter_map(|c| c["text"].as_str())
+      .collect::<Vec<_>>()
+      .join("\n");
+    assert!(joined.contains("not alone"), "{joined}");
+    assert!(joined.contains("agent-a"), "{joined}");
+    // Agent C's first recall in scope sees the room; C's own
+    // absence from it is trivially true, A and B are named.
+    state.agent_id = "agent-c".into();
+    let out = drive(
+      &mut state,
+      &[request(
+        3,
+        "tools/call",
+        json!({
+          "name": "recall",
+          "arguments": { "query": "anything", "scope": "project/x" }
+        }),
+      )],
+    );
+    let joined = out[0]["result"]["content"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .filter_map(|c| c["text"].as_str())
+      .collect::<Vec<_>>()
+      .join("\n");
+    assert!(joined.contains("THE READING ROOM"), "{joined}");
+    assert!(joined.contains("agent-a"), "{joined}");
+    assert!(joined.contains("agent-b"), "{joined}");
+    // B releases its own; A cannot be released by B.
+    state.agent_id = "agent-b".into();
+    let out = drive(
+      &mut state,
+      &[request(
+        4,
+        "tools/call",
+        json!({
+          "name": "lease_release",
+          "arguments": {
+            "namespace": "project/x",
+            "resource": "store-crate",
+          }
+        }),
+      )],
+    );
+    let text = out[0]["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("Released"), "{text}");
+    // The ledger holds the story: 2 takes, 1 release.
+    let (takes, releases): (i64, i64) = state
+      .audit
+      .query_row(
+        "SELECT
+           (SELECT count(*) FROM events WHERE kind = 'lease_take'),
+           (SELECT count(*) FROM events WHERE kind = 'lease_release')",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+      )
+      .unwrap();
+    assert_eq!((takes, releases), (2, 1));
   }
 }

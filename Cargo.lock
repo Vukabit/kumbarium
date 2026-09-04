@@ -338,6 +338,7 @@ dependencies = [
  "kumbarium-docket",
  "kumbarium-handoff",
  "kumbarium-janitor",
+ "kumbarium-leases",
  "kumbarium-librarian",
  "kumbarium-secrets",
  "kumbarium-store",
@@ -388,6 +389,15 @@ dependencies = [
  "kumbarium-store",
  "kumbarium-util",
  "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "kumbarium-leases"
+version = "0.2.0"
+dependencies = [
+ "kumbarium-util",
+ "rusqlite",
  "thiserror",
 ]
 
