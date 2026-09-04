@@ -184,6 +184,27 @@ pub fn run() -> ExitCode {
       println!("{}", paint_cli_page(USAGE, &sty));
       println!("\n{}", sty.bold("topics: kumbarium help <topic>"));
       println!("  {}", sty.dim(help::TOPICS));
+      println!(
+        "  {}",
+        sty.dim("the whole manual, in order: kumbarium help --all")
+      );
+      ExitCode::SUCCESS
+    }
+    ["help", "--all"] => {
+      let sty = style::Style::detect();
+      println!("{}", sty.bold("# The Kumbarium manual"));
+      println!(
+        "{}",
+        sty.dim(
+          "the building, in reading order; one topic per \
+           section (kum help <topic> opens any of them alone)"
+        )
+      );
+      for topic in help::MANUAL_ORDER {
+        if let Some(md) = help::page(topic) {
+          println!("\n{}", markdown::render(md, &sty));
+        }
+      }
       ExitCode::SUCCESS
     }
     ["help", topic] => match help::page(topic) {

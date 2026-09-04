@@ -8,6 +8,41 @@ import namespace audit backup serve ids namespaces \
 instructions status grep move janitor approvals export docket \
 alias handoff secrets brief dossier leases";
 
+/// The whole manual, in READING order: the building tour, not
+/// the accident of declaration order. Setup first, then the
+/// grammars, the collection, the lifecycle, the desk, the
+/// sections as they open, the two renderings, the witness,
+/// upkeep. `kum help --all` renders these in sequence; the
+/// doc-drift test keeps this list and `page()` in lockstep.
+pub const MANUAL_ORDER: &[&str] = &[
+  "instructions",
+  "serve",
+  "ids",
+  "namespaces",
+  "namespace",
+  "list",
+  "show",
+  "grep",
+  "history",
+  "revert",
+  "retire",
+  "move",
+  "approvals",
+  "docket",
+  "handoff",
+  "leases",
+  "secrets",
+  "brief",
+  "dossier",
+  "janitor",
+  "audit",
+  "export",
+  "import",
+  "status",
+  "backup",
+  "alias",
+];
+
 pub fn page(topic: &str) -> Option<&'static str> {
   Some(match topic {
     "list" => PAGE_LIST,

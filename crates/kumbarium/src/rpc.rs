@@ -887,4 +887,25 @@ mod tests {
       );
     }
   }
+
+  #[test]
+  fn the_manual_reads_every_page_exactly_once() {
+    // Drift gates both ways: a MANUAL_ORDER entry that no
+    // longer resolves, and a dispatchable page missing from
+    // the manual, both fail here.
+    use super::super::help;
+    let mut seen = std::collections::HashSet::new();
+    for topic in help::MANUAL_ORDER {
+      let page = help::page(topic)
+        .unwrap_or_else(|| panic!("manual entry {topic:?} has no page"));
+      assert!(seen.insert(page.as_ptr()), "{topic:?} repeats a page");
+    }
+    for topic in help::TOPICS.split_whitespace() {
+      let page = help::page(topic).unwrap();
+      assert!(
+        seen.contains(&page.as_ptr()),
+        "topic {topic:?} is missing from MANUAL_ORDER"
+      );
+    }
+  }
 }
