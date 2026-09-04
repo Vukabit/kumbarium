@@ -66,12 +66,12 @@ pub(crate) fn audit_tail(n: usize, scope: Option<&str>) -> ExitCode {
       println!(
         "{}",
         sty.dim(
-          "at (local)           kind          agent                \
+          "at (local)           kind            agent                \
 scope                detail"
         )
       );
-      // Columns before detail: 19+2 + 9+1 + 20+1 + 20+1 = 73.
-      const DETAIL_COL: usize = 77;
+      // Columns before detail: 19+2 + 15+1 + 20+1 + 20+1 = 79.
+      const DETAIL_COL: usize = 79;
       let wrap_width = term_width()
         .filter(|w| *w > DETAIL_COL + 16)
         .map(|w| w - DETAIL_COL);
@@ -84,7 +84,7 @@ scope                detail"
         println!(
           "{}  {} {:<20} {:<20} {}",
           sty.dim(&local_display(&e.at)),
-          sty.event(&format!("{:<13}", e.kind)),
+          sty.event(&format!("{:<15}", e.kind)),
           e.agent_id,
           e.scope,
           chunks.first().map(String::as_str).unwrap_or("")
