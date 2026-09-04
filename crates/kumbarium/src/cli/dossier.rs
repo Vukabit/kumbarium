@@ -15,6 +15,170 @@ use std::process::ExitCode;
 use super::super::{open_stores, style};
 use super::term::*;
 
+/// One roster row, tallied from every shelf.
+#[derive(Default)]
+struct RosterRow {
+  sessions: BTreeSet<String>,
+  events: usize,
+  first_at: String,
+  last_at: String,
+  live: usize,
+  corrected: usize,
+  grants: usize,
+  leases: usize,
+}
+
+/// `kum agents`: the roster. Every identity the witness has
+/// ever seen, what it holds, and when it was last here. Counts,
+/// never scores (the metric-theater trap stays sprung): the
+/// numbers are for YOUR judgment, and `kum dossier <agent>` is
+/// the deep story behind any row.
+pub(crate) fn agents_cmd() -> ExitCode {
+  let (p, mut state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let events = match kumbarium_audit::events_asc(&state.audit) {
+    Ok(v) => v,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let mut roster: std::collections::BTreeMap<String, RosterRow> =
+    std::collections::BTreeMap::new();
+  for ev in &events {
+    let row = roster.entry(ev.agent_id.clone()).or_default();
+    row.events += 1;
+    if !ev.session_id.is_empty() {
+      row.sessions.insert(ev.session_id.clone());
+    }
+    if row.first_at.is_empty() {
+      row.first_at = ev.at.clone();
+    }
+    row.last_at = ev.at.clone();
+  }
+  // The estate, per writer (writers may predate the ledger:
+  // imports carry identities too, so entries seed rows).
+  let entries = match kumbarium_store::entries_in(&state.library, None, true) {
+    Ok(v) => v,
+    Err(e) => return fail(&e.to_string()),
+  };
+  for e in &entries {
+    let row = roster.entry(e.agent_id.clone()).or_default();
+    if e.status == kumbarium_store::Status::Live {
+      match &e.superseded_by {
+        None => row.live += 1,
+        Some(next) => {
+          let successor = kumbarium_store::get(&state.library, next)
+            .map(|s| s.agent_id)
+            .unwrap_or_default();
+          if successor != e.agent_id {
+            row.corrected += 1;
+          }
+        }
+      }
+    }
+  }
+  if p.secrets_db.exists()
+    && let Ok(conn) = state.secrets()
+    && let Ok(grants) = kumbarium_secrets::grants(conn, None)
+  {
+    for g in grants {
+      roster.entry(g.agent_id).or_default().grants += 1;
+    }
+  }
+  let ttl = state.cfg.leases_ttl_minutes;
+  if p.leases_db.exists()
+    && let Ok(conn) = state.leases()
+    && let Ok(active) =
+      kumbarium_leases::active_in(conn, None, kumbarium_util::now_ms(), ttl)
+  {
+    for l in active {
+      roster.entry(l.agent_id).or_default().leases += 1;
+    }
+  }
+  if roster.is_empty() {
+    println!("no identities witnessed yet");
+    return ExitCode::SUCCESS;
+  }
+  println!(
+    "{} {}",
+    sty.bold("the roster"),
+    sty.dim(&format!(
+      "({} identities; kum dossier <agent> for any deep story)",
+      roster.len()
+    ))
+  );
+  const COLS: &[Col] = &[
+    Col {
+      title: "agent",
+      width: 20,
+    },
+    Col {
+      title: "last seen (local)",
+      width: 19,
+    },
+    Col {
+      title: "sess",
+      width: 4,
+    },
+    Col {
+      title: "events",
+      width: 6,
+    },
+    Col {
+      title: "live",
+      width: 4,
+    },
+    Col {
+      title: "corr",
+      width: 4,
+    },
+    Col {
+      title: "grants",
+      width: 6,
+    },
+    Col {
+      title: "leases",
+      width: 0,
+    },
+  ];
+  println!("{}", sty.dim(&table_header(COLS)));
+  let mut rows: Vec<(&String, &RosterRow)> = roster.iter().collect();
+  rows.sort_by(|a, b| b.1.last_at.cmp(&a.1.last_at));
+  for (agent, r) in rows {
+    let last = if r.last_at.is_empty() {
+      "(pre-ledger)".to_string()
+    } else {
+      local_display(&r.last_at)
+    };
+    let corr_cell = format!("{:>4}", r.corrected);
+    let corr = if r.corrected > 0 {
+      sty.yellow(&corr_cell)
+    } else {
+      corr_cell
+    };
+    println!(
+      "{} {} {:>4} {:>6} {:>4} {} {:>6} {}",
+      cell(COLS, 0, agent),
+      sty.dim(&cell(COLS, 1, &last)),
+      r.sessions.len(),
+      r.events,
+      r.live,
+      corr,
+      r.grants,
+      r.leases,
+    );
+  }
+  println!(
+    "{}",
+    sty.dim(
+      "counts, never scores: corr = live-chain writes corrected \
+       by OTHERS; judgment stays yours"
+    )
+  );
+  ExitCode::SUCCESS
+}
+
 /// Everything the ledger says about one agent in one window,
 /// tallied in a single pass.
 #[derive(Default)]

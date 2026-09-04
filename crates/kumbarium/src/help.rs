@@ -6,7 +6,7 @@
 pub const TOPICS: &str = "list show history revert retire \
 import namespace audit backup serve ids namespaces \
 instructions status grep move janitor approvals export docket \
-alias handoff secrets brief dossier leases";
+alias handoff secrets brief dossier leases agents";
 
 /// The whole manual, in READING order: the building tour, not
 /// the accident of declaration order. Setup first, then the
@@ -33,6 +33,7 @@ pub const MANUAL_ORDER: &[&str] = &[
   "leases",
   "secrets",
   "brief",
+  "agents",
   "dossier",
   "janitor",
   "audit",
@@ -71,6 +72,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "brief" | "binder" => PAGE_BRIEF,
     "dossier" => PAGE_DOSSIER,
     "lease" | "leases" => PAGE_LEASES,
+    "agent" | "agents" | "roster" => PAGE_AGENTS,
     _ => return None,
   })
 }
@@ -581,6 +583,32 @@ Ranking here does not violate confidence-never-ranks: recall
 stays bm25-only. The binder is a briefing surface, and stating
 which facts have survived circulation is exactly what
 confidence is FOR.
+";
+
+const PAGE_AGENTS: &str = "\
+## agents: the roster
+
+```
+kum agents              every witnessed identity, at a glance
+kum agent <name>        the deep story (alias for dossier)
+```
+
+Every identity that ever touched the library, derived from the
+ledger and the shelves: last seen, minted sessions, event
+count, the estate (live writes, and how many were corrected by
+OTHERS), grants held, active reading-room leases. Identities
+seen only in imported entries show as pre-ledger.
+
+Counts, never scores (the metric-theater rule): the roster
+states what happened and holds no opinion; ranking agents by
+number is precisely the trap it refuses to build. Judgment
+stays yours, and `kum dossier <agent>` is the evidence behind
+any row.
+
+Registration (a true roster with trust postures, where an
+UNREGISTERED identity on the ledger becomes a watchdog
+finding) is the agent-lifecycle rung, deliberately not yet
+built: today's roster observes, it does not admit.
 ";
 
 const PAGE_DOSSIER: &str = "\

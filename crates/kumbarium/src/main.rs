@@ -114,6 +114,12 @@ pub fn run() -> ExitCode {
     ["brief", ns] => brief_cmd(ns),
     ["dossier", agent, rest @ ..] => dossier_cmd(agent, rest),
     ["dossier"] => fail("dossier needs an agent: kumbarium dossier <agent>"),
+    ["agents"] => agents_cmd(),
+    ["agent", name] => dossier_cmd(name, &[]),
+    ["agent", name, rest @ ..] => dossier_cmd(name, rest),
+    ["agent"] => {
+      fail("the roster: kum agents | kum agent <name> (the dossier)")
+    }
     ["brief"] => fail("brief needs a scope: kumbarium brief <ns>"),
     ["leases"] => leases_cmd(None),
     ["leases", ns] => leases_cmd(Some(ns)),
