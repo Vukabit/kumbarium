@@ -657,6 +657,72 @@ pub(crate) fn secrets_cmd(ns: Option<&str>) -> ExitCode {
   ExitCode::SUCCESS
 }
 
+/// The metadata card (`kum show` fall-through, last shelf in
+/// the chain): everything about a secret EXCEPT its value,
+/// absent by shape (SecretMeta).
+pub(crate) fn show_secret(
+  state: &mut tools::ServerState,
+  id: &str,
+) -> Result<ExitCode, String> {
+  let conn = state.secrets()?;
+  let full = match kumbarium_secrets::resolve_id(conn, id) {
+    Ok(f) => f,
+    Err(kumbarium_secrets::SecretsError::IdNotFound(_)) => {
+      return Err(format!("no entry, task, handoff, or secret with id {id:?}"));
+    }
+    Err(e) => return Err(e.to_string()),
+  };
+  let m = kumbarium_secrets::meta(conn, &full).map_err(|e| e.to_string())?;
+  let sty = style::Style::detect();
+  println!(
+    "{}",
+    sty.bold("secret (the restricted stacks; the value is never shown)")
+  );
+  println!(
+    "id:         {} (short: {})",
+    m.id,
+    kumbarium_secrets::short_id(&m.id)
+  );
+  println!("namespace:  {}", m.namespace);
+  println!("name:       {}", m.name);
+  let status = if m.shredded_at.is_some() && m.superseded_by.is_none() {
+    "shredded (value destroyed, record kept)"
+  } else if m.superseded_by.is_some() {
+    "superseded (rotated; value shredded)"
+  } else {
+    "live"
+  };
+  println!("status:     {status}");
+  if let Some(d) = &m.expires_at {
+    let today = kumbarium_util::now_iso8601();
+    if &today[..10] > d.as_str() {
+      println!("expires:    {} (upstream; never enforced)", sty.red(d));
+    } else {
+      println!("expires:    {d} (upstream; never enforced)");
+    }
+  }
+  if let Some(note) = &m.note {
+    println!("note:       {note}");
+  }
+  println!(
+    "stocked:    {} by {}",
+    local_display(&m.created_at),
+    m.agent_id
+  );
+  if let Some(next) = &m.superseded_by {
+    println!(
+      "superseded: by {} (kum history {} reads the chain)",
+      kumbarium_secrets::short_id(next),
+      kumbarium_secrets::short_id(&m.id)
+    );
+  }
+  println!(
+    "\nkum secret read {} {} prints the value (witnessed)",
+    m.namespace, m.name
+  );
+  Ok(ExitCode::SUCCESS)
+}
+
 /// The rotation chain (`kum history` fall-through): who rotated
 /// and when, values structurally absent.
 pub(crate) fn secret_history_cmd(

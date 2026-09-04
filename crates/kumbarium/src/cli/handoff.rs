@@ -153,7 +153,8 @@ pub(crate) fn show_handoff(
   let full = match kumbarium_handoff::resolve_id(conn, id) {
     Ok(f) => f,
     Err(kumbarium_handoff::HandoffError::HandoffNotFound(_)) => {
-      return Err(format!("no entry, task, or handoff with id {id:?}"));
+      // Fourth shelf in the chain: the restricted stacks.
+      return super::secret::show_secret(state, id);
     }
     Err(e) => return Err(e.to_string()),
   };
