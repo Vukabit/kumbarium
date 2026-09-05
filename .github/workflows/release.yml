@@ -64,8 +64,15 @@ jobs:
           tar -czf "$name.tar.gz" "$name"
           # The sidecar kum update verifies before it swaps: a
           # bundle with no checksum to check is a failure state,
-          # never a silent pass.
-          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          # never a silent pass. sha256sum ships in the Linux and
+          # Windows-Git-bash coreutils; macOS has shasum instead,
+          # so fall back. Both print "<hash>  <file>", which is
+          # what the updater parses (first token).
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          else
+            shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          fi
       - name: attach
         env:
           GH_TOKEN: ${{ github.token }}
