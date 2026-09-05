@@ -298,8 +298,25 @@ pub(crate) fn show_session(
       candidates.push(r.session.clone());
     }
   }
+  // A pid is not an id (different namespace, and all-digits is a
+  // valid hex fragment, so show never resolves it as one). But
+  // pids are what kum processes shows first, so when the arg IS
+  // a live pid, hand back its session instead of a bare
+  // not-found: the error names the key that works.
+  let pid_hint = || {
+    live.iter().find(|r| r.pid.to_string() == id).map(|r| {
+      let s = r
+        .session
+        .get(r.session.len().saturating_sub(8)..)
+        .unwrap_or("");
+      format!(
+        "{id:?} is a live process pid, not an id; its session \
+           is {s} (kum show {s}, or kum processes)"
+      )
+    })
+  };
   match candidates.as_slice() {
-    [] => return Err(not_found()),
+    [] => return Err(pid_hint().unwrap_or_else(not_found)),
     [_] => {}
     many => {
       let shorts: Vec<&str> = many

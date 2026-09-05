@@ -107,8 +107,11 @@ fn install_target(shell: &str, home: &str) -> Option<(String, String)> {
     ),
     "zsh" => (
       format!("{home}/.zsh/completions/_kum"),
-      "add this line to ~/.zshrc BEFORE `compinit`, then restart \
-       the shell:\n  fpath=(~/.zsh/completions $fpath)"
+      "add to ~/.zshrc, then restart the shell (the compinit \
+       line enables completion if you have none yet; if you \
+       already call compinit, just put the fpath line above \
+       it):\n  fpath=(~/.zsh/completions $fpath)\n  autoload \
+       -Uz compinit && compinit"
         .into(),
     ),
     "fish" => (
