@@ -750,6 +750,21 @@ pub(crate) fn version_cmd() -> ExitCode {
     sty.dim("commit:    "),
     env!("KUMBARIUM_GIT_BRANCH")
   );
+  // The release provenance: a bare tag means this IS that
+  // release; a `-N-g<sha>` suffix means N commits past it (a
+  // build between releases), and `-dirty` means uncommitted.
+  let describe = env!("KUMBARIUM_GIT_DESCRIBE");
+  // A bare tag matching this version IS the release; "unknown"
+  // is a git-less build. Anything else is a build past the last
+  // tag, and says so.
+  let on_release = describe == concat!("v", env!("CARGO_PKG_VERSION"))
+    || describe == "unknown";
+  let provenance = if on_release {
+    String::new()
+  } else {
+    format!(" ({})", sty.dim("ahead of the last release tag"))
+  };
+  println!("{} {describe}{provenance}", sty.dim("build:     "));
   println!("{} {}", sty.dim("target:    "), env!("KUMBARIUM_TARGET"));
   println!(
     "{} {}",

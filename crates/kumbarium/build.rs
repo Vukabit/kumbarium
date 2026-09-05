@@ -20,6 +20,15 @@ fn main() {
     Some(s) => (!s.trim().is_empty()).to_string(),
     None => "unknown".to_string(),
   };
+  // The one string that answers "is this a release build, and
+  // from exactly where": `git describe --tags --dirty` renders
+  // a bare tag on a release (`v0.4.3`), a tag-distance for a
+  // build between releases (`v0.4.3-2-g097e554`), and a
+  // `-dirty` suffix for uncommitted changes. --always falls
+  // back to a bare sha when no tag is reachable.
+  let describe = git(&["describe", "--tags", "--dirty", "--always"])
+    .or_else(|| std::env::var("KUMBARIUM_GIT_DESCRIBE").ok())
+    .unwrap_or_else(|| "unknown".to_string());
   let profile =
     std::env::var("PROFILE").unwrap_or_else(|_| "unknown".to_string());
   let target =
@@ -28,6 +37,7 @@ fn main() {
   emit("KUMBARIUM_GIT_SHA", &sha);
   emit("KUMBARIUM_GIT_BRANCH", &branch);
   emit("KUMBARIUM_GIT_DIRTY", &dirty);
+  emit("KUMBARIUM_GIT_DESCRIBE", &describe);
   emit("KUMBARIUM_BUILD_PROFILE", &profile);
   emit("KUMBARIUM_TARGET", &target);
 
@@ -39,6 +49,7 @@ fn main() {
   }
   println!("cargo::rerun-if-env-changed=KUMBARIUM_GIT_SHA");
   println!("cargo::rerun-if-env-changed=KUMBARIUM_GIT_BRANCH");
+  println!("cargo::rerun-if-env-changed=KUMBARIUM_GIT_DESCRIBE");
 }
 
 /// Run `git <args>` and return trimmed stdout, or None on any

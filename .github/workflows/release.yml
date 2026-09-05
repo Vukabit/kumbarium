@@ -51,7 +51,12 @@ jobs:
       run:
         shell: bash
     steps:
+      # fetch-depth 0 brings tags, so build.rs's `git describe`
+      # stamps a real release descriptor (a bare tag on a
+      # release build) instead of falling back to "unknown".
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: build
         run: cargo build --release --locked
       - name: package
