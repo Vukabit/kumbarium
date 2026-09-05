@@ -55,9 +55,13 @@ pub(crate) fn update_cmd(check_only: bool, yes: bool) -> ExitCode {
   // Channel ownership: never fight the package manager.
   match install_channel() {
     Channel::Cargo => {
+      // Not on crates.io yet, so the plain `cargo install
+      // kumbarium` would fail; the git install is the path that
+      // works today. (When crates.io lands, add that form here.)
       println!(
         "\nthis kumbarium was installed by cargo; update with:\n  \
-         cargo install kumbarium --force"
+         cargo install --git {} kumbarium --force",
+        env!("CARGO_PKG_REPOSITORY")
       );
       return ExitCode::SUCCESS;
     }
