@@ -407,6 +407,18 @@ pub(crate) fn tasks_cmd(rest: &[&str]) -> ExitCode {
     tasks.retain(|t| t.severity == sev);
   }
   if tasks.is_empty() {
+    if let Some(n) = &ns
+      && kumbarium_store::namespace_id(&state.library, n)
+        .ok()
+        .flatten()
+        .is_none()
+    {
+      // A typo'd namespace must not read as a clear docket.
+      return fail(&format!(
+        "namespace {n:?} is not registered (nothing filed \
+         there); kum namespace list shows the shelves"
+      ));
+    }
     println!("docket clear: no open matters");
     return ExitCode::SUCCESS;
   }

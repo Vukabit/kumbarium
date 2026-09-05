@@ -17,7 +17,11 @@ pub(crate) fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
       Err(e) => return fail(&e.to_string()),
     };
   if entries.is_empty() {
-    println!("no entries");
+    println!(
+      "no entries yet. Memories are written by AGENTS over MCP \
+       (kum instructions wires one up); kum import claude \
+       migrates existing Claude Code memories."
+    );
     return ExitCode::SUCCESS;
   }
   let sty = style::Style::detect();
@@ -646,7 +650,10 @@ pub(crate) fn grep_cmd(
     }
   }
   if hits == 0 {
-    eprintln!("no matches");
+    eprintln!(
+      "no matches among memory entries (tasks and briefings are \
+       separate: kum tasks, kum handoffs)"
+    );
     return ExitCode::FAILURE;
   }
   ExitCode::SUCCESS

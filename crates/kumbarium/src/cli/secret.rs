@@ -976,7 +976,11 @@ pub(crate) fn show_secret(
   let full = match kumbarium_secrets::resolve_id(conn, id) {
     Ok(f) => f,
     Err(kumbarium_secrets::SecretsError::IdNotFound(_)) => {
-      return Err(format!("no entry, task, handoff, or secret with id {id:?}"));
+      return Err(format!(
+        "no entry, task, handoff, or secret with id {id:?} \
+         (ids: the 8-char short form, the full id, or any \
+         unique fragment of 4+ hex chars)"
+      ));
     }
     Err(e) => return Err(e.to_string()),
   };

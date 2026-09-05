@@ -24,7 +24,10 @@ pub enum DocketError {
   Sqlite(#[from] rusqlite::Error),
   #[error("migration {0} failed: {1}")]
   Migration(i64, rusqlite::Error),
-  #[error("no task with id {0:?}")]
+  #[error(
+    "no task with id {0:?} (ids: the 8-char short form or any \
+     unique fragment of 4+ hex chars; kum tasks lists them)"
+  )]
   TaskNotFound(String),
   #[error("id fragment {0:?} matches more than one task")]
   AmbiguousId(String),

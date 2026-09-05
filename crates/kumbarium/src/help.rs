@@ -3,10 +3,13 @@
 //! the body renders through the same highlighter memory bodies
 //! use; plain when piped, colored on a terminal.
 
-pub const TOPICS: &str = "list show history revert retire \
-import namespace audit backup serve ids namespaces \
-instructions status grep move janitor approvals export docket \
-alias handoff secrets brief dossier leases agents";
+/// Topic names for `kum help <topic>`, in the same order as
+/// MANUAL_ORDER: the list a user scans and the manual they
+/// read tell one story.
+pub const TOPICS: &str = "instructions serve environment ids \
+namespaces namespace list show grep history revert retire \
+move approvals docket handoff leases secrets brief agents \
+dossier janitor audit export import status backup alias";
 
 /// The whole manual, in READING order: the building tour, not
 /// the accident of declaration order. Setup first, then the
@@ -17,6 +20,7 @@ alias handoff secrets brief dossier leases agents";
 pub const MANUAL_ORDER: &[&str] = &[
   "instructions",
   "serve",
+  "environment",
   "ids",
   "namespaces",
   "namespace",
@@ -73,9 +77,30 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "dossier" => PAGE_DOSSIER,
     "lease" | "leases" => PAGE_LEASES,
     "agent" | "agents" | "roster" => PAGE_AGENTS,
+    "environment" | "env" => PAGE_ENVIRONMENT,
     _ => return None,
   })
 }
+
+const PAGE_ENVIRONMENT: &str = "\
+## environment: the variables the librarian honors
+
+- `KUMBARIUM_HOME`: where the library lives. Set, it holds
+  everything (data, config, backups, exports) under one
+  directory: for test harnesses, portable installs, throwaway
+  libraries. Unset, the platform's standard data and config
+  directories apply.
+- `NO_COLOR` (any value), `CLICOLOR=0`, or `TERM=dumb`:
+  suppress color.
+- `CLICOLOR_FORCE=1`: force color even into a pipe (scripts
+  that relay to a terminal). Force beats suppression.
+- `$VISUAL`, then `$EDITOR`: what `--open` launches on
+  exports.
+
+Without any of these set, color follows the terminal: on when
+stdout is a real terminal, plain when piped. The MCP server
+(`kum serve`) never colors its protocol stream.
+";
 
 const PAGE_IDS: &str = "\
 ## ids: the id grammar
@@ -101,6 +126,8 @@ kum show 01a0          # AmbiguousId: matches many
 const PAGE_NAMESPACES: &str = "\
 ## namespaces: the scope grammar
 
+A namespace is a shelf of the library; SCOPE names the same
+thing from recall's side (the namespace a search starts from).
 Slash paths, 1-3 segments of `[a-z0-9._-]`, registered by you
 (agents cannot create them):
 
@@ -109,7 +136,7 @@ Slash paths, 1-3 segments of `[a-z0-9._-]`, registered by you
 
 Quarantine is NOT a namespace: an untrusted writer's entries
 land in their target namespace with pending status instead
-(D-027; see `kum help approvals`).
+(see `kum help approvals`).
 
 Recall searches a scope's CHAIN: itself, its ancestors, then
 `global`; never a sibling. `project/web.app` searches
@@ -123,9 +150,11 @@ const PAGE_LIST: &str = "\
 kum list [namespace] [--all]
 ```
 
-Newest first: short id, created day, kind, namespace, first
-content line. Default hides superseded and retired entries;
-`--all` shows them with `[superseded]` / `[retired]` markers.
+An ENTRY is one stored fact (the word memory names the same
+row from the agent's side). Newest first: short id, created
+day, kind, namespace, first content line. Default hides
+superseded and retired entries; `--all` shows them with
+`[superseded]` / `[retired]` markers.
 The namespace filter is EXACT (browsing does not chain; recall
 does).
 
@@ -273,9 +302,9 @@ when, what, in which scope. `tail` shows the most recent n
 (default 20) as prose. Storage is always strict ISO-8601 UTC;
 rendering localizes.
 
-The ledger is HASH-CHAINED (D-029): each event stores
+The ledger is HASH-CHAINED: each event stores
 sha256(previous hash + its own fields, the minted session id
-included, D-045), so `verify` recomputes the whole chain and
+included), so `verify` recomputes the whole chain and
 either confirms it intact (event count + head hash) or names
 the first broken link. Tamper-evidence is
 math anyone holding the file can check, not a promise.
@@ -294,7 +323,7 @@ const PAGE_BACKUP: &str = "\
 kum backup
 ```
 
-Forces a snapshot of every shelf that exists (memory, audit,
+Forces a snapshot of every SECTION that exists (memory, audit,
 docket, handoff, secrets, leases; each to its own backups/
 subdirectory): VACUUM INTO a temp file, integrity-checked,
 atomically renamed in. Secrets back up as ciphertext; the
@@ -313,14 +342,14 @@ kum serve
 ```
 
 Speaks MCP over stdio: newline-delimited JSON-RPC 2.0. Not for
-humans; agents' clients spawn it (`claude mcp add kumbarium --
-~/.cargo/bin/kumbarium serve`). Tools: remember, link, recall,
+humans; agents' clients spawn it (the setup commands live in
+`kum help instructions`). Tools: remember, link, recall,
 confirm, supersede, task_file, task_update, handoff_write,
 lease_take, lease_release, secret_read (deletion is the
-human's verb: kum forget, D-046). Every
+human's verb: kum forget). Every
 call is audited under the agent identity the client declared
-at initialize, alongside a librarian-MINTED session id
-(D-044): agents are claimed, sessions are minted. stdout
+at initialize, alongside a librarian-MINTED session id:
+agents are claimed, sessions are minted. stdout
 carries protocol only; diagnostics go to stderr.
 ";
 
@@ -341,13 +370,13 @@ across all agents and sessions.
   whole; oversized memories are split and linked for you.
 - When a recalled fact proves CORRECT in use, `confirm` it
   (evidence for the staleness and confidence signals).
-- When a fact proves stale or wrong (a user correction counts),
-  update it with `supersede`, never with a fresh `remember`:
-  first `recall` the stale entry, then supersede the id it
-  returned (add a short `note` like 'typo fix' for trivial
-  changes). Deletion is the human's verb: for wrong-or-
-  sensitive content, `link` it `contradicts` and ask them to
-  run `kum forget` (D-046).
+- When a fact proves stale or wrong (a user correction
+  counts), update it with `supersede`, never with a fresh
+  `remember`: first `recall` the stale entry, then supersede
+  the id it returned (add a short `note` like 'typo fix' for
+  trivial changes). Deletion is the human's verb: for
+  wrong-or-sensitive content, `link` it `contradicts` and ask
+  them to run `kumbarium forget`.
 - Before ENDING substantive work, leave the briefing with
   `handoff_write`: what is mid-flight, decided-but-unfinished,
   sharp edges. The next session receives it automatically with
@@ -355,12 +384,11 @@ across all agents and sessions.
 - The DOCKET is the shared task list. Urgent or overdue
   matters arrive automatically with your first recall in a
   scope: mention them before starting new work. File matters
-  worth doing later
-  with `task_file` (severity is your judgment; add a goal date
-  only when one is real). Shelving follows the same rule as
-  facts: a project's tasks go on the project's namespace,
-  `global` only for genuinely cross-project matters.
-  `task_update` marks them done when
+  worth doing later with `task_file` (severity is your
+  judgment; add a goal date only when one is real). Shelving
+  follows the same rule as facts: a project's tasks go on the
+  project's namespace, `global` only for genuinely
+  cross-project matters. `task_update` marks them done when
   the work is complete, or regrades severity and goal as
   reality moves.
 - Starting substantive work on a distinct area? Take a
@@ -370,8 +398,8 @@ across all agents and sessions.
   releasing is a courtesy.
 - Credential VALUES never belong in memories, tasks, or
   briefings. Need one? Call `secret_read`; if refused, ask the
-  human to run the `kum secret grant` command the refusal
-  names. Never store what it returns.
+  human to run the `kumbarium secret grant` command the
+  refusal names. Never store what it returns.
 - Namespaces are registered by the user (`kumbarium namespace
   add`); never assume one exists, ask instead.
 ";
@@ -384,8 +412,9 @@ kum instructions             this page
 kum instructions --snippet   just the block, for appending
 ```
 
-Two steps per agent: register the MCP server, then add the
-standing instruction block so the agent uses it unprompted.
+Three steps: register the MCP server, add the standing
+instruction block so the agent uses it unprompted, and
+register the namespaces agents will write to.
 
 **1. Register the server**
 
@@ -411,6 +440,17 @@ standing instruction block so the agent uses it unprompted.
 Root-level files apply everywhere; repo files version with the
 code. Keep durable law in files (they are injected every
 session); keep evolving facts in Kumbarium (they are recalled).
+
+**3. Register the namespaces** (agents can never create one)
+
+```
+kum namespace add global \"cross-project facts\"
+kum namespace add project/<name> \"what this project is\"
+```
+
+Then verify the wiring: after the agent's first `remember`,
+`kum status` shows the entry under its namespace and
+`kum agents` shows the identity on the roster.
 ";
 
 const PAGE_STATUS: &str = "\
@@ -423,7 +463,7 @@ kum status
 Entry counts (live / superseded / retired), split sets, the
 desk's pending queue, docket and secrets counts, active
 reading-room leases, live entries per namespace, audit event
-count and latest, backup ages per shelf, database sizes. The
+count and latest, backup ages per section, database sizes. The
 first command to run when wondering what state things are
 in.
 ";
@@ -454,6 +494,10 @@ briefing lands pending and is NEVER served; approval makes it
 THE standing note (superseding the live one, so one head
 survives the desk). Agents write via `handoff_write` before
 ending substantive work.
+
+Similarly named, different thing: `kum brief <ns>` is the
+day-one binder, a page rendered FOR humans that includes the
+standing briefing (see `kum help brief`).
 ";
 
 const PAGE_SECRETS: &str = "\
@@ -476,7 +520,17 @@ kum secret leakscan [ns]        sweep shelves for exposures
 kum secrets [ns]                names + grants, never values
 ```
 
-The custody tools. `exec` puts the value in the COMMAND'S
+Day one, three lines:
+
+```
+kum secret set global my-token           # prompts, echo off
+kum secret grant global my-token claude
+kum secret exec global my-token -- ./deploy.sh
+```
+
+These are the custody tools of the BROKER, the arm of the
+library that holds credential values so that memories, tasks,
+and briefings never have to. `exec` puts the value in the COMMAND'S
 environment (never argv, never your scrollback, never a model
 context) and streams the command's output back through a
 redactor: a failing curl that echoes its token prints
@@ -497,8 +551,8 @@ the grant dies at the end of that day (UTC). VALUE EXPIRY
 UPSTREAM, the broker records and surfaces the date (the
 listing marks EXPIRED), and never blocks a read. Setting it
 files a rotation matter on the docket automatically (one per
-secret; a moved expiry re-grades its goal), and the creep
-machinery does the reminding. Completing the matter stays
+secret; a moved expiry re-grades its goal), and the docket's
+goal-watching does the reminding. Completing the matter stays
 your call: the broker never closes it.
 
 Witnessed access is the product: every checkout, refusal, and
@@ -520,7 +574,7 @@ on a secret renders that chain. Secrets ride no recall, no
 briefing, no bundle, ever.
 
 Where no OS keystore exists, the first `set` refuses unless
-told `--i-accept-plaintext`: a loud, sticky, per-shelf choice.
+told `--i-accept-plaintext`: a loud, sticky, standing choice.
 A PRESENT-but-failing keystore refuses outright, because a
 suppressed keystore is what a downgrade attack looks like.
 ";
@@ -540,7 +594,7 @@ work on an area, and the room rides the FIRST recall any other
 session makes in that scope, so occupancy is learned without a
 tool to forget.
 
-The stances, briefly (docs/design/leases.md, D-043): a
+The stances, briefly: a
 collision WARNS, never blocks (identity is self-reported at
 this tier, so blocking would be theater, and a crashed agent
 must never padlock the library); a lease lives
@@ -553,7 +607,7 @@ janitor's findings; `kum lease break` clears one, witnessed
 with the holder named.
 
 A holder is (agent, SESSION): the librarian mints a session id
-per serve process (D-044), so two sessions of the same agent
+per serve process, so two sessions of the same agent
 name warn each other ([ANOTHER SESSION OF YOU]) instead of
 silently sharing one card. Minted ids disambiguate; they do
 not authenticate.
@@ -581,11 +635,6 @@ Agents keep their own channel: the first recall in a scope
 already carries the briefing and urgent matters (see
 `kum help handoff`); this page is the same state of the world
 shaped for a person, or for pasting into a fresh context.
-
-Ranking here does not violate confidence-never-ranks: recall
-stays bm25-only. The binder is a briefing surface, and stating
-which facts have survived circulation is exactly what
-confidence is FOR.
 ";
 
 const PAGE_AGENTS: &str = "\
@@ -615,16 +664,10 @@ count, the estate (live writes, and how many were corrected by
 OTHERS), grants held, active reading-room leases. Identities
 seen only in imported entries show as pre-ledger.
 
-Counts, never scores (the metric-theater rule): the roster
-states what happened and holds no opinion; ranking agents by
-number is precisely the trap it refuses to build. Judgment
-stays yours, and `kum dossier <agent>` is the evidence behind
-any row.
-
-Registration (a true roster with trust postures, where an
-UNREGISTERED identity on the ledger becomes a watchdog
-finding) is the agent-lifecycle rung, deliberately not yet
-built: today's roster observes, it does not admit.
+Counts, never scores: the roster states what happened and
+holds no opinion; ranking agents by number is precisely the
+trap it refuses to build. Judgment stays yours, and
+`kum dossier <agent>` is the evidence behind any row.
 ";
 
 const PAGE_DOSSIER: &str = "\
@@ -647,7 +690,7 @@ chronological record itself.
 The hash chain is verified first and the verdict printed at
 the top: a dossier states its own trustworthiness before
 stating anything else. Events carry the librarian-MINTED
-session id, hashed like every field (D-045), so `--session`
+session id, hashed like every field, so `--session`
 narrows the story to one incarnation of the agent and the
 attribution cannot be quietly reassigned; the page lists the
 sessions it saw. The estate figures deliberately outlive
@@ -674,7 +717,7 @@ mins = \"export minutes --open\"
 ```
 
 `kum urgent project/x` runs `kum tasks --severity urgent
-project/x`. Three rules, all load-bearing (D-035):
+project/x`. Three rules, all load-bearing:
 
 1. INTERNAL-ONLY, never shell. An alias expands to kumbarium
    arguments and nothing else; there is no `!` form. Anything
@@ -707,7 +750,8 @@ shelf, carrying a severity (low | normal | high | urgent) and
 an optional GOAL date. A goal is a target the library watches,
 never an alarm: the timeline marks approaching goals and paints
 passed ones red, and re-grading a goal is a supersession, so
-every slip is on the chain (`task history` shows the creep).
+every slip is on the chain (`task history` shows the CREEP:
+each date the goal moved later).
 
 `kum tasks` is the timeline: most-overdue first, then severity,
 then age. `kum roadmap` pivots the same matters by derived
@@ -741,11 +785,11 @@ ledger admits events only by witnessing them.
 Shared flags on every exporter:
 
 - `--out DIR`: export into DIR (created if missing, `~/` ok,
-  trailing slash irrelevant) instead of the artifact's shelf
+  trailing slash irrelevant) instead of the artifact's home
   under exports/. The sortable stamped name is not negotiable.
 - `--stdout`: stream instead; nothing persisted.
 - `--show`: reveal the file in the OS file explorer (macOS and
-  Windows select it; Linux opens the containing shelf).
+  Windows select it; Linux opens the containing folder).
 - `--open`: open the file in $VISUAL / $EDITOR (announced on a
   dim line first).
 
@@ -766,7 +810,7 @@ A chain the bundle extends fast-forwards locally. A FORK (both
 libraries superseded the same entry differently) never
 auto-resolves: the rival head lands pending with a
 `contradicts` edge to the live local head, and you settle it
-from the inbox (D-028). `--pending` routes every imported head
+from the inbox. `--pending` routes every imported head
 through the desk, for bundles from hands you do not know.
 
 ```
@@ -788,7 +832,7 @@ kum approve <id>             promote to circulation
 kum reject <id> [reason]     decline, kept on record
 ```
 
-Quarantine is a STATUS, not a place (D-027): a pending entry
+Quarantine is a STATUS, not a place: a pending entry
 keeps its target namespace but never surfaces in recall, list,
 grep, or chain search until a human approves it. Who lands in
 quarantine is write policy in config:
@@ -819,22 +863,25 @@ kum janitor --apply   sign off and write the changes
 ```
 
 The janitor is the only mover of the confidence number. It is
-pure ledger math (D-025, D-040), no LLM: every live entry is
-recomputed from the full audit log, so reruns are idempotent.
+pure ledger math, no LLM: every live entry is recomputed from
+the full audit log, so reruns are idempotent.
 
-- survival is the backbone: distinct agent-day exposures via
-  recall, never corrected (asymptote 0.80).
-- confirms are garnish: weighted evidence, self-confirms
-  discounted to a quarter.
-- link authority is garnish too: ledger link events vote for
-  the linked-to entry, cross-agent votes full, self-links a
-  tenth (ceiling 0.95 held; nothing inside the library can
-  prove a fact was applied, so nothing reaches 1.0).
-- no exposure keeps the 0.50 neutral prior. Never-recalled
-  entries older than their KIND'S window go dormant:
-  project_state at half of `janitor.dormant_days` (default
-  45), decisions at 1x, references 2x, preferences 4x. Retire
-  candidates for YOUR judgment; the janitor never retires.
+- SURVIVAL is the backbone: every day a DIFFERENT agent was
+  served a fact and did not correct it counts in the fact's
+  favor. Survival alone can carry a fact to 0.80.
+- Confirms add a little on top; confirming your own write
+  counts a quarter of confirming someone else's.
+- Links vote for the entry they point at: another agent's
+  link counts in full, linking to your own entry a tenth.
+  Nothing reaches 1.0 (the ceiling is 0.95): nothing inside
+  the library can prove a fact was applied in the world.
+- An entry never served keeps the neutral 0.50 it started
+  with. Never-recalled entries older than their KIND'S window
+  go DORMANT: retire candidates for YOUR judgment, the
+  janitor never retires. The window scales from
+  `janitor.dormant_days` (default 45): project_state ages out
+  at half of it, decisions at 1x, references 2x, preferences
+  4x.
 
 The watchdog findings, advisory and write-free:
 
@@ -849,8 +896,8 @@ The watchdog findings, advisory and write-free:
   DIFFERENT agent's recall that served it (same-agent is the
   correction ritual); circulation misfired there.
 
-Confidence informs recall output, it never ranks or filters it
-(D-026). Applying writes each entry's new number plus a stored
+Confidence informs recall output, it never ranks or filters
+it. Applying writes each entry's new number plus a stored
 basis line (shown by recall and `kum show`), and witnesses one
 batch janitor event carrying the full change manifest and the
 finding counts.

@@ -148,7 +148,13 @@ pub fn list() -> Value {
             "enum": [
               "preference", "project_state", "decision",
               "reference"
-            ]
+            ],
+            "description": "preference = how the user wants \
+  things done; decision = a choice made, and why; reference = \
+  a pointer to an external resource; project_state = where the \
+  work stands NOW. Kinds age differently: a never-recalled \
+  project_state goes dormant fastest, a preference slowest \
+  (an 8x longer window)."
           },
           "content": {
             "type": "string",
@@ -216,7 +222,11 @@ pub fn list() -> Value {
   relevant to a query. Searches the scope's namespace chain \
   (itself, ancestors, global), never sibling projects. Each hit \
   carries relevance (match strength) and confidence (fact \
-  trustworthiness) scores.",
+  trustworthiness) scores. Your FIRST recall in a scope arrives \
+  with an opening frame prepended: the standing briefing the \
+  last session left, urgent or overdue docket matters, and who \
+  holds reading-room leases there; read that frame before the \
+  hits.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -261,7 +271,13 @@ pub fn list() -> Value {
             "enum": [
               "preference", "project_state", "decision",
               "reference"
-            ]
+            ],
+            "description": "preference = how the user wants \
+  things done; decision = a choice made, and why; reference = \
+  a pointer to an external resource; project_state = where the \
+  work stands NOW. Kinds age differently: a never-recalled \
+  project_state goes dormant fastest, a preference slowest \
+  (an 8x longer window)."
           },
           "content": { "type": "string" },
           "tags": {
@@ -284,11 +300,12 @@ pub fn list() -> Value {
       "description": "File a task on the docket: a matter to be \
   done, on a registered namespace shelf. Severity is YOUR \
   judgment, and it has consequences: low = someday, normal = \
-  the default, high = soon, urgent = INTERRUPTS the next \
-  session's start (reserve it for production risk and \
-  deadline-critical work). An optional goal (YYYY-MM-DD) is a \
-  target date the library watches; an overdue goal also \
-  interrupts. One self-contained statement per task; detail \
+  the default, high = soon, urgent = served at the top of the \
+  next session's first recall in the scope (reserve it for \
+  production risk and deadline-critical work). An optional \
+  goal (YYYY-MM-DD) is a target date the library watches; an \
+  overdue goal is served the same way. One \
+  self-contained statement per task; detail \
   belongs in memory. Tasks are claims of work owed, carrying \
   their filer's authority and nothing more.",
       "inputSchema": {
@@ -417,7 +434,7 @@ pub fn list() -> Value {
   granted YOUR identity access to that secret; a refusal names \
   the grant command so you can ask them. Every call is \
   witnessed either way. NEVER write credential VALUES into \
-  memories, tasks, or briefings; this shelf exists so you do \
+  memories, tasks, or briefings; the broker exists so you do \
   not have to.",
       "inputSchema": {
         "type": "object",
@@ -848,7 +865,11 @@ fn recall(
     blocks.push(format!("No memories matched {query:?} in scope {scope}."));
     return Ok(blocks);
   }
-  blocks.push(format!("{} memor(y/ies) found:", hits.len()));
+  blocks.push(if hits.len() == 1 {
+    "1 memory found:".to_string()
+  } else {
+    format!("{} memories found:", hits.len())
+  });
   for (i, hit) in hits.iter().enumerate() {
     blocks.push(render_hit(&state.library, i + 1, hit));
   }
@@ -1024,7 +1045,11 @@ fn lease_take(
   }
   let resource = required_str(args, "resource")?.trim().to_string();
   if resource.is_empty() || resource.len() > 200 || resource.contains('\n') {
-    return Err("resource must be one short label".into());
+    return Err(
+      "resource must be one short label (a single line, at \
+       most 200 characters)"
+        .into(),
+    );
   }
   let note = args.get("note").and_then(Value::as_str);
   let now = kumbarium_util::now_ms();

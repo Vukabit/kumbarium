@@ -13,7 +13,7 @@ import, the ledger admits events only by witnessing them)
   kumbarium export bundle <ns>        a shelf, hashed JSON
 
 shared flags:
-  --out DIR    export into DIR (default: the exports/ shelf)
+  --out DIR    export into DIR (default: the exports/ folder)
   --stdout     stream instead; nothing persisted
   --show       reveal the file in the OS file explorer
   --open       open the file in $VISUAL / $EDITOR";
@@ -265,7 +265,7 @@ upkeep:
   kumbarium namespace add <path> [d]  register a namespace
   kumbarium namespace list            list namespaces
   kumbarium status                    library health at a glance
-  kumbarium backup                    snapshot every shelf now
+  kumbarium backup                    snapshot every section now
   kumbarium config [--init|--open]    effective tunables
                                       (--init writes template,
                                       --open edits it)

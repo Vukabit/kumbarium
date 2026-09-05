@@ -443,16 +443,28 @@ pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
   println!("{}", sty.dim(&verified));
 
   if !sessions.is_empty() {
+    // A CLI-heavy agent mints one session per invocation;
+    // sixteen inline ids is noise. List the recent few and
+    // point at the narrowing flag.
     let shorts: Vec<&str> = sessions
       .iter()
       .map(|s| s.get(s.len().saturating_sub(8)..).unwrap_or(s))
       .collect();
+    let listed = if shorts.len() <= 4 {
+      shorts.join(", ")
+    } else {
+      format!(
+        "{}, ... (+{} earlier)",
+        shorts[shorts.len() - 4..].join(", "),
+        shorts.len() - 4
+      )
+    };
     println!(
       "{}",
       sty.dim(&format!(
-        "{} minted session(s): {} (narrow with --session <frag>)",
-        sessions.len(),
-        shorts.join(", ")
+        "{} minted session(s): {listed} (narrow with \
+         --session <frag>)",
+        sessions.len()
       ))
     );
   }

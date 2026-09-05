@@ -25,9 +25,17 @@ pub struct Style {
 
 impl Style {
   pub fn detect() -> Style {
+    // The standard color-env contract: NO_COLOR and CLICOLOR=0
+    // suppress, TERM=dumb suppresses, and CLICOLOR_FORCE=1
+    // forces even into a pipe (scripts that relay to a
+    // terminal). TTY detection remains the baseline.
+    let force = std::env::var_os("CLICOLOR_FORCE")
+      .is_some_and(|v| v != "0" && !v.is_empty());
+    let suppressed = std::env::var_os("NO_COLOR").is_some()
+      || std::env::var_os("CLICOLOR").is_some_and(|v| v == "0")
+      || std::env::var_os("TERM").is_some_and(|v| v == "dumb");
     Style {
-      on: std::io::stdout().is_terminal()
-        && std::env::var_os("NO_COLOR").is_none(),
+      on: force || (std::io::stdout().is_terminal() && !suppressed),
     }
   }
 
