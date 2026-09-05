@@ -126,7 +126,7 @@ The repo ships its own examiners, and their reports:
   ends of the ladder. Misuse is documentation feedback here.
 
 All of it in `docs/reports/`, and every design decision with
-its reasoning in `docs/decisions.md` (forty-six and
+its reasoning in `docs/decisions.md` (forty-seven and
 counting).
 
 ## Design stance

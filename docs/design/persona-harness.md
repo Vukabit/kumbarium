@@ -68,7 +68,8 @@ One file per scenario. Contents:
   serve`), one server process per episode, `clientInfo.name` =
   the persona name (provenance works for free).
 - Tool loop per provider:
-  - Anthropic: messages API with the six tool definitions
+  - Anthropic: messages API with the server's full tool list
+    (whatever `tools/list` currently serves)
     translated from `tools/list`; standard use->result loop
     until end_turn; per-episode max-token cap.
   - Ollama: `/api/chat` with tools; same loop shape; skipped

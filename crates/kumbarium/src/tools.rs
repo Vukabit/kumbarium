@@ -121,6 +121,17 @@ impl ServerState {
   }
 }
 
+/// Words reserved for the agent-lifecycle family (a future
+/// `kum agent add|list|remove|retire|rename|show`). No agent
+/// identity may bear one: reserving now costs a refusal at
+/// claim time; un-reserving later would be a breaking rename.
+pub const RESERVED_AGENT_WORDS: &[&str] =
+  &["add", "list", "remove", "retire", "rename", "show"];
+
+pub fn reserved_agent_word(name: &str) -> bool {
+  RESERVED_AGENT_WORDS.contains(&name.to_ascii_lowercase().as_str())
+}
+
 /// The tools/list payload: name, description, input schema per
 /// tool. Descriptions are written for the agent reading them.
 pub fn list() -> Value {
@@ -177,7 +188,11 @@ pub fn list() -> Value {
             "items": {
               "type": "object",
               "properties": {
-                "id": { "type": "string" },
+                "id": {
+                  "type": "string",
+                  "description": "Target entry: any unique \
+  fragment (e.g. the 8-char short form)."
+                },
                 "rel": {
                   "type": "string",
                   "enum": [
@@ -239,6 +254,46 @@ pub fn list() -> Value {
           "limit": { "type": "integer", "minimum": 1 }
         },
         "required": ["query", "scope"]
+      }
+    },
+    {
+      "name": "get",
+      "description": "Fetch one memory in FULL by id (any unique \
+  fragment; recall hits and links carry ids). Returns content, \
+  metadata, and typed edges, so you can re-examine a fact \
+  before superseding it or follow an edge a hit surfaced. On a \
+  member of a split set, pass stitch=true to receive every part \
+  in order. Served entries are witnessed like recall.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "stitch": {
+            "type": "boolean",
+            "description": "On a split set, return every part \
+  of the set in order."
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "task_list",
+      "description": "Every OPEN matter on the docket for a \
+  namespace chain (itself, ancestors, global), with short ids, \
+  so task_update has an id to act on mid-session; the \
+  first-recall frame carries only urgent and overdue matters. \
+  Witnessed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "description": "Scope to survey from, e.g. \
+  'project/my-app' or 'global'."
+          }
+        },
+        "required": ["namespace"]
       }
     },
     {
@@ -457,6 +512,8 @@ pub fn call(
   let result = match name {
     "remember" => remember(state, args),
     "recall" => recall(state, args),
+    "get" => get_tool(state, args),
+    "task_list" => task_list(state, args),
     "supersede" => supersede(state, args),
     "link" => link(state, args),
     "confirm" => confirm(state, args),
@@ -657,6 +714,149 @@ fn link(state: &mut ServerState, args: &Value) -> Result<Vec<String>, String> {
   Ok(vec![format!("Linked {from_id} {} {to_id}.", rel.as_str())])
 }
 
+/// Fetch-by-id (D-016's second half: summaries and ids first,
+/// full entries on follow-up). Serves content, so it witnesses
+/// like recall and carries the same survival evidence.
+fn get_tool(
+  state: &mut ServerState,
+  args: &Value,
+) -> Result<Vec<String>, String> {
+  let frag = required_str(args, "id")?;
+  let stitch = args.get("stitch").and_then(Value::as_bool).unwrap_or(false);
+  let full = resolve(state, frag)?;
+  let head = kumbarium_store::get(&state.library, &full)
+    .map_err(describe_store_error)?;
+  // Circulation discipline: pending and rejected rows never
+  // leave the desk, not even by id.
+  if head.status != kumbarium_store::Status::Live {
+    return Err(format!(
+      "entry {} is {} (awaiting the desk; not in circulation)",
+      kumbarium_store::short_id(&full),
+      head.status.as_str()
+    ));
+  }
+  let (chain, _) = kumbarium_store::continues_chain(&state.library, &full)
+    .unwrap_or((vec![full.clone()], false));
+  let ids: Vec<String> = if stitch && chain.len() > 1 {
+    chain.clone()
+  } else {
+    vec![full.clone()]
+  };
+  let mut blocks = Vec::new();
+  let mut served: Vec<String> = Vec::new();
+  for id in &ids {
+    let e =
+      kumbarium_store::get(&state.library, id).map_err(describe_store_error)?;
+    if e.status != kumbarium_store::Status::Live {
+      continue;
+    }
+    let edges = kumbarium_store::links_of(&state.library, id)
+      .unwrap_or_default()
+      .iter()
+      .map(|l| {
+        if l.from_id == *id {
+          format!("{} -> {}", l.rel.as_str(), l.to_id)
+        } else {
+          format!("{} <- {}", l.rel.as_str(), l.from_id)
+        }
+      })
+      .collect::<Vec<_>>()
+      .join("; ");
+    let mut header = format!(
+      "id={} namespace={} kind={}\nconfidence={:.2} ({})",
+      e.id,
+      e.namespace,
+      e.kind.as_str(),
+      e.confidence,
+      confidence_basis(&e)
+    );
+    if e.retired_at.is_some() {
+      header.push_str("\nRETIRED (kept, no longer suggested)");
+    }
+    if e.superseded_by.is_some() {
+      header.push_str("\nSUPERSEDED (a newer version exists; follow the id)");
+    }
+    if chain.len() > 1 && !stitch {
+      let pos = chain
+        .iter()
+        .position(|c| c == id)
+        .map(|i| i + 1)
+        .unwrap_or(1);
+      header.push_str(&format!(
+        "\nset: part {pos} of {} (stitch=true fetches the whole set)",
+        chain.len()
+      ));
+    }
+    if !e.tags.is_empty() {
+      header.push_str(&format!("\ntags: {}", e.tags.join(", ")));
+    }
+    if !edges.is_empty() {
+      header.push_str(&format!("\nlinks: {edges}"));
+    }
+    blocks.push(format!("{header}\n{}", e.content));
+    served.push(e.id.clone());
+  }
+  audit(
+    state,
+    kumbarium_audit::EventKind::Get,
+    &head.namespace,
+    json!({ "id": full, "returned": served }),
+  )?;
+  Ok(blocks)
+}
+
+/// The docket read tool (round two, recorded): every open
+/// matter in the chain, with ids, so mid-session task_update
+/// has something to hold.
+fn task_list(
+  state: &mut ServerState,
+  args: &Value,
+) -> Result<Vec<String>, String> {
+  let scope =
+    kumbarium_librarian::normalize_namespace(required_str(args, "namespace")?);
+  let chain = kumbarium_librarian::namespace_chain(&scope)
+    .map_err(|e| format!("invalid scope: {e}"))?;
+  let now = kumbarium_util::now_ms();
+  let conn = state.docket()?;
+  let open = kumbarium_docket::tasks_in(conn, Some(&chain), false)
+    .map_err(|e| e.to_string())?;
+  let mut lines = if open.is_empty() {
+    vec![format!("Docket clear: no open matters in scope {scope}.")]
+  } else {
+    vec![format!("{} open matter(s) in scope {scope}:", open.len())]
+  };
+  for t in &open {
+    let why = match super::cli::docket::days_to_goal(t.goal.as_deref(), now) {
+      Some(d) if d < 0 => format!(", OVERDUE {}d", -d),
+      _ => String::new(),
+    };
+    let goal = t
+      .goal
+      .as_deref()
+      .map(|g| format!(" (goal {g})"))
+      .unwrap_or_default();
+    let shelf = if t.namespace != scope {
+      format!(" [{}]", t.namespace)
+    } else {
+      String::new()
+    };
+    lines.push(format!(
+      "- [{}{why}] id={} {}{goal}{shelf}",
+      t.severity.as_str(),
+      &t.id[t.id.len().saturating_sub(8)..],
+      t.content.lines().next().unwrap_or("")
+    ));
+  }
+  let count = open.len();
+  audit(
+    state,
+    kumbarium_audit::EventKind::TaskList,
+    &scope,
+    json!({ "returned": count }),
+  )?;
+  Ok(vec![lines.join("\n")])
+}
+
 /// Resolve an id or unique fragment against the library
 /// (git-style; listings show the 8-char short form).
 fn resolve(state: &ServerState, fragment: &str) -> Result<String, String> {
@@ -782,7 +982,8 @@ fn recall(
           }
           if open.len() > must.len() {
             block.push_str(&format!(
-              "\n(+{} more open matters on the docket)",
+              "\n(+{} more open matters; task_list serves them \
+               all, with ids)",
               open.len() - must.len()
             ));
           }

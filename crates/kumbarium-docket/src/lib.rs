@@ -449,6 +449,37 @@ fn supersede_locked(
   get(conn, &id)
 }
 
+/// Insert a task verbatim (bundle import): id, chain pointer,
+/// state, and timestamps travel as recorded. The caller owns
+/// the namespace gate and the duplicate check.
+pub fn import_task(conn: &Connection, t: &Task) -> Result<(), DocketError> {
+  conn.execute(
+    "INSERT INTO tasks
+       (id, namespace, content, agent_id, source, severity,
+        goal, state, done_at, superseded_by, note, status,
+        created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+             ?12, ?13, ?14)",
+    params![
+      t.id,
+      t.namespace,
+      t.content,
+      t.agent_id,
+      t.source,
+      t.severity.as_str(),
+      t.goal,
+      t.state.as_str(),
+      t.done_at,
+      t.superseded_by,
+      t.note,
+      t.status.as_str(),
+      t.created_at,
+      t.updated_at,
+    ],
+  )?;
+  Ok(())
+}
+
 /// Judge a matter done or dropped: the row is KEPT (the docket
 /// records judgments), done_at stamps when, an optional note
 /// says why. Open, live chain heads only.

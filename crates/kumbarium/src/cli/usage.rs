@@ -107,22 +107,6 @@ pub(crate) fn paint_invocation(inv: &str, sty: &style::Style) -> String {
   out
 }
 
-pub(crate) const DOCKET_USAGE: &str = "\
-the docket: matters before the house
-
-  kumbarium task <ns> <matter...>     file a matter
-       [--severity S] [--goal DATE]
-  kumbarium tasks [ns] [--all]        the timeline
-  kumbarium roadmap [ns]              pivoted by goal horizon
-  kumbarium task done <id> [note]     record complete
-  kumbarium task drop <id> [note]     overtaken by events
-  kumbarium task grade <id>           re-judge severity or goal
-       [--severity S] [--goal DATE]
-  kumbarium task history <id>         the chain: every regrade
-                                      and goal slip
-
-more: kumbarium help docket";
-
 pub(crate) const IMPORT_USAGE: &str = "\
 imports enter through the desk's policy:
 
@@ -154,6 +138,9 @@ the collection:
                      [--all]          (--all expands collapsed
                                       noted-small versions)
   kumbarium confirm <id>              record a fact proved true
+  kumbarium link <from> <rel> <to>    draw a typed edge (rel:
+                                      continues, relates_to,
+                                      duplicates, contradicts)
   kumbarium move <id> <namespace>     relocate (as supersession)
 
 lifecycle, human sign-off:
@@ -183,6 +170,9 @@ the docket:
   kumbarium task drop <id> [note]     overtaken by events
   kumbarium task grade <id>           re-judge severity or goal
        [--severity S] [--goal DATE]   (the old version chains)
+  kumbarium task reword <id> <matter...>
+                                      restate the matter (the
+                                      old wording chains)
   kumbarium task history <id>         a matter's chain: every
                                       regrade and goal slip
 
@@ -209,6 +199,8 @@ handoffs, the standing briefings:
                                       the next session (the
                                       previous one chains)
   kumbarium handoff <ns>              read the standing one
+  kumbarium handoff drop <ns>         take it out of circulation
+                                      (kept on record)
   kumbarium handoffs                  every shelf's briefing
 
 the circulation desk:
@@ -263,15 +255,23 @@ the witness:
 
 upkeep:
   kumbarium namespace add <path> [d]  register a namespace
+  kumbarium namespace describe <path> <d>
+                                      rewrite its description
   kumbarium namespace list            list namespaces
   kumbarium status                    library health at a glance
   kumbarium backup                    snapshot every section now
+  kumbarium backup list               every section's snapshots
   kumbarium config [--init|--open]    effective tunables
                                       (--init writes template,
                                       --open edits it)
   kumbarium paths                     where persisted data lives
 
 meta:
+  kumbarium completions <shell>       completion script for
+                                      bash | zsh | fish
   kumbarium version                   print the version
   kumbarium help [topic]              manual pages with grammar
-                                      and examples";
+                                      and examples
+
+machine output: --json on list, status, tasks, agents, secrets,
+and leases; deliberate stances: kumbarium help conventions";

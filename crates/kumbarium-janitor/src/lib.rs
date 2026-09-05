@@ -226,7 +226,10 @@ pub fn pass(
       continue;
     };
     match ev.kind.as_str() {
-      "recall" => {
+      // A get serves content exactly like a recall hit does
+      // (fetch-by-id is circulation), so it carries the same
+      // survival evidence.
+      "recall" | "get" => {
         let Some(returned) = detail.get("returned").and_then(|r| r.as_array())
         else {
           continue;

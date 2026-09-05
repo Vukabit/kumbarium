@@ -30,6 +30,24 @@ pub(crate) fn namespace_add(path: &str, description: &str) -> ExitCode {
   }
 }
 
+pub(crate) fn namespace_describe(path: &str, description: &str) -> ExitCode {
+  let path = &kumbarium_librarian::normalize_namespace(path);
+  if description.trim().is_empty() {
+    return fail("describe needs the new description text");
+  }
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  match kumbarium_store::describe_namespace(&state.library, path, description) {
+    Ok(()) => {
+      println!("described {path}: {description}");
+      ExitCode::SUCCESS
+    }
+    Err(e) => fail(&e.to_string()),
+  }
+}
+
 pub(crate) fn namespace_list() -> ExitCode {
   let (_, state) = match open_stores() {
     Ok(v) => v,
@@ -347,6 +365,168 @@ pub(crate) fn status_cmd() -> ExitCode {
     }
   }
   ExitCode::SUCCESS
+}
+
+/// `kum status --json`: the same health figures as the page,
+/// as one machine-readable object (the porcelain the peers
+/// ship; kumbarium's own agents are the natural consumers).
+pub(crate) fn status_json() -> ExitCode {
+  let (p, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let mut out = serde_json::Map::new();
+  match kumbarium_store::stats(&state.library) {
+    Ok(s) => {
+      out.insert(
+        "entries".into(),
+        serde_json::json!({
+          "live": s.live,
+          "superseded": s.superseded,
+          "retired": s.retired,
+          "pending": s.pending,
+          "rejected": s.rejected,
+          "set_heads": s.set_heads,
+          "set_parts": s.set_parts,
+        }),
+      );
+    }
+    Err(e) => return fail(&e.to_string()),
+  }
+  if p.docket_db.exists()
+    && let Ok(conn) = kumbarium_docket::open(&p.docket_db)
+    && let Ok((open, urgent, pending)) = kumbarium_docket::counts(&conn)
+  {
+    let overdue = kumbarium_docket::tasks_in(&conn, None, false)
+      .map(|tasks| {
+        let now = kumbarium_util::now_ms();
+        tasks
+          .iter()
+          .filter(|t| {
+            super::docket::days_to_goal(t.goal.as_deref(), now)
+              .is_some_and(|d| d < 0)
+          })
+          .count()
+      })
+      .unwrap_or(0);
+    out.insert(
+      "docket".into(),
+      serde_json::json!({
+        "open": open,
+        "urgent": urgent,
+        "overdue": overdue,
+        "pending": pending,
+      }),
+    );
+  }
+  if p.handoff_db.exists()
+    && let Ok(conn) = kumbarium_handoff::open(&p.handoff_db)
+    && let Ok(pending) = kumbarium_handoff::pending_handoffs(&conn)
+  {
+    out.insert("pending_briefings".into(), serde_json::json!(pending.len()));
+  }
+  if p.secrets_db.exists()
+    && let Ok(conn) = kumbarium_secrets::open(&p.secrets_db)
+    && let Ok((live, grants)) = kumbarium_secrets::counts(&conn)
+  {
+    let plaintext = matches!(
+      kumbarium_secrets::sealing_mode(&conn),
+      Ok(Some(kumbarium_secrets::Sealing::Plaintext))
+    );
+    let today = kumbarium_util::now_iso8601();
+    let expired = kumbarium_secrets::list(&conn, None)
+      .map(|rows| {
+        rows
+          .iter()
+          .filter(|m| m.expires_at.as_deref().is_some_and(|d| &today[..10] > d))
+          .count()
+      })
+      .unwrap_or(0);
+    out.insert(
+      "secrets".into(),
+      serde_json::json!({
+        "stocked": live,
+        "expired": expired,
+        "grants": grants,
+        "plaintext": plaintext,
+      }),
+    );
+  }
+  if p.leases_db.exists()
+    && let Ok(conn) = kumbarium_leases::open(&p.leases_db)
+  {
+    let now = kumbarium_util::now_ms();
+    let ttl = state.cfg.leases_ttl_minutes;
+    let active = kumbarium_leases::active_in(&conn, None, now, ttl)
+      .map(|v| v.len())
+      .unwrap_or(0);
+    let stale = kumbarium_leases::stale_in(&conn, now, ttl)
+      .map(|v| v.len())
+      .unwrap_or(0);
+    out.insert(
+      "reading_room".into(),
+      serde_json::json!({ "active": active, "stale": stale }),
+    );
+  }
+  match kumbarium_store::namespaces(&state.library) {
+    Ok(rows) => {
+      let mut list = Vec::new();
+      for (path, description, created_at) in rows {
+        let n: i64 = state
+          .library
+          .query_row(
+            "SELECT count(*) FROM entries e
+             JOIN namespaces ns ON ns.id = e.namespace_id
+             WHERE ns.path = ?1 AND e.superseded_by IS NULL
+               AND e.retired_at IS NULL AND e.status = 'live'",
+            [&path],
+            |row| row.get(0),
+          )
+          .unwrap_or(0);
+        list.push(serde_json::json!({
+          "path": path,
+          "description": description,
+          "created_at": created_at,
+          "live_entries": n,
+        }));
+      }
+      out.insert("namespaces".into(), serde_json::json!(list));
+    }
+    Err(e) => return fail(&e.to_string()),
+  }
+  match kumbarium_audit::summary(&state.audit) {
+    Ok((count, latest)) => {
+      out.insert(
+        "audit".into(),
+        serde_json::json!({ "events": count, "latest_at": latest }),
+      );
+    }
+    Err(e) => return fail(&e.to_string()),
+  }
+  let mut backups = serde_json::Map::new();
+  for name in ["memory", "audit", "docket", "handoff", "secrets", "leases"] {
+    let dir = p.backups_dir.join(name);
+    backups.insert(
+      name.into(),
+      match kumbarium_store::latest_backup_ms(&dir) {
+        Some(ms) => {
+          serde_json::json!(kumbarium_util::format_iso8601_ms(ms))
+        }
+        None => serde_json::Value::Null,
+      },
+    );
+  }
+  out.insert(
+    "backups_latest_at".into(),
+    serde_json::Value::Object(backups),
+  );
+  match serde_json::to_string_pretty(&serde_json::Value::Object(out)) {
+    Ok(s) => {
+      println!("{s}");
+      ExitCode::SUCCESS
+    }
+    Err(e) => fail(&e.to_string()),
+  }
 }
 
 pub(crate) fn config_cmd(init: bool) -> ExitCode {

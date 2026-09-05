@@ -12,13 +12,18 @@ use super::term::*;
 /// `kum leases [ns]`: the register. Active cards, then any
 /// stale ones (expired-but-unreleased: the crashed-agent
 /// shape), so the room's true state is one glance.
-pub(crate) fn leases_cmd(ns: Option<&str>) -> ExitCode {
+pub(crate) fn leases_cmd(ns: Option<&str>, json: bool) -> ExitCode {
   let (p, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
   let sty = style::Style::detect();
   if !p.leases_db.exists() {
+    if json {
+      return print_json(&serde_json::json!({
+        "active": [], "stale": []
+      }));
+    }
     println!("the reading room is empty (no leases ever taken)");
     return ExitCode::SUCCESS;
   }
@@ -50,6 +55,25 @@ pub(crate) fn leases_cmd(ns: Option<&str>) -> ExitCode {
       .collect::<Vec<_>>(),
     Err(e) => return fail(&e.to_string()),
   };
+  if json {
+    let row = |l: &kumbarium_leases::Lease| {
+      serde_json::json!({
+        "id": l.id,
+        "namespace": l.namespace,
+        "resource": l.resource,
+        "agent_id": l.agent_id,
+        "session_id": l.session_id,
+        "note": l.note,
+        "taken_at": l.taken_at,
+        "renewed_at": l.renewed_at,
+      })
+    };
+    return print_json(&serde_json::json!({
+      "ttl_minutes": ttl,
+      "active": active.iter().map(row).collect::<Vec<_>>(),
+      "stale": stale.iter().map(row).collect::<Vec<_>>(),
+    }));
+  }
   println!(
     "{} {}",
     sty.bold("the reading room"),

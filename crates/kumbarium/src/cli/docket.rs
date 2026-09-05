@@ -314,6 +314,63 @@ pub(crate) fn task_grade_cmd(id: &str, rest: &[&str]) -> ExitCode {
   ExitCode::SUCCESS
 }
 
+/// `kum task reword <id> <matter...>`: restate the matter as a
+/// supersession (the old wording chains forward, like a
+/// regrade), so a clumsy first filing needs no drop-and-refile.
+pub(crate) fn task_reword_cmd(id: &str, rest: &[&str]) -> ExitCode {
+  let matter = rest.join(" ");
+  if matter.trim().is_empty() {
+    return fail("reword needs the new matter text");
+  }
+  let (_, mut state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let conn = match docket_conn(&mut state) {
+    Ok(c) => c,
+    Err(e) => return fail(&e),
+  };
+  let full = match kumbarium_docket::resolve_id(conn, id) {
+    Ok(f) => f,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let edit = kumbarium_docket::TaskEdit {
+    severity: None,
+    goal: None,
+    note: None,
+    content: Some(matter.trim().to_string()),
+    namespace: None,
+  };
+  let task =
+    match kumbarium_docket::supersede_task(conn, &full, &edit, "kumbarium-cli")
+    {
+      Ok(t) => t,
+      Err(e) => return fail(&e.to_string()),
+    };
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
+    kind: kumbarium_audit::EventKind::TaskUpdate,
+    scope: task.namespace.clone(),
+    detail: serde_json::json!({
+      "old_id": full,
+      "new_id": task.id,
+      "content": task.content,
+    }),
+  };
+  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+    return fail(&format!("reworded, but audit append failed: {e}"));
+  }
+  println!(
+    "reworded {} -> {}: {}",
+    sty.id(kumbarium_docket::short_id(&full)),
+    sty.id(kumbarium_docket::short_id(&task.id)),
+    task.content
+  );
+  ExitCode::SUCCESS
+}
+
 /// `kum task history <id>`: the chain, oldest first, goals and
 /// grades visible so creep reads at a glance.
 pub(crate) fn task_history_cmd(id: &str) -> ExitCode {
@@ -361,10 +418,12 @@ pub(crate) fn tasks_cmd(rest: &[&str]) -> ExitCode {
   let mut ns: Option<String> = None;
   let mut all = false;
   let mut severity = None;
+  let mut json = false;
   let mut it = rest.iter();
   while let Some(arg) = it.next() {
     match *arg {
       "--all" => all = true,
+      "--json" => json = true,
       "--severity" => match it.next() {
         Some(raw) => {
           severity = Some(match kumbarium_docket::Severity::parse(raw) {
@@ -405,6 +464,27 @@ pub(crate) fn tasks_cmd(rest: &[&str]) -> ExitCode {
   };
   if let Some(sev) = severity {
     tasks.retain(|t| t.severity == sev);
+  }
+  if json {
+    let rows: Vec<serde_json::Value> = tasks
+      .iter()
+      .map(|t| {
+        serde_json::json!({
+          "id": t.id,
+          "namespace": t.namespace,
+          "content": t.content,
+          "agent_id": t.agent_id,
+          "severity": t.severity.as_str(),
+          "goal": t.goal,
+          "state": t.state.as_str(),
+          "done_at": t.done_at,
+          "superseded_by": t.superseded_by,
+          "created_at": t.created_at,
+          "updated_at": t.updated_at,
+        })
+      })
+      .collect();
+    return print_json(&serde_json::json!(rows));
   }
   if tasks.is_empty() {
     if let Some(n) = &ns

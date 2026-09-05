@@ -186,6 +186,18 @@ pub(crate) fn expand_home(raw: &str) -> std::path::PathBuf {
   std::path::PathBuf::from(raw)
 }
 
+/// Emit a machine-readable value on stdout (`--json` mode):
+/// pretty-printed, colorless by construction.
+pub(crate) fn print_json(v: &serde_json::Value) -> ExitCode {
+  match serde_json::to_string_pretty(v) {
+    Ok(s) => {
+      println!("{s}");
+      ExitCode::SUCCESS
+    }
+    Err(e) => fail(&e.to_string()),
+  }
+}
+
 pub(crate) fn fail(message: &str) -> ExitCode {
   eprintln!("kumbarium: {message}");
   ExitCode::FAILURE

@@ -96,6 +96,21 @@ fn initialize(state: &mut ServerState, id: Value, params: &Value) -> Value {
     .and_then(|c| c.get("name"))
     .and_then(Value::as_str)
   {
+    // Verb-shaped identities are refused at claim time: the
+    // agent-lifecycle family will own these words, and an
+    // identity named "add" would collide with it the day it
+    // ships.
+    if tools::reserved_agent_word(name) {
+      return error_response(
+        id,
+        INVALID_PARAMS,
+        &format!(
+          "agent name {name:?} is reserved for the agent \
+           lifecycle; configure the client with a distinct \
+           agent name"
+        ),
+      );
+    }
     state.agent_id = name.to_string();
   }
   let requested = params
@@ -247,6 +262,8 @@ mod tests {
         "remember",
         "link",
         "recall",
+        "get",
+        "task_list",
         "confirm",
         "supersede",
         "task_file",

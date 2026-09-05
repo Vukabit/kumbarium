@@ -726,3 +726,43 @@ the manual instead of running the command; --version/-V exist;
 a bare -- is the end-of-options separator and never becomes
 content), and the echo-off prompt restores the terminal even
 through a Ctrl-C.
+
+## D-047: the architecture wave (2026-09-04)
+
+The audit's architecture tier, adopted as one wave. The
+`agent` word is RESERVED before the lifecycle family exists:
+no identity may bear add / list / remove / retire / rename /
+show (refused at MCP initialize, at `secret grant`, and on the
+dossier route), because un-reserving later would be a breaking
+rename and a roster row named "add" is nobody's real client.
+Bare nouns browse everywhere (`kum task` is the timeline,
+`kum secret` the stacks listing); usage walls live only in
+`kum help`. Four gap verbs close real holes with no new
+surfaces: `namespace describe` (a typo'd charter is not
+forever), `task reword` (restating a matter is a supersession,
+not drop-and-refile), `handoff drop` (a dead project stops
+serving its stale briefing; the row stays in the diary,
+witnessed under the new handoff_drop kind), and `kum link`
+(typed edges are curation-class judgment; humans get the same
+verb agents had, witnessed identically). `backup list` names
+the snapshots; restore stays a documented hand move, on
+purpose. Bundles grow to format 2, the FULL shelf as typed
+sections (entries + links + matters + briefings; format 1
+still imports); matters and briefings union by id, and a
+visiting standing briefing that would displace the local one
+parks PENDING at the desk, because a briefing poisons the
+opening frame and approval already supersedes. The MCP surface
+grows exactly two read tools, both witnessed: `get`
+(fetch-by-id with edges and stitch, the second half of D-016's
+summaries-then-full-entries promise; it serves content, so it
+feeds survival evidence like recall) and `task_list` (the
+docket read tool D-031's wait-and-see reserved for round two;
+the trigger, no id-acquisition path for ordinary matters
+mid-session, fired in the audit). The browse surfaces gain
+`--json` (metadata only; secret values stay structurally
+absent), `kum completions bash|zsh|fish` ships static scripts
+off the same word list as did-you-mean, and the endorsed
+divergences (no auto-paging, uniform exit 1, flat-verb/noun
+mix) plus the SQLite-door stance (SQLite is a tooling door,
+never a channel for governed agents) are stated in the manual
+as `kum help conventions`.

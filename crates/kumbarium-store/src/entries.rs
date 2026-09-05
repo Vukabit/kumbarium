@@ -134,6 +134,24 @@ pub fn register_namespace(
   Ok(conn.last_insert_rowid())
 }
 
+/// Rewrite a registered namespace's description (the charter
+/// line the binder shows). The registry is metadata: edits are
+/// in place, not chained.
+pub fn describe_namespace(
+  conn: &Connection,
+  path: &str,
+  description: &str,
+) -> Result<(), StoreError> {
+  let n = conn.execute(
+    "UPDATE namespaces SET description = ?2 WHERE path = ?1",
+    params![path, description],
+  )?;
+  if n == 0 {
+    return Err(StoreError::NamespaceNotRegistered(path.to_string()));
+  }
+  Ok(())
+}
+
 /// All registered namespaces as (path, description, created_at),
 /// ordered by path.
 pub fn namespaces(
@@ -943,6 +961,22 @@ mod tests {
 
   fn chain() -> Vec<String> {
     CHAIN.iter().map(|s| s.to_string()).collect()
+  }
+
+  #[test]
+  fn describe_namespace_rewrites_in_place() {
+    let conn = store();
+    describe_namespace(&conn, "project/demo-app", "the real charter").unwrap();
+    let rows = namespaces(&conn).unwrap();
+    let (_, desc, _) = rows
+      .iter()
+      .find(|(p, _, _)| p == "project/demo-app")
+      .unwrap();
+    assert_eq!(desc, "the real charter");
+    assert!(matches!(
+      describe_namespace(&conn, "project/nope", "x"),
+      Err(StoreError::NamespaceNotRegistered(_))
+    ));
   }
 
   #[test]

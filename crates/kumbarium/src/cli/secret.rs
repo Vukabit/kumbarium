@@ -12,36 +12,6 @@ use zeroize::Zeroizing;
 
 use super::super::{keystore, open_stores, style, tools};
 use super::term::*;
-use super::usage::paint_cli_page;
-
-pub(crate) const SECRETS_USAGE: &str = "\
-the restricted stacks: witnessed credential custody
-
-  kumbarium secret set <ns> <name>     stock or rotate; value
-       [--i-accept-plaintext]          from stdin or an echo-off
-       [--expires DATE]                prompt, never argv
-                                       (--expires: upstream
-                                       expiry, surfaced never
-                                       enforced)
-  kumbarium secret read <ns> <name>    print the value
-  kumbarium secret copy <ns> <name>    concealed clipboard copy,
-                                       auto-clear in 90s
-  kumbarium secret grant <ns> <name> <agent> [--until DATE]
-                                       allow secret_read; the
-                                       lease expires at read
-                                       time, through DATE (UTC)
-  kumbarium secret revoke <ns> <name> <agent>  withdraw it
-  kumbarium secret shred <ns> <name>   destroy the value, keep
-                                       the record
-  kumbarium secret exec <ns> <name> [--as VAR] -- cmd args...
-                                       run cmd with the value in
-                                       its env; stdout/stderr
-                                       stream back REDACTED
-  kumbarium secret leakscan [ns]       sweep every shelf for
-                                       exposed secret bytes;
-                                       exit 1 on any hit
-  kumbarium secrets [ns]               names, grants, sealing;
-                                       never values";
 
 pub(crate) fn secret_cmd(rest: &[&str]) -> ExitCode {
   match rest {
@@ -87,14 +57,13 @@ pub(crate) fn secret_cmd(rest: &[&str]) -> ExitCode {
     }
     ["leakscan"] => leakscan_cmd(None),
     ["leakscan", ns] => leakscan_cmd(Some(ns)),
-    [] => {
-      let sty = style::Style::detect();
-      println!("{}", paint_cli_page(SECRETS_USAGE, &sty));
-      ExitCode::SUCCESS
-    }
-    [verb, ..] => {
-      fail(&format!("no secret verb {verb:?}; the map: kum secret"))
-    }
+    // Bare singular browses like the plural; the verb map
+    // lives in kum help secrets and the wrong-shape errors.
+    [] => secrets_cmd(None, false),
+    [verb, ..] => fail(&format!(
+      "no secret verb {verb:?}; the verbs: set read copy grant \
+       revoke shred exec leakscan (kum help secrets)"
+    )),
   }
 }
 
@@ -698,6 +667,16 @@ fn spawn_clipboard_clear(tool: &str) {
 }
 
 fn grant_cmd(ns: &str, name: &str, agent: &str, flags: &[&str]) -> ExitCode {
+  // A reserved word can never initialize as an agent, so a
+  // grant to one would be a grant to nobody; refuse it here
+  // where the typo is cheapest to see.
+  if tools::reserved_agent_word(agent) {
+    return fail(&format!(
+      "agent name {agent:?} is reserved for the agent \
+       lifecycle; no agent may bear it (kum agents lists the \
+       identities the ledger has seen)"
+    ));
+  }
   // A lease: --until DATE grants through that day (UTC), and
   // read-time re-checks make expiry honest enforcement, not
   // metadata (D-038).
@@ -855,13 +834,18 @@ fn shred_cmd(ns: &str, name: &str, yes: bool) -> ExitCode {
 
 /// `kum secrets [ns]`: the stacks at a glance. Names, grants,
 /// sealing mode; structurally never values.
-pub(crate) fn secrets_cmd(ns: Option<&str>) -> ExitCode {
+pub(crate) fn secrets_cmd(ns: Option<&str>, json: bool) -> ExitCode {
   let (p, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
   let sty = style::Style::detect();
   if !p.secrets_db.exists() {
+    if json {
+      return print_json(&serde_json::json!({
+        "sealing": null, "secrets": [], "grants": []
+      }));
+    }
     println!("the restricted stacks are empty (no secrets stocked)");
     return ExitCode::SUCCESS;
   }
@@ -883,6 +867,42 @@ pub(crate) fn secrets_cmd(ns: Option<&str>) -> ExitCode {
     Ok(m) => m,
     Err(e) => return fail(&e.to_string()),
   };
+  let rows = match kumbarium_secrets::list(conn, ns.as_deref()) {
+    Ok(r) => r,
+    Err(e) => return fail(&e.to_string()),
+  };
+  if json {
+    // Metadata only, values structurally absent (SecretMeta
+    // carries none to leak).
+    let grants = match kumbarium_secrets::grants(conn, ns.as_deref()) {
+      Ok(g) => g,
+      Err(e) => return fail(&e.to_string()),
+    };
+    let sealing = match mode {
+      Some(kumbarium_secrets::Sealing::Keystore) => Some("keystore"),
+      Some(kumbarium_secrets::Sealing::Plaintext) => Some("plaintext"),
+      None => None,
+    };
+    return print_json(&serde_json::json!({
+      "sealing": sealing,
+      "secrets": rows.iter().map(|m| serde_json::json!({
+        "id": m.id,
+        "namespace": m.namespace,
+        "name": m.name,
+        "expires_at": m.expires_at,
+        "shredded_at": m.shredded_at,
+        "stocked_at": m.updated_at,
+      })).collect::<Vec<_>>(),
+      "grants": grants.iter().map(|g| serde_json::json!({
+        "namespace": g.namespace,
+        "name": g.name,
+        "agent_id": g.agent_id,
+        "mode": g.mode,
+        "granted_at": g.created_at,
+        "until": g.expires_at,
+      })).collect::<Vec<_>>(),
+    }));
+  }
   let sealing = match mode {
     Some(kumbarium_secrets::Sealing::Keystore) => "keystore-sealed".into(),
     Some(kumbarium_secrets::Sealing::Plaintext) => {
@@ -891,10 +911,6 @@ pub(crate) fn secrets_cmd(ns: Option<&str>) -> ExitCode {
     None => "undecided (first set decides)".into(),
   };
   println!("{} ({sealing})", sty.bold("the restricted stacks"));
-  let rows = match kumbarium_secrets::list(conn, ns.as_deref()) {
-    Ok(r) => r,
-    Err(e) => return fail(&e.to_string()),
-  };
   if rows.is_empty() {
     println!("no secrets stocked");
   } else {

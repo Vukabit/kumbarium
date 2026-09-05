@@ -14,8 +14,14 @@ use rusqlite::params;
 
 pub use rusqlite::Connection;
 
-const MIGRATIONS: &[(i64, &str, &str)] =
-  &[(1, "0001_init", include_str!("../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+  (1, "0001_init", include_str!("../migrations/0001_init.sql")),
+  (
+    2,
+    "0002_dropped_status",
+    include_str!("../migrations/0002_dropped_status.sql"),
+  ),
+];
 
 /// A briefing that cannot fit is hiding a design document that
 /// belongs in memory.
@@ -35,6 +41,8 @@ pub enum HandoffError {
   NotPending(String),
   #[error("handoff content is empty")]
   EmptyContent,
+  #[error("no standing briefing on {0:?}; nothing to drop")]
+  NoStanding(String),
   #[error(
     "handoff exceeds {0} bytes; a briefing that cannot fit is \
      hiding a design document that belongs in memory"
@@ -48,6 +56,7 @@ pub enum Status {
   Live,
   Pending,
   Rejected,
+  Dropped,
 }
 
 impl Status {
@@ -56,6 +65,7 @@ impl Status {
       Status::Live => "live",
       Status::Pending => "pending",
       Status::Rejected => "rejected",
+      Status::Dropped => "dropped",
     }
   }
 
@@ -64,6 +74,7 @@ impl Status {
       "live" => Some(Status::Live),
       "pending" => Some(Status::Pending),
       "rejected" => Some(Status::Rejected),
+      "dropped" => Some(Status::Dropped),
       _ => None,
     }
   }
@@ -202,7 +213,9 @@ fn write_locked(
       )
       .map(Some)
       .or_else(none_on_empty)?,
-    Status::Rejected => None,
+    // Rejected rows are the desk's record and dropped rows are
+    // the human's; neither is a head a new write supersedes.
+    Status::Rejected | Status::Dropped => None,
   };
   let id = kumbarium_util::generate_id();
   let now = kumbarium_util::now_iso8601();
@@ -236,6 +249,73 @@ fn none_on_empty<T>(e: rusqlite::Error) -> Result<Option<T>, rusqlite::Error> {
     rusqlite::Error::QueryReturnedNoRows => Ok(None),
     other => Err(other),
   }
+}
+
+/// Take the shelf's standing briefing out of circulation: the
+/// row is KEPT (the chain stays the diary) with status
+/// 'dropped', and nothing is served until a new briefing is
+/// written. Returns the briefing that was dropped.
+pub fn drop_standing(
+  conn: &Connection,
+  namespace: &str,
+) -> Result<Handoff, HandoffError> {
+  let Some(head) = standing(conn, namespace)? else {
+    return Err(HandoffError::NoStanding(namespace.to_string()));
+  };
+  conn.execute(
+    "UPDATE handoffs SET status = 'dropped', updated_at = ?1
+     WHERE id = ?2",
+    params![kumbarium_util::now_iso8601(), head.id],
+  )?;
+  get(conn, &head.id)
+}
+
+/// Insert a briefing verbatim (bundle import): id, chain
+/// pointer, status, and timestamps travel as recorded. The
+/// caller owns the namespace gate, the duplicate check, and
+/// the one-live-head reconciliation.
+pub fn import_handoff(
+  conn: &Connection,
+  h: &Handoff,
+) -> Result<(), HandoffError> {
+  conn.execute(
+    "INSERT INTO handoffs
+       (id, namespace, content, agent_id, source, superseded_by,
+        note, status, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+    params![
+      h.id,
+      h.namespace,
+      h.content,
+      h.agent_id,
+      h.source,
+      h.superseded_by,
+      h.note,
+      h.status.as_str(),
+      h.created_at,
+      h.updated_at,
+    ],
+  )?;
+  Ok(())
+}
+
+/// Every live briefing on one shelf (the whole diary), oldest
+/// first: what a bundle carries.
+pub fn handoffs_in(
+  conn: &Connection,
+  namespace: &str,
+) -> Result<Vec<Handoff>, HandoffError> {
+  let mut stmt = conn.prepare(
+    "SELECT id, namespace, content, agent_id, source,
+            superseded_by, note, status, created_at, updated_at
+     FROM handoffs
+     WHERE namespace = ?1 AND status = 'live'
+     ORDER BY created_at ASC",
+  )?;
+  let rows = stmt
+    .query_map([namespace], row_to_handoff)?
+    .collect::<Result<Vec<_>, _>>()?;
+  Ok(rows)
 }
 
 /// The shelf's standing briefing (live head), if any.
@@ -453,6 +533,28 @@ mod tests {
 
   fn live_write(conn: &Connection, ns: &str, content: &str) -> Handoff {
     write_handoff(conn, ns, content, "agent-a", "test", Status::Live).unwrap()
+  }
+
+  #[test]
+  fn drop_standing_keeps_the_row_and_stops_serving() {
+    let conn = open_in_memory().unwrap();
+    let v1 = live_write(&conn, "project/x", "the last note");
+    let dropped = drop_standing(&conn, "project/x").unwrap();
+    assert_eq!(dropped.id, v1.id);
+    assert_eq!(dropped.status, Status::Dropped);
+    // Out of circulation, kept on record.
+    assert!(standing(&conn, "project/x").unwrap().is_none());
+    assert_eq!(get(&conn, &v1.id).unwrap().status, Status::Dropped);
+    // Nothing to drop twice.
+    assert!(matches!(
+      drop_standing(&conn, "project/x"),
+      Err(HandoffError::NoStanding(_))
+    ));
+    // A later write stands alone; it does not supersede the
+    // dropped head (the diary was closed and reopened).
+    let v2 = live_write(&conn, "project/x", "back from the dead");
+    assert_eq!(standing(&conn, "project/x").unwrap().unwrap().id, v2.id);
+    assert!(get(&conn, &v1.id).unwrap().superseded_by.is_none());
   }
 
   #[test]

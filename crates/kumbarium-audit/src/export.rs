@@ -247,6 +247,16 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
         n("edges")?
       )),
       "handoff_write" => Some(format!("left a briefing {}", short(s("id")?))),
+      "handoff_drop" => Some(format!(
+        "dropped the standing briefing {} (kept on record, no \
+         longer served)",
+        short(s("id")?)
+      )),
+      "get" => Some(format!("fetched {} in full by id", short(s("id")?))),
+      "task_list" => Some(format!(
+        "surveyed the open docket ({} matters served)",
+        n("returned").unwrap_or(0)
+      )),
       "secret_set" => Some(format!("stocked secret {:?}", s("name")?)),
       "secret_read" => {
         // found:false = the name was not on the shelf; nothing

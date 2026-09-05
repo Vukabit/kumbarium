@@ -91,6 +91,9 @@ pub fn run() -> ExitCode {
     ["namespace", "add", path, rest @ ..] => {
       namespace_add(path, &rest.join(" "))
     }
+    ["namespace", "describe", path, rest @ ..] => {
+      namespace_describe(path, &rest.join(" "))
+    }
     ["namespace", "list"] | ["namespace"] => namespace_list(),
     ["import", "claude", rest @ ..] => import_claude(rest),
     ["export"] => {
@@ -102,13 +105,12 @@ pub fn run() -> ExitCode {
     ["export", "bundle", scope, rest @ ..] => export_bundle_cmd(scope, rest),
     ["import", "bundle", file] => import_bundle_cmd(file, false),
     ["import", "bundle", file, "--pending"] => import_bundle_cmd(file, true),
+    ["backup", "list"] => backup_list(),
     ["backup"] => backup_now(),
-    ["list"] => list_entries(None, false),
-    ["list", "--all"] => list_entries(None, true),
-    ["list", ns] if !ns.starts_with('-') => list_entries(Some(ns), false),
-    ["list", ns, "--all"] if !ns.starts_with('-') => {
-      list_entries(Some(ns), true)
-    }
+    ["list", rest @ ..] => match browse_args(rest) {
+      Ok((ns, all, json)) => list_entries(ns, all, json),
+      Err(e) => fail(&e),
+    },
     ["show", id] if !id.starts_with('-') => show_entry(id, false),
     ["show", id, "--full"] => show_entry(id, true),
     ["history", id, rest @ ..] => {
@@ -119,6 +121,7 @@ pub fn run() -> ExitCode {
     ["revert", id] => revert_cmd(id, false),
     ["revert", id, "--apply"] => revert_cmd(id, true),
     ["confirm", id] => confirm_cmd(id),
+    ["link", from, rel, to] => link_cmd(from, rel, to),
     ["task", "done", id, note @ ..] => {
       task_judge_cmd(id, true, &note.join(" "))
     }
@@ -126,41 +129,61 @@ pub fn run() -> ExitCode {
       task_judge_cmd(id, false, &note.join(" "))
     }
     ["task", "grade", id, rest @ ..] => task_grade_cmd(id, rest),
+    ["task", "reword", id, rest @ ..] => task_reword_cmd(id, rest),
     ["task", "history", id] => task_history_cmd(id),
     ["task", ns, rest @ ..] => task_file_cmd(ns, rest),
-    ["task"] => {
-      let sty = style::Style::detect();
-      println!("{}", paint_cli_page(DOCKET_USAGE, &sty));
-      ExitCode::SUCCESS
-    }
+    // Bare singular browses like the plural (the audit's
+    // coherence rule: bare nouns show data, never usage
+    // walls); the verb map lives in kum help docket.
+    ["task"] => tasks_cmd(&[]),
     ["import"] => {
       let sty = style::Style::detect();
       println!("{}", paint_cli_page(IMPORT_USAGE, &sty));
       ExitCode::SUCCESS
     }
     ["tasks", rest @ ..] => tasks_cmd(rest),
+    ["handoff", "drop", ns] => handoff_drop_cmd(ns),
     ["handoff", ns, rest @ ..] => handoff_cmd(ns, rest),
     ["handoff"] | ["handoffs"] => handoffs_cmd(),
     ["brief", ns] if !ns.starts_with('-') => brief_cmd(ns),
     ["dossier", agent, rest @ ..] => dossier_cmd(agent, rest),
     ["dossier"] => fail("dossier needs an agent: kumbarium dossier <agent>"),
-    ["agents"] => agents_cmd(false),
-    ["agents", "--all"] => agents_cmd(true),
+    ["agents", rest @ ..] => match browse_args(rest) {
+      Ok((Some(_), _, _)) => {
+        fail("the roster is building-wide; usage: kumbarium agents [--all]")
+      }
+      Ok((None, all, json)) => agents_cmd(all, json),
+      Err(e) => fail(&e),
+    },
+    // Reserved for the agent-lifecycle family: no identity may
+    // bear these words, so the dossier route refuses them
+    // instead of rendering an empty story.
+    ["agent", verb, ..] if tools::reserved_agent_word(verb) => fail(&format!(
+      "kum agent {verb} is reserved for the agent lifecycle \
+         (not built yet); the roster: kum agents, the deep \
+         story: kum dossier <agent>"
+    )),
     ["agent", name] => dossier_cmd(name, &[]),
     ["agent", name, rest @ ..] => dossier_cmd(name, rest),
     ["agent"] => {
       fail("the roster: kum agents | kum agent <name> (the dossier)")
     }
     ["brief"] => fail("brief needs a scope: kumbarium brief <ns>"),
-    ["leases"] => leases_cmd(None),
-    ["leases", ns] if !ns.starts_with('-') => leases_cmd(Some(ns)),
+    ["leases", rest @ ..] => match browse_args(rest) {
+      Ok((_, true, _)) => fail("leases takes no --all"),
+      Ok((ns, _, json)) => leases_cmd(ns, json),
+      Err(e) => fail(&e),
+    },
     ["lease", "break", id] => lease_break_cmd(id),
     ["lease", ..] => {
       fail("the reading room: kum leases [ns] | kum lease break <id>")
     }
     ["secret", rest @ ..] => secret_cmd(rest),
-    ["secrets"] => secrets_cmd(None),
-    ["secrets", ns] if !ns.starts_with('-') => secrets_cmd(Some(ns)),
+    ["secrets", rest @ ..] => match browse_args(rest) {
+      Ok((_, true, _)) => fail("secrets takes no --all"),
+      Ok((ns, _, json)) => secrets_cmd(ns, json),
+      Err(e) => fail(&e),
+    },
     ["roadmap"] => roadmap_cmd(None),
     ["roadmap", ns] if !ns.starts_with('-') => roadmap_cmd(Some(ns)),
     ["janitor"] => janitor_cmd(false),
@@ -178,6 +201,11 @@ pub fn run() -> ExitCode {
     ["retire", id] => retire_cmd(id, true),
     ["unretire", id] => retire_cmd(id, false),
     ["status"] => status_cmd(),
+    ["status", "--json"] => status_json(),
+    ["completions", shell] => cli::completions::completions_cmd(shell),
+    ["completions"] => {
+      fail("completions needs a shell: kumbarium completions bash|zsh|fish")
+    }
     ["config"] => config_cmd(false),
     ["config", "--init"] => config_cmd(true),
     ["config", "--open"] => config_open(),
@@ -282,6 +310,8 @@ pub fn run() -> ExitCode {
       if [
         "remember",
         "recall",
+        "get",
+        "task_list",
         "supersede",
         "lease_take",
         "lease_release",
@@ -311,6 +341,30 @@ pub fn run() -> ExitCode {
   }
 }
 
+/// The shared argument shape of the browse commands: one
+/// optional namespace positional plus `--all` / `--json` in
+/// any order; anything else is refused loudly (a swallowed
+/// flag was the audit's worst class of lie).
+fn browse_args<'a>(
+  rest: &[&'a str],
+) -> Result<(Option<&'a str>, bool, bool), String> {
+  let mut ns = None;
+  let mut all = false;
+  let mut json = false;
+  for a in rest {
+    match *a {
+      "--all" => all = true,
+      "--json" => json = true,
+      w if !w.starts_with('-') && ns.is_none() => ns = Some(w),
+      w if !w.starts_with('-') => {
+        return Err(format!("unexpected argument {w:?}"));
+      }
+      other => return Err(format!("unknown flag {other:?}")),
+    }
+  }
+  Ok((ns, all, json))
+}
+
 /// One usage line per command word, for the wrong-shape error
 /// path and flag-form help. The map page (USAGE) stays the
 /// human-ordered source; this is the machine-keyed index.
@@ -321,6 +375,7 @@ fn usage_of(word: &str) -> Option<&'static str> {
     "grep" => "kumbarium grep <pattern> [ns] [--all]",
     "history" => "kumbarium history <id> [--diff] [--all]",
     "confirm" => "kumbarium confirm <id>",
+    "link" => "kumbarium link <from-id> <rel> <to-id>",
     "move" => "kumbarium move <id> <namespace>",
     "forget" => "kumbarium forget <id> [--yes]",
     "retire" => "kumbarium retire <id>",
@@ -328,7 +383,8 @@ fn usage_of(word: &str) -> Option<&'static str> {
     "revert" => "kumbarium revert <id> [--apply]",
     "janitor" => "kumbarium janitor [--apply]",
     "task" => {
-      "kumbarium task <ns> <matter...> | task done|drop|grade|history <id>"
+      "kumbarium task <ns> <matter...> | task \
+       done|drop|grade|reword|history <id>"
     }
     "tasks" => "kumbarium tasks [ns] [--all] [--severity S]",
     "roadmap" => "kumbarium roadmap [ns]",
@@ -340,23 +396,26 @@ fn usage_of(word: &str) -> Option<&'static str> {
     }
     "leases" => "kumbarium leases [ns]",
     "lease" => "kumbarium lease break <id>",
-    "handoff" => "kumbarium handoff <ns> [<note...>]",
+    "handoff" => "kumbarium handoff <ns> [<note...>] | handoff drop <ns>",
     "handoffs" => "kumbarium handoffs",
     "inbox" => "kumbarium inbox",
     "review" => "kumbarium review <id>",
     "approve" => "kumbarium approve <id>",
     "reject" => "kumbarium reject <id> [reason]",
-    "secret" => "kumbarium secret <verb> ... (kum secret for the verbs)",
+    "secret" => "kumbarium secret <verb> ... (kum help secrets for the verbs)",
     "secrets" => "kumbarium secrets [ns]",
     "audit" => "kumbarium audit [tail [n] [--scope ns] | verify]",
     "export" => "kumbarium export [minutes|bundle <ns>]",
     "import" => "kumbarium import [bundle <FILE>|claude]",
-    "namespace" => "kumbarium namespace [add <path> [desc]|list]",
+    "namespace" => {
+      "kumbarium namespace [add <path> [desc]|describe <path> <desc>|list]"
+    }
     "status" => "kumbarium status",
-    "backup" => "kumbarium backup",
+    "backup" => "kumbarium backup [list]",
     "config" => "kumbarium config [--init|--open]",
     "paths" => "kumbarium paths",
     "serve" => "kumbarium serve",
+    "completions" => "kumbarium completions bash|zsh|fish",
     "instructions" => "kumbarium instructions [--snippet]",
     "version" => "kumbarium version",
     "help" => "kumbarium help [topic|--all]",
@@ -375,6 +434,7 @@ fn help_topic(word: &str) -> &'static str {
     "review" | "approve" | "reject" | "inbox" => "approvals",
     "forget" | "unretire" => "retire",
     "confirm" => "list",
+    "link" => "show",
     w if help::page(w).is_some() => {
       // page() accepts it directly; leak the word as 'static
       // is impossible, so return a known alias instead.
@@ -409,50 +469,10 @@ fn help_topic(word: &str) -> &'static str {
 }
 
 /// Levenshtein-lite did-you-mean: the known command with edit
-/// distance <= 2, if exactly one qualifies well.
+/// distance <= 2, if exactly one qualifies well. The word list
+/// is the completions module's (one source, no drift).
 fn nearest_command(word: &str) -> Option<&'static str> {
-  const WORDS: &[&str] = &[
-    "list",
-    "show",
-    "grep",
-    "history",
-    "confirm",
-    "move",
-    "forget",
-    "retire",
-    "unretire",
-    "revert",
-    "janitor",
-    "task",
-    "tasks",
-    "roadmap",
-    "brief",
-    "agents",
-    "agent",
-    "dossier",
-    "leases",
-    "lease",
-    "handoff",
-    "handoffs",
-    "inbox",
-    "review",
-    "approve",
-    "reject",
-    "secret",
-    "secrets",
-    "audit",
-    "export",
-    "import",
-    "namespace",
-    "status",
-    "backup",
-    "config",
-    "paths",
-    "serve",
-    "instructions",
-    "version",
-    "help",
-  ];
+  const WORDS: &[&str] = cli::completions::COMMAND_WORDS;
   fn dist(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
@@ -724,6 +744,54 @@ fn maintenance(
     ));
   }
   Ok(report)
+}
+
+/// `kum backup list`: every section's snapshots, newest first.
+/// Restore stays a documented hand move (kum help backup), so
+/// the listing names the exact files that move.
+fn backup_list() -> ExitCode {
+  let p = match paths::resolve() {
+    Ok(p) => p,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let sty = style::Style::detect();
+  let mut any = false;
+  for name in ["memory", "audit", "docket", "handoff", "secrets", "leases"] {
+    let dir = p.backups_dir.join(name);
+    let snaps = match kumbarium_store::snapshots(&dir) {
+      Ok(s) => s,
+      Err(e) => return fail(&format!("{name}: {e}")),
+    };
+    if snaps.is_empty() {
+      continue;
+    }
+    any = true;
+    println!("{}", sty.bold(&format!("{name} ({})", snaps.len())));
+    for (_, path) in &snaps {
+      let size_kb = std::fs::metadata(path).map(|m| m.len() / 1024);
+      let file = path.file_name().unwrap_or_default().to_string_lossy();
+      match size_kb {
+        Ok(kb) => println!("  {file}  {kb} KB"),
+        Err(_) => println!("  {file}"),
+      }
+    }
+  }
+  if !any {
+    println!(
+      "no snapshots yet; kum backup takes one now (serve \
+       startup takes them on schedule)"
+    );
+  } else {
+    println!(
+      "{}",
+      sty.dim(&format!(
+        "restoring is a hand move by design: see kum help \
+         backup (files live under {})",
+        p.backups_dir.display()
+      ))
+    );
+  }
+  ExitCode::SUCCESS
 }
 
 fn backup_now() -> ExitCode {

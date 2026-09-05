@@ -6,7 +6,11 @@ use std::process::ExitCode;
 use super::super::{diff, markdown, open_stores, style, tools};
 use super::term::*;
 
-pub(crate) fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
+pub(crate) fn list_entries(
+  namespace: Option<&str>,
+  all: bool,
+  json: bool,
+) -> ExitCode {
   let (_, state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
@@ -16,6 +20,27 @@ pub(crate) fn list_entries(namespace: Option<&str>, all: bool) -> ExitCode {
       Ok(entries) => entries,
       Err(e) => return fail(&e.to_string()),
     };
+  if json {
+    let rows: Vec<serde_json::Value> = entries
+      .iter()
+      .map(|e| {
+        serde_json::json!({
+          "id": e.id,
+          "namespace": e.namespace,
+          "kind": e.kind.as_str(),
+          "content": e.content,
+          "agent_id": e.agent_id,
+          "confidence": e.confidence,
+          "superseded_by": e.superseded_by,
+          "retired_at": e.retired_at,
+          "created_at": e.created_at,
+          "updated_at": e.updated_at,
+          "tags": e.tags,
+        })
+      })
+      .collect();
+    return print_json(&serde_json::json!(rows));
+  }
   if entries.is_empty() {
     println!(
       "no entries yet. Memories are written by AGENTS over MCP \
@@ -229,6 +254,59 @@ pub(crate) fn show_entry(id: &str, full: bool) -> ExitCode {
 /// (agents flag with a `contradicts` link and ask instead).
 /// Gated like every destruction: terminal confirm or --yes,
 /// witnessed either way.
+/// `kum link <from> <rel> <to>`: the human's edge-drawing verb.
+/// Typed edges are curation-class judgment; agents have the
+/// MCP link tool, and this is the same act witnessed under the
+/// CLI identity.
+pub(crate) fn link_cmd(from: &str, rel: &str, to: &str) -> ExitCode {
+  let Some(rel) = kumbarium_store::Rel::parse(rel) else {
+    return fail(&format!(
+      "unknown rel {rel:?}; one of continues, relates_to, \
+       duplicates, contradicts"
+    ));
+  };
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let from_id = match kumbarium_store::resolve_id(&state.library, from) {
+    Ok(f) => f,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let to_id = match kumbarium_store::resolve_id(&state.library, to) {
+    Ok(f) => f,
+    Err(e) => return fail(&e.to_string()),
+  };
+  if let Err(e) = kumbarium_store::link(&state.library, &from_id, &to_id, rel) {
+    return fail(&e.to_string());
+  }
+  let scope = kumbarium_store::get(&state.library, &from_id)
+    .map(|e| e.namespace)
+    .unwrap_or_default();
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
+    kind: kumbarium_audit::EventKind::Link,
+    scope,
+    detail: serde_json::json!({
+      "from_id": from_id,
+      "to_id": to_id,
+      "rel": rel.as_str(),
+    }),
+  };
+  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+    return fail(&format!("linked, but audit append failed: {e}"));
+  }
+  println!(
+    "linked {} {} {}",
+    sty.id(kumbarium_store::short_id(&from_id)),
+    rel.as_str(),
+    sty.id(kumbarium_store::short_id(&to_id))
+  );
+  ExitCode::SUCCESS
+}
+
 pub(crate) fn forget_cmd(id: &str, yes: bool) -> ExitCode {
   let (_, mut state) = match open_stores() {
     Ok(v) => v,

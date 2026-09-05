@@ -111,7 +111,7 @@ fn mark_bucket_leaders(
 }
 
 /// Parseable snapshots in `dir`, newest first.
-fn snapshots(dir: &Path) -> Result<Vec<(i64, PathBuf)>, StoreError> {
+pub fn snapshots(dir: &Path) -> Result<Vec<(i64, PathBuf)>, StoreError> {
   let mut out = Vec::new();
   let read = match std::fs::read_dir(dir) {
     Ok(read) => read,

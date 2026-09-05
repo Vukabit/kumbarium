@@ -9,7 +9,8 @@
 pub const TOPICS: &str = "instructions serve environment ids \
 namespaces namespace list show grep history revert retire \
 move approvals docket handoff leases secrets brief agents \
-dossier janitor audit export import status backup alias";
+dossier janitor audit export import status backup alias \
+conventions";
 
 /// The whole manual, in READING order: the building tour, not
 /// the accident of declaration order. Setup first, then the
@@ -46,6 +47,7 @@ pub const MANUAL_ORDER: &[&str] = &[
   "status",
   "backup",
   "alias",
+  "conventions",
 ];
 
 pub fn page(topic: &str) -> Option<&'static str> {
@@ -78,9 +80,42 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "lease" | "leases" => PAGE_LEASES,
     "agent" | "agents" | "roster" => PAGE_AGENTS,
     "environment" | "env" => PAGE_ENVIRONMENT,
+    "conventions" | "stances" | "completions" | "json" => PAGE_CONVENTIONS,
     _ => return None,
   })
 }
+
+const PAGE_CONVENTIONS: &str = "\
+## conventions: deliberate stances
+
+Where kumbarium diverges from its peer group (git, cargo, gh,
+docker), the divergence is a decision, never an accident:
+
+- NO AUTO-PAGING. Output streams; SIGPIPE is handled cleanly,
+  so `kum list | less` composes exactly as the shell intends,
+  and scripts never fight a surprise pager.
+- UNIFORM EXIT CODES. Success is 0, every failure is 1.
+  Scripts branch on output and the ledger holds the detail;
+  a taxonomy of exit codes would be precision nobody reads.
+- FLAT VERBS + NOUN FAMILIES. The everyday verbs are flat
+  (list, show, grep, forget); each section arrives as a noun
+  family (secret, task, namespace, lease). Bare nouns BROWSE
+  (`kum tasks`, `kum secrets`, `kum handoffs` show data, never
+  usage walls); the grammar lives in `kum help <topic>`.
+- MACHINE OUTPUT is `--json` on the browse surfaces: list,
+  status, tasks, agents, secrets, leases. Values never appear
+  in any of them; secrets emit metadata only, structurally.
+- COMPLETIONS: `kum completions bash|zsh|fish` prints the
+  script (install it in your shell's completion path; it is
+  static and never opens the library).
+- ONE DOOR FOR AGENTS. Agents speak MCP and nothing else. The
+  SQLite files are a TOOLING door: yours to open (sqlite3,
+  backups, forensics), never a channel a governed agent may
+  use. Nothing that bypasses the librarian is witnessed, and
+  an unwitnessed write is what tampering looks like; the
+  janitor's unwitnessed-grant finding exists for exactly that
+  shape.
+";
 
 const PAGE_ENVIRONMENT: &str = "\
 ## environment: the variables the librarian honors
@@ -176,6 +211,12 @@ All fields, tags, links, and the supersession neighbors. On a
 member of a split set, prints `set: part i of n`; `--full`
 stitches every part of the set in order, markdown-rendered.
 See `kum help ids` for what <id> accepts.
+
+Links are drawn by agents (the MCP link tool) or by you:
+`kum link <from> <rel> <to>` with rel one of continues,
+relates_to, duplicates, contradicts. Typed edges are curation:
+`contradicts` flags a fact for human review, and link votes
+feed the janitor's confidence math.
 
 ```
 kum show dfeb4d7c
@@ -273,15 +314,19 @@ const PAGE_NAMESPACE: &str = "\
 
 ```
 kum namespace add <path> [description]
+kum namespace describe <path> <description>
 kum namespace list
 ```
 
 Namespaces are registered-only: agents can never create one,
 which is the firewall against taxonomy drift. Path grammar in
-`kum help namespaces`.
+`kum help namespaces`. The description is the shelf's charter
+line (the binder opens with it); `describe` rewrites it in
+place, so a typo'd charter is not forever.
 
 ```
 kum namespace add project/my-app \"the new thing\"
+kum namespace describe project/my-app \"the shipped thing\"
 kum namespace list
 ```
 ";
@@ -320,7 +365,8 @@ const PAGE_BACKUP: &str = "\
 ## backup: snapshots
 
 ```
-kum backup
+kum backup          snapshot every section now
+kum backup list     every section's snapshots, newest first
 ```
 
 Forces a snapshot of every SECTION that exists (memory, audit,
@@ -332,6 +378,13 @@ this: every `serve` startup snapshots automatically when 12h
 have elapsed. Retention is tiered (2 recent + 7 dailies + 4
 weeklies) and computed from the flat timestamped filenames;
 unrecognized files are never touched.
+
+RESTORE is a hand move, by design: stop every kumbarium
+process, copy the chosen snapshot over the section's file
+under library/ (`kum paths` names it), and start again. No
+restore verb exists because a command that silently swaps a
+section out from under live connections would be a corruption
+machine; the deliberate copy is the safety interlock.
 ";
 
 const PAGE_SERVE: &str = "\
@@ -343,10 +396,10 @@ kum serve
 
 Speaks MCP over stdio: newline-delimited JSON-RPC 2.0. Not for
 humans; agents' clients spawn it (the setup commands live in
-`kum help instructions`). Tools: remember, link, recall,
-confirm, supersede, task_file, task_update, handoff_write,
-lease_take, lease_release, secret_read (deletion is the
-human's verb: kum forget). Every
+`kum help instructions`). Tools: remember, link, recall, get,
+task_list, confirm, supersede, task_file, task_update,
+handoff_write, lease_take, lease_release, secret_read
+(deletion is the human's verb: kum forget). Every
 call is audited under the agent identity the client declared
 at initialize, alongside a librarian-MINTED session id:
 agents are claimed, sessions are minted. stdout
@@ -370,6 +423,10 @@ across all agents and sessions.
   whole; oversized memories are split and linked for you.
 - When a recalled fact proves CORRECT in use, `confirm` it
   (evidence for the staleness and confidence signals).
+- When two facts belong together (or clash), `link` them:
+  relate or contradict facts you did not write. A
+  `contradicts` edge flags the dispute for human review, and
+  cross-agent links are evidence the confidence math counts.
 - When a fact proves stale or wrong (a user correction
   counts), update it with `supersede`, never with a fresh
   `remember`: first `recall` the stale entry, then supersede
@@ -474,6 +531,7 @@ const PAGE_HANDOFF: &str = "\
 ```
 kum handoff <ns> <note...>    leave the briefing (supersedes)
 kum handoff <ns>              read the standing briefing
+kum handoff drop <ns>         take it out of circulation
 kum handoffs                  every shelf's standing briefing
 ```
 
@@ -494,6 +552,11 @@ briefing lands pending and is NEVER served; approval makes it
 THE standing note (superseding the live one, so one head
 survives the desk). Agents write via `handoff_write` before
 ending substantive work.
+
+`drop` retires a shelf's standing briefing without replacing
+it: the row stays in the diary (witnessed, addressable), but a
+dead project stops serving its stale briefing to every future
+session. Human-only, like all deletion-shaped verbs.
 
 Similarly named, different thing: `kum brief <ns>` is the
 day-one binder, a page rendered FOR humans that includes the
@@ -741,6 +804,7 @@ kum tasks [ns] [--all] [--severity S]
 kum roadmap [ns]
 kum task done <id> [note]    kum task drop <id> [note]
 kum task grade <id> [--severity S] [--goal DATE] [note]
+kum task reword <id> <matter...>
 kum task history <id>
 ```
 
@@ -762,9 +826,13 @@ MCP, and a quarantined writer's tasks wait at the desk like any
 write: a task poisons what an agent DOES, so provenance
 deserves a look before an urgent stranger jumps your queue.
 
+`reword` restates a matter's wording as a supersession (the
+clumsy first phrasing chains forward like a regrade), so
+fixing a typo never means drop-and-refile.
+
 Reserved first words after `kum task`: done, drop, grade,
-history (a namespace with one of those names cannot be filed
-to from the CLI; agents are unaffected).
+reword, history (a namespace with one of those names cannot be
+filed to from the CLI; agents are unaffected).
 ";
 
 const PAGE_EXPORT: &str = "\
@@ -799,18 +867,23 @@ Minutes render local time by default; `--raw` keeps stored UTC
 One shelf as one deterministic JSON file, SHA-256 hashed so a
 review conversation can name it and the importer can verify
 nothing changed in transit (an altered bundle is refused).
-Entries travel with full provenance, tags, notes, and chain
-pointers; pending and rejected material never travels, and
-CONFIDENCE never travels either: evidence is local, the
-receiving janitor re-earns the number from its own ledger.
+The FULL shelf travels, as typed sections: entries and their
+edges, the docket's matters, the diary's briefings. Everything
+carries full provenance and chain pointers; pending and
+rejected material never travels, and CONFIDENCE never travels
+either: evidence is local, the receiving janitor re-earns the
+number from its own ledger.
 
 Import is a union-merge, idempotent by id (re-import no-ops;
 the same id with different content is refused as tampering).
-A chain the bundle extends fast-forwards locally. A FORK (both
-libraries superseded the same entry differently) never
-auto-resolves: the rival head lands pending with a
+A memory chain the bundle extends fast-forwards locally. A
+FORK (both libraries superseded the same entry differently)
+never auto-resolves: the rival head lands pending with a
 `contradicts` edge to the live local head, and you settle it
-from the inbox. `--pending` routes every imported head
+from the inbox. Matters and briefings union by id, and a
+visiting standing briefing never displaces yours unjudged: it
+parks at the desk, where approval supersedes (one head
+survives either way). `--pending` routes every imported head
 through the desk, for bundles from hands you do not know.
 
 ```

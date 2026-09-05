@@ -33,7 +33,7 @@ struct RosterRow {
 /// never scores (the metric-theater trap stays sprung): the
 /// numbers are for YOUR judgment, and `kum dossier <agent>` is
 /// the deep story behind any row.
-pub(crate) fn agents_cmd(all: bool) -> ExitCode {
+pub(crate) fn agents_cmd(all: bool, json: bool) -> ExitCode {
   let (p, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
@@ -108,6 +108,28 @@ pub(crate) fn agents_cmd(all: bool) -> ExitCode {
     .count();
   if !all {
     roster.retain(|agent, _| !retired.contains(agent.as_str()));
+  }
+  if json {
+    let mut rows: Vec<(&String, &RosterRow)> = roster.iter().collect();
+    rows.sort_by(|a, b| b.1.last_at.cmp(&a.1.last_at));
+    let out: Vec<serde_json::Value> = rows
+      .iter()
+      .map(|(agent, r)| {
+        serde_json::json!({
+          "agent": agent,
+          "first_at": (!r.first_at.is_empty()).then_some(&r.first_at),
+          "last_at": (!r.last_at.is_empty()).then_some(&r.last_at),
+          "sessions": r.sessions.len(),
+          "events": r.events,
+          "live": r.live,
+          "corrected_by_others": r.corrected,
+          "grants": r.grants,
+          "active_leases": r.leases,
+          "retired": retired.contains(agent.as_str()),
+        })
+      })
+      .collect();
+    return print_json(&serde_json::json!(out));
   }
   if roster.is_empty() {
     println!("no identities witnessed yet");

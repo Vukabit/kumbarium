@@ -15,13 +15,13 @@ use std::path::Path;
 // return it, so callers get the type without a rusqlite dep.
 pub use rusqlite::Connection;
 
-pub use backup::{Retention, backup, latest_backup_ms, prune};
+pub use backup::{Retention, backup, latest_backup_ms, prune, snapshots};
 pub use entries::{
   Entry, Hit, ImportOutcome, Kind, NewEntry, Stats, Status, approve, confirm,
-  entries_in, extend_chain, find_by_source, forget, get, import_entry,
-  namespace_id, namespaces, pending_in, predecessor_of, quarantine, recall,
-  register_namespace, reject, remember, resolve_id, retire, set_confidence,
-  short_id, stats, supersede, unretire, version_history,
+  describe_namespace, entries_in, extend_chain, find_by_source, forget, get,
+  import_entry, namespace_id, namespaces, pending_in, predecessor_of,
+  quarantine, recall, register_namespace, reject, remember, resolve_id, retire,
+  set_confidence, short_id, stats, supersede, unretire, version_history,
 };
 pub use links::{Link, Rel, continues_chain, link, links_of, unlink};
 

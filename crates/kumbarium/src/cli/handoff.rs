@@ -98,6 +98,47 @@ pub(crate) fn handoff_cmd(ns: &str, rest: &[&str]) -> ExitCode {
   ExitCode::SUCCESS
 }
 
+/// `kum handoff drop <ns>`: take the standing briefing out of
+/// circulation. The row is kept (the diary is the record); a
+/// dead project stops serving its stale briefing to every
+/// future session.
+pub(crate) fn handoff_drop_cmd(ns: &str) -> ExitCode {
+  let ns = kumbarium_librarian::normalize_namespace(ns);
+  if let Err(e) = kumbarium_librarian::validate_namespace(&ns) {
+    return fail(&format!("invalid namespace: {e}"));
+  }
+  let (_, mut state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let conn = match state.handoff() {
+    Ok(c) => c,
+    Err(e) => return fail(&e),
+  };
+  let h = match kumbarium_handoff::drop_standing(conn, &ns) {
+    Ok(h) => h,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
+    kind: kumbarium_audit::EventKind::HandoffDrop,
+    scope: ns.clone(),
+    detail: serde_json::json!({ "id": h.id }),
+  };
+  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+    return fail(&format!("dropped, but audit append failed: {e}"));
+  }
+  println!(
+    "dropped the standing briefing for {ns} ({}, left by {}); \
+     kept on record, no longer served",
+    sty.id(kumbarium_handoff::short_id(&h.id)),
+    h.agent_id
+  );
+  ExitCode::SUCCESS
+}
+
 /// `kum handoffs`: every shelf's standing briefing, first line
 /// each.
 pub(crate) fn handoffs_cmd() -> ExitCode {

@@ -221,11 +221,11 @@ pub(crate) fn export_bundle_cmd(scope: &str, rest: &[&str]) -> ExitCode {
     return fail("--raw applies to minutes only");
   }
   let scope = &kumbarium_librarian::normalize_namespace(scope);
-  let (p, state) = match open_stores() {
+  let (p, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
-  let (text, count) = match bundle::export(&state, scope) {
+  let (text, count) = match bundle::export(&mut state, scope) {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
@@ -233,7 +233,10 @@ pub(crate) fn export_bundle_cmd(scope: &str, rest: &[&str]) -> ExitCode {
     print!("{text}");
     return ExitCode::SUCCESS;
   }
-  eprintln!("bundled {count} entries from {scope}");
+  eprintln!(
+    "bundled {count} records from {scope} (entries, matters, \
+     briefings)"
+  );
   deliver_export(
     p.exports_dir.join("bundles"),
     format!(
@@ -276,6 +279,9 @@ pub(crate) fn import_bundle_cmd(file: &str, as_pending: bool) -> ExitCode {
       "skipped": summary.skipped,
       "extended": summary.extended,
       "forks": summary.forks.len(),
+      "tasks": summary.tasks,
+      "handoffs": summary.handoffs,
+      "rival_briefings": summary.rival_briefings,
       "pending": as_pending,
     }),
   };
@@ -290,6 +296,20 @@ pub(crate) fn import_bundle_cmd(file: &str, as_pending: bool) -> ExitCode {
     summary.skipped,
     summary.extended
   );
+  if summary.tasks + summary.handoffs > 0 {
+    println!(
+      "also arrived: {} matter(s), {} briefing(s)",
+      summary.tasks, summary.handoffs
+    );
+  }
+  if summary.rival_briefings > 0 {
+    println!(
+      "{} {} visiting standing briefing(s) parked at the desk \
+       (a briefing never displaces yours unjudged); kum inbox",
+      sty.yellow("!"),
+      summary.rival_briefings
+    );
+  }
   for (rival, local) in &summary.forks {
     println!(
       "{} fork: rival {} sent to the desk (contradicts live {}); \

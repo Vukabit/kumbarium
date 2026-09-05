@@ -68,6 +68,16 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     "0007_sessions_rechain",
     include_str!("../migrations/0007_sessions_rechain.sql"),
   ),
+  (
+    8,
+    "0008_handoff_drop_kind",
+    include_str!("../migrations/0008_handoff_drop_kind.sql"),
+  ),
+  (
+    9,
+    "0009_agent_read_kinds",
+    include_str!("../migrations/0009_agent_read_kinds.sql"),
+  ),
 ];
 
 /// The version pre-squash ledgers sit at: their schema is
@@ -106,6 +116,9 @@ pub enum EventKind {
   TaskDone,
   TaskDrop,
   HandoffWrite,
+  HandoffDrop,
+  Get,
+  TaskList,
   SecretSet,
   SecretRead,
   SecretGrant,
@@ -140,6 +153,9 @@ impl EventKind {
       EventKind::TaskDone => "task_done",
       EventKind::TaskDrop => "task_drop",
       EventKind::HandoffWrite => "handoff_write",
+      EventKind::HandoffDrop => "handoff_drop",
+      EventKind::Get => "get",
+      EventKind::TaskList => "task_list",
       EventKind::SecretSet => "secret_set",
       EventKind::SecretRead => "secret_read",
       EventKind::SecretGrant => "secret_grant",
