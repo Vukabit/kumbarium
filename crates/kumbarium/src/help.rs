@@ -151,14 +151,17 @@ inside this command, and it reaches the network through
 build carries no HTTP stack for a feature most installs never
 run.
 
-Package managers own their installs: a cargo or Homebrew
-kumbarium is told the right upgrade command
-(`cargo install kumbarium --force`, `brew upgrade kumbarium`)
-and nothing is swapped. Only a standalone-tarball install
-self-replaces, and only after the download's SHA-256 matches
-the release's published sum (no checksum to check is a failure,
-never a silent pass). Both binaries (`kum` and `kumbarium`)
-swap together, the old kept one generation as `.bak`.
+It defers only where overwriting the binary would desync a
+package DATABASE: a Homebrew install is told `brew upgrade`
+and nothing is swapped. A CARGO install self-replaces (like
+rustup updating its own binary) with a note that
+`cargo install --list` may read stale, because cargo keeps
+bookkeeping, not a lock a replaced binary breaks. A standalone
+install self-replaces too. Every self-replace verifies the
+download's SHA-256 against the release's published sum first
+(no checksum to check is a failure, never a silent pass), and
+both binaries (`kum` and `kumbarium`) swap together, the old
+kept one generation as `.bak`.
 
 Migrations run forward only: after an update, sections do not
 migrate back, so downgrading is unsupported; snapshots are the

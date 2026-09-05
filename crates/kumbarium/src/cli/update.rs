@@ -52,19 +52,16 @@ pub(crate) fn update_cmd(check_only: bool, yes: bool) -> ExitCode {
     return ExitCode::FAILURE;
   }
 
-  // Channel ownership: never fight the package manager.
+  // Channel ownership: defer only where overwriting the binary
+  // would desync a package DATABASE. Homebrew is that case (the
+  // cautionary tale the peers warn about), so it defers. Cargo
+  // is NOT: `cargo install` drops a binary and a bookkeeping
+  // file that goes cosmetically stale, never broken, if the
+  // binary is replaced (rustup self-updates its own ~/.cargo/bin
+  // binary; cargo-binstall replaces cargo binaries as its whole
+  // job). So a cargo install self-replaces, with a note.
+  let mut cargo_note = false;
   match install_channel() {
-    Channel::Cargo => {
-      // Not on crates.io yet, so the plain `cargo install
-      // kumbarium` would fail; the git install is the path that
-      // works today. (When crates.io lands, add that form here.)
-      println!(
-        "\nthis kumbarium was installed by cargo; update with:\n  \
-         cargo install --git {} kumbarium --force",
-        env!("CARGO_PKG_REPOSITORY")
-      );
-      return ExitCode::SUCCESS;
-    }
     Channel::Homebrew => {
       println!(
         "\nthis kumbarium was installed by Homebrew; update with:\n  \
@@ -80,6 +77,7 @@ pub(crate) fn update_cmd(check_only: bool, yes: bool) -> ExitCode {
       );
       return ExitCode::SUCCESS;
     }
+    Channel::Cargo => cargo_note = true,
     Channel::Standalone => {}
   }
 
@@ -102,6 +100,18 @@ pub(crate) fn update_cmd(check_only: bool, yes: bool) -> ExitCode {
          binary: kum serve reload",
         latest.tag
       );
+      if cargo_note {
+        // Honest about the one cosmetic side effect: cargo's
+        // own record still names the version it installed.
+        println!(
+          "{}",
+          sty.dim(
+            "(this replaced a cargo-installed binary; cargo \
+             install --list may show the old version until you \
+             reinstall through cargo)"
+          )
+        );
+      }
       ExitCode::SUCCESS
     }
     Err(e) => fail(&e),
