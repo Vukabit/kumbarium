@@ -157,6 +157,8 @@ the collection:
   kumbarium move <id> <namespace>     relocate (as supersession)
 
 lifecycle, human sign-off:
+  kumbarium forget <id> [--yes]       permanently delete (asks
+                                      first; agents cannot)
   kumbarium retire <id>               hide from suggestions
   kumbarium unretire <id>             restore to suggestions
   kumbarium revert <id> [--apply]     restore an old version

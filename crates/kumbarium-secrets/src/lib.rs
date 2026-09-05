@@ -459,6 +459,58 @@ pub fn shred(
   meta(conn, &id)
 }
 
+/// What the shelf holds under a name: the distinction between
+/// never-stocked and deliberately-destroyed matters to both the
+/// error message and the ledger (D-046 wave: refusals and
+/// misses must never render as disclosures).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StockStatus {
+  Live,
+  Shredded(String),
+  Missing,
+}
+
+/// The live/shredded/missing status of a name on a shelf.
+pub fn stock_status(
+  conn: &Connection,
+  namespace: &str,
+  name: &str,
+) -> Result<StockStatus, SecretsError> {
+  let live: Option<String> = conn
+    .query_row(
+      "SELECT id FROM secrets
+       WHERE namespace = ?1 AND name = ?2
+         AND superseded_by IS NULL AND shredded_at IS NULL",
+      params![namespace, name],
+      |row| row.get(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+      rusqlite::Error::QueryReturnedNoRows => Ok(None),
+      other => Err(other),
+    })?;
+  if live.is_some() {
+    return Ok(StockStatus::Live);
+  }
+  let shredded: Option<String> = conn
+    .query_row(
+      "SELECT shredded_at FROM secrets
+       WHERE namespace = ?1 AND name = ?2
+         AND superseded_by IS NULL AND shredded_at IS NOT NULL",
+      params![namespace, name],
+      |row| row.get(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+      rusqlite::Error::QueryReturnedNoRows => Ok(None),
+      other => Err(other),
+    })?;
+  Ok(match shredded {
+    Some(at) => StockStatus::Shredded(at),
+    None => StockStatus::Missing,
+  })
+}
+
 /// Metadata for one secret by id (never the value, by shape).
 pub fn meta(conn: &Connection, id: &str) -> Result<SecretMeta, SecretsError> {
   let mut stmt = conn.prepare(

@@ -58,6 +58,12 @@ pub(crate) fn handoff_cmd(ns: &str, rest: &[&str]) -> ExitCode {
     }
     Err(e) => return fail(&e.to_string()),
   }
+  // GNU end-of-options: a leading bare -- is the separator,
+  // not the note's first word.
+  let rest = match rest.first() {
+    Some(&"--") => &rest[1..],
+    _ => rest,
+  };
   let content = rest.join(" ");
   let conn = match state.handoff() {
     Ok(c) => c,

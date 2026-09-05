@@ -50,6 +50,34 @@ pub fn run() -> ExitCode {
   let args: Vec<String> = std::env::args().skip(1).collect();
   let args = expand_alias(args);
   let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+  // GNU flag forms first (muscle memory from every peer tool):
+  // --version anywhere-first, and --help/-h ANYWHERE in the
+  // argv routes to the manual instead of running the command
+  // (running on --help is how a write verb mutates state on a
+  // help request).
+  if matches!(argv.first(), Some(&"--version") | Some(&"-V")) {
+    return version_cmd();
+  }
+  if argv.len() > 1
+    && argv.first() != Some(&"help")
+    && argv.iter().any(|a| *a == "--help" || *a == "-h")
+  {
+    let topic = argv[0];
+    let sty = style::Style::detect();
+    return match help::page(topic) {
+      Some(md) => {
+        println!("{}", markdown::render(md, &sty));
+        ExitCode::SUCCESS
+      }
+      None => match usage_of(topic) {
+        Some(usage) => {
+          println!("{}", paint_cli_page(usage, &sty));
+          ExitCode::SUCCESS
+        }
+        None => fail(&format!("no command {topic:?}; the map: kumbarium help")),
+      },
+    };
+  }
   match argv.as_slice() {
     ["version"] => version_cmd(),
     ["paths"] => match paths::resolve() {
@@ -77,9 +105,11 @@ pub fn run() -> ExitCode {
     ["backup"] => backup_now(),
     ["list"] => list_entries(None, false),
     ["list", "--all"] => list_entries(None, true),
-    ["list", ns] => list_entries(Some(ns), false),
-    ["list", ns, "--all"] => list_entries(Some(ns), true),
-    ["show", id] => show_entry(id, false),
+    ["list", ns] if !ns.starts_with('-') => list_entries(Some(ns), false),
+    ["list", ns, "--all"] if !ns.starts_with('-') => {
+      list_entries(Some(ns), true)
+    }
+    ["show", id] if !id.starts_with('-') => show_entry(id, false),
     ["show", id, "--full"] => show_entry(id, true),
     ["history", id, rest @ ..] => {
       let with_diff = rest.contains(&"--diff");
@@ -111,7 +141,7 @@ pub fn run() -> ExitCode {
     ["tasks", rest @ ..] => tasks_cmd(rest),
     ["handoff", ns, rest @ ..] => handoff_cmd(ns, rest),
     ["handoff"] | ["handoffs"] => handoffs_cmd(),
-    ["brief", ns] => brief_cmd(ns),
+    ["brief", ns] if !ns.starts_with('-') => brief_cmd(ns),
     ["dossier", agent, rest @ ..] => dossier_cmd(agent, rest),
     ["dossier"] => fail("dossier needs an agent: kumbarium dossier <agent>"),
     ["agents"] => agents_cmd(false),
@@ -123,16 +153,16 @@ pub fn run() -> ExitCode {
     }
     ["brief"] => fail("brief needs a scope: kumbarium brief <ns>"),
     ["leases"] => leases_cmd(None),
-    ["leases", ns] => leases_cmd(Some(ns)),
+    ["leases", ns] if !ns.starts_with('-') => leases_cmd(Some(ns)),
     ["lease", "break", id] => lease_break_cmd(id),
     ["lease", ..] => {
       fail("the reading room: kum leases [ns] | kum lease break <id>")
     }
     ["secret", rest @ ..] => secret_cmd(rest),
     ["secrets"] => secrets_cmd(None),
-    ["secrets", ns] => secrets_cmd(Some(ns)),
+    ["secrets", ns] if !ns.starts_with('-') => secrets_cmd(Some(ns)),
     ["roadmap"] => roadmap_cmd(None),
-    ["roadmap", ns] => roadmap_cmd(Some(ns)),
+    ["roadmap", ns] if !ns.starts_with('-') => roadmap_cmd(Some(ns)),
     ["janitor"] => janitor_cmd(false),
     ["janitor", "--apply"] => janitor_cmd(true),
     ["inbox"] => inbox_cmd(),
@@ -143,6 +173,8 @@ pub fn run() -> ExitCode {
       let reason = (!reason.is_empty()).then_some(reason);
       judge_cmd(id, false, reason)
     }
+    ["forget", id] => forget_cmd(id, false),
+    ["forget", id, "--yes"] => forget_cmd(id, true),
     ["retire", id] => retire_cmd(id, true),
     ["unretire", id] => retire_cmd(id, false),
     ["status"] => status_cmd(),
@@ -151,8 +183,12 @@ pub fn run() -> ExitCode {
     ["config", "--open"] => config_open(),
     ["grep", pattern] => grep_cmd(pattern, None, false),
     ["grep", pattern, "--all"] => grep_cmd(pattern, None, true),
-    ["grep", pattern, ns] => grep_cmd(pattern, Some(ns), false),
-    ["grep", pattern, ns, "--all"] => grep_cmd(pattern, Some(ns), true),
+    ["grep", pattern, ns] if !ns.starts_with('-') => {
+      grep_cmd(pattern, Some(ns), false)
+    }
+    ["grep", pattern, ns, "--all"] if !ns.starts_with('-') => {
+      grep_cmd(pattern, Some(ns), true)
+    }
     ["move", id, ns] => move_cmd(id, ns),
     ["audit", "tail", rest @ ..] => {
       let mut n = 20usize;
@@ -233,14 +269,215 @@ pub fn run() -> ExitCode {
       ExitCode::SUCCESS
     }
     other => {
+      let word = other.first().copied().unwrap_or("");
+      // A REAL command with the wrong shape gets its usage
+      // line, never a false "no such command" (the audit's
+      // worst finding: kum show -> 'no command "show"').
+      if let Some(usage) = usage_of(word) {
+        eprintln!("kumbarium: usage: {usage}");
+        eprintln!("details: kumbarium help {}", help_topic(word));
+        return ExitCode::FAILURE;
+      }
+      // An MCP-only verb gets pointed at the agent door.
+      if [
+        "remember",
+        "recall",
+        "supersede",
+        "lease_take",
+        "lease_release",
+        "secret_read",
+        "task_file",
+        "task_update",
+        "handoff_write",
+      ]
+      .contains(&word)
+      {
+        eprintln!(
+          "kumbarium: {word:?} is an agent tool (MCP), not a \
+           CLI command; agents call it via kumbarium serve"
+        );
+        eprintln!("wiring an agent up: kumbarium instructions");
+        return ExitCode::FAILURE;
+      }
       // One line and a pointer, never the whole wall: a typo
       // deserves a hint, not a punishment.
-      let word = other.first().copied().unwrap_or("");
       eprintln!("kumbarium: no command or alias {word:?}");
+      if let Some(near) = nearest_command(word) {
+        eprintln!("did you mean {near:?}?");
+      }
       eprintln!("the map: kumbarium help");
       ExitCode::FAILURE
     }
   }
+}
+
+/// One usage line per command word, for the wrong-shape error
+/// path and flag-form help. The map page (USAGE) stays the
+/// human-ordered source; this is the machine-keyed index.
+fn usage_of(word: &str) -> Option<&'static str> {
+  Some(match word {
+    "list" => "kumbarium list [ns] [--all]",
+    "show" => "kumbarium show <id> [--full]",
+    "grep" => "kumbarium grep <pattern> [ns] [--all]",
+    "history" => "kumbarium history <id> [--diff] [--all]",
+    "confirm" => "kumbarium confirm <id>",
+    "move" => "kumbarium move <id> <namespace>",
+    "forget" => "kumbarium forget <id> [--yes]",
+    "retire" => "kumbarium retire <id>",
+    "unretire" => "kumbarium unretire <id>",
+    "revert" => "kumbarium revert <id> [--apply]",
+    "janitor" => "kumbarium janitor [--apply]",
+    "task" => {
+      "kumbarium task <ns> <matter...> | task done|drop|grade|history <id>"
+    }
+    "tasks" => "kumbarium tasks [ns] [--all] [--severity S]",
+    "roadmap" => "kumbarium roadmap [ns]",
+    "brief" => "kumbarium brief <ns>",
+    "agents" => "kumbarium agents [--all]",
+    "agent" => "kumbarium agent <name> (the dossier)",
+    "dossier" => {
+      "kumbarium dossier <agent> [--since D] [--until D] [--session F]"
+    }
+    "leases" => "kumbarium leases [ns]",
+    "lease" => "kumbarium lease break <id>",
+    "handoff" => "kumbarium handoff <ns> [<note...>]",
+    "handoffs" => "kumbarium handoffs",
+    "inbox" => "kumbarium inbox",
+    "review" => "kumbarium review <id>",
+    "approve" => "kumbarium approve <id>",
+    "reject" => "kumbarium reject <id> [reason]",
+    "secret" => "kumbarium secret <verb> ... (kum secret for the verbs)",
+    "secrets" => "kumbarium secrets [ns]",
+    "audit" => "kumbarium audit [tail [n] [--scope ns] | verify]",
+    "export" => "kumbarium export [minutes|bundle <ns>]",
+    "import" => "kumbarium import [bundle <FILE>|claude]",
+    "namespace" => "kumbarium namespace [add <path> [desc]|list]",
+    "status" => "kumbarium status",
+    "backup" => "kumbarium backup",
+    "config" => "kumbarium config [--init|--open]",
+    "paths" => "kumbarium paths",
+    "serve" => "kumbarium serve",
+    "instructions" => "kumbarium instructions [--snippet]",
+    "version" => "kumbarium version",
+    "help" => "kumbarium help [topic|--all]",
+    _ => return None,
+  })
+}
+
+/// The help topic a command word reads under (page() aliases
+/// cover most; the rest map here).
+fn help_topic(word: &str) -> &'static str {
+  match word {
+    "task" | "tasks" | "roadmap" => "docket",
+    "lease" => "leases",
+    "secret" => "secrets",
+    "agent" => "agents",
+    "review" | "approve" | "reject" | "inbox" => "approvals",
+    "forget" | "unretire" => "retire",
+    "confirm" => "list",
+    w if help::page(w).is_some() => {
+      // page() accepts it directly; leak the word as 'static
+      // is impossible, so return a known alias instead.
+      match w {
+        "list" => "list",
+        "show" => "show",
+        "grep" => "grep",
+        "history" => "history",
+        "move" => "move",
+        "retire" => "retire",
+        "revert" => "revert",
+        "janitor" => "janitor",
+        "brief" => "brief",
+        "agents" => "agents",
+        "dossier" => "dossier",
+        "leases" => "leases",
+        "handoff" | "handoffs" => "handoff",
+        "secrets" => "secrets",
+        "audit" => "audit",
+        "export" => "export",
+        "import" => "import",
+        "namespace" => "namespace",
+        "status" => "status",
+        "backup" => "backup",
+        "serve" => "serve",
+        "instructions" => "instructions",
+        _ => "instructions",
+      }
+    }
+    _ => "instructions",
+  }
+}
+
+/// Levenshtein-lite did-you-mean: the known command with edit
+/// distance <= 2, if exactly one qualifies well.
+fn nearest_command(word: &str) -> Option<&'static str> {
+  const WORDS: &[&str] = &[
+    "list",
+    "show",
+    "grep",
+    "history",
+    "confirm",
+    "move",
+    "forget",
+    "retire",
+    "unretire",
+    "revert",
+    "janitor",
+    "task",
+    "tasks",
+    "roadmap",
+    "brief",
+    "agents",
+    "agent",
+    "dossier",
+    "leases",
+    "lease",
+    "handoff",
+    "handoffs",
+    "inbox",
+    "review",
+    "approve",
+    "reject",
+    "secret",
+    "secrets",
+    "audit",
+    "export",
+    "import",
+    "namespace",
+    "status",
+    "backup",
+    "config",
+    "paths",
+    "serve",
+    "instructions",
+    "version",
+    "help",
+  ];
+  fn dist(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.iter().enumerate() {
+      let mut cur = vec![i + 1];
+      for (j, cb) in b.iter().enumerate() {
+        let cost = if ca == cb { 0 } else { 1 };
+        cur.push((prev[j + 1] + 1).min(cur[j] + 1).min(prev[j] + cost));
+      }
+      prev = cur;
+    }
+    prev[b.len()]
+  }
+  let mut best: Option<(&'static str, usize)> = None;
+  for w in WORDS {
+    let d = dist(word, w);
+    if d <= 2 {
+      best = match best {
+        Some((_, bd)) if d >= bd => best,
+        _ => Some((w, d)),
+      };
+    }
+  }
+  best.map(|(w, _)| w)
 }
 
 /// One alias expansion (D-035): when the first word is a config

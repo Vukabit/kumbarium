@@ -219,6 +219,58 @@ pub(crate) fn show_entry(id: &str, full: bool) -> ExitCode {
   ExitCode::SUCCESS
 }
 
+/// Permanently delete an entry (D-046): the human's escape
+/// hatch for wrong-or-sensitive content, moved here from the
+/// agent surface where it contradicted the design's own record
+/// (agents flag with a `contradicts` link and ask instead).
+/// Gated like every destruction: terminal confirm or --yes,
+/// witnessed either way.
+pub(crate) fn forget_cmd(id: &str, yes: bool) -> ExitCode {
+  let (_, mut state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  let full = match kumbarium_store::resolve_id(&state.library, id) {
+    Ok(f) => f,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let entry = match kumbarium_store::get(&state.library, &full) {
+    Ok(e) => e,
+    Err(e) => return fail(&e.to_string()),
+  };
+  let first = entry.content.lines().next().unwrap_or("");
+  if let Err(e) = confirm_destruction(
+    &format!(
+      "forgetting {} ({:.40}...) permanently deletes it and",
+      kumbarium_store::short_id(&full),
+      first
+    ),
+    yes,
+  ) {
+    return fail(&e);
+  }
+  if let Err(e) = kumbarium_store::forget(&mut state.library, &full) {
+    return fail(&e.to_string());
+  }
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
+    kind: kumbarium_audit::EventKind::Forget,
+    scope: entry.namespace.clone(),
+    detail: serde_json::json!({ "id": full }),
+  };
+  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+    return fail(&format!("forgotten, but audit append failed: {e}"));
+  }
+  println!(
+    "forgot {} (permanently deleted; the ledger keeps the fact \
+     that it existed)",
+    sty.id(kumbarium_store::short_id(&full))
+  );
+  ExitCode::SUCCESS
+}
+
 /// Retire (or restore) an entry: human-only lifecycle verb,
 /// immediate because fully reversible; audited either way.
 pub(crate) fn retire_cmd(id: &str, retiring: bool) -> ExitCode {

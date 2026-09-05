@@ -87,15 +87,27 @@ fn parse_task_flags(rest: &[&str]) -> Result<TaskFlags, String> {
     match *arg {
       "--severity" => {
         let raw = it.next().ok_or("--severity needs a value")?;
-        severity = Some(
-          kumbarium_docket::Severity::parse(raw)
-            .ok_or_else(|| format!("unknown severity {raw:?}"))?,
-        );
+        severity =
+          Some(kumbarium_docket::Severity::parse(raw).ok_or_else(|| {
+            format!("unknown severity {raw:?}; use low|normal|high|urgent")
+          })?);
       }
       "--goal" => {
         let raw = it.next().ok_or("--goal needs YYYY-MM-DD")?;
         validate_goal_cli(raw)?;
         goal = Some((*raw).to_string());
+      }
+      // GNU end-of-options: everything after a bare -- is
+      // content verbatim, and the separator itself is consumed.
+      "--" => {
+        words.extend(it.map(|w| w.to_string()));
+        break;
+      }
+      flag if flag.starts_with("--") => {
+        return Err(format!(
+          "unknown flag {flag:?}; content starting with a dash \
+           goes after a bare --"
+        ));
       }
       word => words.push(word.to_string()),
     }
@@ -357,11 +369,22 @@ pub(crate) fn tasks_cmd(rest: &[&str]) -> ExitCode {
         Some(raw) => {
           severity = Some(match kumbarium_docket::Severity::parse(raw) {
             Some(s) => s,
-            None => return fail(&format!("unknown severity {raw:?}")),
+            None => {
+              return fail(&format!(
+                "unknown severity {raw:?}; use low|normal|high|urgent"
+              ));
+            }
           })
         }
-        None => return fail("--severity needs a value"),
+        None => {
+          return fail("--severity needs a value (low|normal|high|urgent)");
+        }
       },
+      flag if flag.starts_with('-') => {
+        return fail(&format!(
+          "unknown flag {flag:?}; kum tasks [ns] [--all] [--severity S]"
+        ));
+      }
       word => ns = Some(kumbarium_librarian::normalize_namespace(word)),
     }
   }

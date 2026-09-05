@@ -249,6 +249,14 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
       "handoff_write" => Some(format!("left a briefing {}", short(s("id")?))),
       "secret_set" => Some(format!("stocked secret {:?}", s("name")?)),
       "secret_read" => {
+        // found:false = the name was not on the shelf; nothing
+        // moved, and the line must never read as a disclosure.
+        if v.get("found").and_then(|x| x.as_bool()) == Some(false) {
+          return Some(format!(
+            "sought secret {:?} (not on the shelf; nothing moved)",
+            s("name")?
+          ));
+        }
         let granted =
           v.get("granted").and_then(|x| x.as_bool()).unwrap_or(false);
         Some(if granted {

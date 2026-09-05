@@ -254,8 +254,7 @@ mod tests {
         "handoff_write",
         "lease_take",
         "lease_release",
-        "secret_read",
-        "forget"
+        "secret_read"
       ]
     );
   }
@@ -580,7 +579,7 @@ mod tests {
   }
 
   #[test]
-  fn supersede_and_forget_flow_through() {
+  fn supersede_flows_and_forget_is_the_humans_verb() {
     let mut state = ServerState::in_memory();
     kumbarium_store::register_namespace(&state.library, "global", "").ok();
     let out = drive(
@@ -639,8 +638,11 @@ mod tests {
       .next()
       .unwrap()
       .to_string();
+    // D-046: deletion left the agent surface; the tool is gone
+    // and the error says whose verb it is now.
     let out = drive(&mut state, &[call(1, "forget", json!({ "id": new_id }))]);
-    assert_eq!(out[0]["result"]["isError"], false);
+    assert_eq!(out[0]["result"]["isError"], true);
+    assert!(text_of(&out[0]).contains("unknown tool"));
   }
 
   #[test]

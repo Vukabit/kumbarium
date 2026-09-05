@@ -191,6 +191,33 @@ pub(crate) fn fail(message: &str) -> ExitCode {
   ExitCode::FAILURE
 }
 
+/// The destructive-action gate (clig.dev convention): on a
+/// terminal, ask; piped or scripted, require the explicit
+/// --yes. `what` names the irreversible thing about to happen.
+pub(crate) fn confirm_destruction(what: &str, yes: bool) -> Result<(), String> {
+  if yes {
+    return Ok(());
+  }
+  use std::io::IsTerminal;
+  if !std::io::stdin().is_terminal() {
+    return Err(format!(
+      "{what} is irreversible; pass --yes to proceed \
+       non-interactively"
+    ));
+  }
+  eprint!("{what} cannot be undone. Proceed? [y/N] ");
+  use std::io::Write as _;
+  let _ = std::io::stderr().flush();
+  let mut line = String::new();
+  std::io::stdin()
+    .read_line(&mut line)
+    .map_err(|e| format!("reading confirmation: {e}"))?;
+  match line.trim() {
+    "y" | "Y" | "yes" => Ok(()),
+    _ => Err("declined; nothing was destroyed".into()),
+  }
+}
+
 /// One column of a table. A table's whole geometry is a
 /// `&[Col]`: the header, every cell pad, and the wrap column
 /// all derive from the same spec, so they cannot drift apart.

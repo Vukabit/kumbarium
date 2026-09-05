@@ -68,8 +68,9 @@ pub(crate) fn secret_cmd(rest: &[&str]) -> ExitCode {
     }
     ["revoke", ns, name, agent] => revoke_cmd(ns, name, agent),
     ["revoke", ..] => fail("secret revoke needs <ns> <name> <agent>"),
-    ["shred", ns, name] => shred_cmd(ns, name),
-    ["shred", ..] => fail("secret shred needs <ns> <name>"),
+    ["shred", ns, name] => shred_cmd(ns, name, false),
+    ["shred", ns, name, "--yes"] => shred_cmd(ns, name, true),
+    ["shred", ..] => fail("secret shred needs <ns> <name> [--yes]"),
     // exec: one positional before the flags is a bare name,
     // two are ns + name.
     ["exec", name, rest @ ..]
@@ -197,6 +198,33 @@ fn read_value() -> Result<Zeroizing<Vec<u8>>, String> {
   prompt_echo_off()
 }
 
+/// The saved terminal state for the SIGINT window below: a
+/// Ctrl-C during the echo-off prompt must restore echo before
+/// the process dies, or the user's terminal is left silently
+/// broken (the audit's finding; a security tool cannot leave
+/// terminals damaged).
+#[cfg(unix)]
+static SAVED_TERMIOS: std::sync::Mutex<Option<libc::termios>> =
+  std::sync::Mutex::new(None);
+
+#[cfg(unix)]
+extern "C" fn restore_tty_on_interrupt(sig: libc::c_int) {
+  // Async-signal-safe enough for the narrow window: tcsetattr
+  // and _exit are on the safe list; the mutex is only ever
+  // written before the handler is installed.
+  if let Ok(guard) = SAVED_TERMIOS.try_lock()
+    && let Some(saved) = guard.as_ref()
+  {
+    unsafe {
+      libc::tcsetattr(0, libc::TCSANOW, saved);
+    }
+  }
+  unsafe {
+    libc::signal(sig, libc::SIG_DFL);
+    libc::raise(sig);
+  }
+}
+
 #[cfg(unix)]
 fn prompt_echo_off() -> Result<Zeroizing<Vec<u8>>, String> {
   eprint!("value (echo off): ");
@@ -206,11 +234,20 @@ fn prompt_echo_off() -> Result<Zeroizing<Vec<u8>>, String> {
     return Err("terminal attributes unavailable; pipe the value".into());
   }
   let saved = term;
+  *SAVED_TERMIOS.lock().unwrap() = Some(saved);
+  unsafe {
+    let handler: extern "C" fn(libc::c_int) = restore_tty_on_interrupt;
+    libc::signal(libc::SIGINT, handler as usize as libc::sighandler_t);
+  }
   term.c_lflag &= !libc::ECHO;
   unsafe { libc::tcsetattr(0, libc::TCSANOW, &term) };
   let mut line = Zeroizing::new(String::new());
   let res = std::io::stdin().read_line(&mut line);
-  unsafe { libc::tcsetattr(0, libc::TCSANOW, &saved) };
+  unsafe {
+    libc::tcsetattr(0, libc::TCSANOW, &saved);
+    libc::signal(libc::SIGINT, libc::SIG_DFL);
+  }
+  *SAVED_TERMIOS.lock().unwrap() = None;
   eprintln!();
   res.map_err(|e| format!("reading value: {e}"))?;
   let trimmed = line.trim_end_matches(['\n', '\r']);
@@ -226,6 +263,36 @@ fn prompt_echo_off() -> Result<Zeroizing<Vec<u8>>, String> {
        on stdin instead"
       .into(),
   )
+}
+
+/// The shelf's answer for a name, for the pre-move check.
+fn check_stock(
+  state: &mut tools::ServerState,
+  ns: &str,
+  name: &str,
+) -> Result<kumbarium_secrets::StockStatus, String> {
+  let conn = state.secrets()?;
+  kumbarium_secrets::stock_status(conn, ns, name).map_err(|e| e.to_string())
+}
+
+/// A miss becomes the teaching error: shredded and
+/// never-stocked are different facts and read differently.
+fn stock_error(
+  ns: &str,
+  name: &str,
+  status: &kumbarium_secrets::StockStatus,
+) -> Result<(), String> {
+  match status {
+    kumbarium_secrets::StockStatus::Live => Ok(()),
+    kumbarium_secrets::StockStatus::Shredded(at) => Err(format!(
+      "{ns}/{name} was shredded on {at}; the value is gone \
+       (kum history finds the chain)"
+    )),
+    kumbarium_secrets::StockStatus::Missing => Err(format!(
+      "no secret named {ns}/{name}; kum secrets {ns} lists what \
+       is stocked"
+    )),
+  }
 }
 
 fn witness(
@@ -480,15 +547,24 @@ fn read_cmd(ns: &str, name: &str) -> ExitCode {
     Ok(k) => k,
     Err(e) => return fail(&e),
   };
-  // Witness BEFORE the value moves (fail-closed, D-038). The
-  // CLI is the human's own hands: no grant gate, but the read
-  // is on the ledger like anyone else's.
+  // Witness BEFORE the value moves, with the TRUE outcome
+  // (fail-closed, D-038): a miss must never read as a
+  // disclosure on the ledger. The CLI is the human's own
+  // hands: no grant gate, but every attempt is on the record.
+  let status = match check_stock(&mut state, &ns, name) {
+    Ok(s) => s,
+    Err(e) => return fail(&e),
+  };
+  let found = status == kumbarium_secrets::StockStatus::Live;
   if let Err(e) = witness(
     &state,
     kumbarium_audit::EventKind::SecretRead,
     &ns,
-    serde_json::json!({ "name": name, "granted": true }),
+    serde_json::json!({ "name": name, "granted": true, "found": found }),
   ) {
+    return fail(&e);
+  }
+  if let Err(e) = stock_error(&ns, name, &status) {
     return fail(&e);
   }
   let conn = match state.secrets() {
@@ -530,12 +606,20 @@ fn copy_cmd(ns: &str, name: &str) -> ExitCode {
     Ok(k) => k,
     Err(e) => return fail(&e),
   };
+  let status = match check_stock(&mut state, &ns, name) {
+    Ok(s) => s,
+    Err(e) => return fail(&e),
+  };
+  let found = status == kumbarium_secrets::StockStatus::Live;
   if let Err(e) = witness(
     &state,
     kumbarium_audit::EventKind::SecretCopy,
     &ns,
-    serde_json::json!({ "name": name }),
+    serde_json::json!({ "name": name, "found": found }),
   ) {
+    return fail(&e);
+  }
+  if let Err(e) = stock_error(&ns, name, &status) {
     return fail(&e);
   }
   let conn = match state.secrets() {
@@ -722,7 +806,7 @@ fn revoke_cmd(ns: &str, name: &str, agent: &str) -> ExitCode {
   ExitCode::SUCCESS
 }
 
-fn shred_cmd(ns: &str, name: &str) -> ExitCode {
+fn shred_cmd(ns: &str, name: &str, yes: bool) -> ExitCode {
   let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
@@ -735,6 +819,12 @@ fn shred_cmd(ns: &str, name: &str) -> ExitCode {
     Ok(c) => c,
     Err(e) => return fail(&e),
   };
+  if let Err(e) = confirm_destruction(
+    &format!("shredding {ns}/{name} destroys the value and"),
+    yes,
+  ) {
+    return fail(&e);
+  }
   let meta = match kumbarium_secrets::shred(conn, &ns, name) {
     Ok(m) => m,
     Err(e) => return fail(&e.to_string()),
@@ -1092,12 +1182,20 @@ fn exec_cmd(ns: &str, name: &str, rest: &[&str]) -> ExitCode {
   // command word is metadata worth keeping; the argv tail is
   // not (it can carry paths and fragments better left off the
   // ledger).
+  let status = match check_stock(&mut state, &ns, name) {
+    Ok(s) => s,
+    Err(e) => return fail(&e),
+  };
+  let found = status == kumbarium_secrets::StockStatus::Live;
   if let Err(e) = witness(
     &state,
     kumbarium_audit::EventKind::SecretExec,
     &ns,
-    serde_json::json!({ "name": name, "command": cmd[0] }),
+    serde_json::json!({ "name": name, "command": cmd[0], "found": found }),
   ) {
+    return fail(&e);
+  }
+  if let Err(e) = stock_error(&ns, name, &status) {
     return fail(&e);
   }
   let conn = match state.secrets() {

@@ -698,3 +698,31 @@ D-039), never a re-chain. Rebuild migrations also switched
 from SELECT * to explicit column lists so the legacy-collapse
 path stays correct against a widened table; identical behavior
 on every table they could legitimately run against.
+
+## D-046: deletion is the human's verb (2026-09-04)
+
+The UX audit caught code contradicting the design's own record:
+`forget` was live on the agent surface while the approvals
+design inked it human-only, inverting the destructiveness
+ladder (agents held permanent deletion while fully reversible
+retire required a human) and slipping past quarantine, which
+gates writes, not destruction. Resolved on the recorded side:
+`forget` LEAVES the MCP surface (eleven tools) and lands on the
+CLI as `kum forget <id>`, gated by the new destructive-action
+convention (terminal confirmation, or an explicit --yes for
+scripts; the same gate now guards `secret shred`). An agent
+that finds wrong-or-sensitive content links it `contradicts`
+and asks; the snippet teaches exactly that. In the same wave,
+the ledger's honesty about the stacks tightened: every
+secret_read/copy/exec event now records whether the name was
+FOUND, a miss renders as "sought ... nothing moved" rather than
+as a disclosure, shredded and never-stocked read differently at
+refusal time, and the dossier splits granted / refused /
+sought-but-not-stocked. Also inked here from the same audit:
+the dispatcher speaks GNU (a real command with the wrong shape
+gets its usage line, never "no such command"; unknown flags are
+rejected, never swallowed as filters; --help anywhere routes to
+the manual instead of running the command; --version/-V exist;
+a bare -- is the end-of-options separator and never becomes
+content), and the echo-off prompt restores the terminal even
+through a Ctrl-C.

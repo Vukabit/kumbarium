@@ -427,18 +427,6 @@ pub fn list() -> Value {
         },
         "required": ["namespace", "name"]
       }
-    },
-    {
-      "name": "forget",
-      "description": "Permanently delete a memory. Escape \
-  hatch for wrong or sensitive content only; for routine \
-  correction use supersede, which preserves history. The id may \
-  be any unique fragment.",
-      "inputSchema": {
-        "type": "object",
-        "properties": { "id": { "type": "string" } },
-        "required": ["id"]
-      }
     }
   ]})
 }
@@ -453,7 +441,6 @@ pub fn call(
     "remember" => remember(state, args),
     "recall" => recall(state, args),
     "supersede" => supersede(state, args),
-    "forget" => forget(state, args),
     "link" => link(state, args),
     "confirm" => confirm(state, args),
     "task_file" => task_file(state, args),
@@ -904,25 +891,6 @@ fn confirm(
   )])
 }
 
-fn forget(
-  state: &mut ServerState,
-  args: &Value,
-) -> Result<Vec<String>, String> {
-  let id = resolve(state, required_str(args, "id")?)?;
-  let id = id.as_str();
-  let entry =
-    kumbarium_store::get(&state.library, id).map_err(describe_store_error)?;
-  kumbarium_store::forget(&mut state.library, id)
-    .map_err(describe_store_error)?;
-  audit(
-    state,
-    kumbarium_audit::EventKind::Forget,
-    &entry.namespace,
-    json!({ "id": id }),
-  )?;
-  Ok(vec![format!("Forgot {id} (permanently deleted).")])
-}
-
 fn render_hit(
   conn: &kumbarium_store::Connection,
   rank: usize,
@@ -1156,14 +1124,18 @@ fn secret_read(
   let granted =
     kumbarium_secrets::check_grant(state.secrets()?, &namespace, &name, &agent)
       .map_err(|e| e.to_string())?;
-  // Witness BEFORE the value moves: if the append fails, the
-  // value is withheld (fail-closed, D-038). Refusals are
-  // events too.
+  let status =
+    kumbarium_secrets::stock_status(state.secrets()?, &namespace, &name)
+      .map_err(|e| e.to_string())?;
+  let found = status == kumbarium_secrets::StockStatus::Live;
+  // Witness BEFORE the value moves, with the TRUE outcome: a
+  // refusal or a miss must never read as a disclosure on the
+  // ledger (fail-closed, D-038).
   audit(
     state,
     kumbarium_audit::EventKind::SecretRead,
     &namespace,
-    json!({ "name": name, "granted": granted }),
+    json!({ "name": name, "granted": granted, "found": found }),
   )?;
   if !granted {
     return Err(format!(
@@ -1171,6 +1143,21 @@ fn secret_read(
        {namespace}/{name}. Ask the human to run: kumbarium \
        secret grant {namespace} {name} {agent}"
     ));
+  }
+  match status {
+    kumbarium_secrets::StockStatus::Live => {}
+    kumbarium_secrets::StockStatus::Shredded(at) => {
+      return Err(format!(
+        "{namespace}/{name} was shredded on {at}; the value is \
+         gone. Ask the human if a rotation is coming."
+      ));
+    }
+    kumbarium_secrets::StockStatus::Missing => {
+      return Err(format!(
+        "no secret named {namespace}/{name}; the human can list \
+         what is stocked with: kumbarium secrets {namespace}"
+      ));
+    }
   }
   let key = secrets_key(state)?;
   let value = kumbarium_secrets::read_secret(
@@ -1361,6 +1348,17 @@ fn task_update(
     .and_then(Value::as_str)
     .and_then(kumbarium_librarian::sanitize_note);
   if let Some(target) = args.get("state").and_then(Value::as_str) {
+    // A judgment and an edit in one call would silently drop
+    // the edit; refuse instead (silent partial application is
+    // worse than an error for an LLM caller).
+    for field in ["severity", "goal", "content"] {
+      if args.get(field).is_some() {
+        return Err(format!(
+          "state and {field} cannot combine in one call; judge \
+           the matter (state) and regrade ({field}) separately"
+        ));
+      }
+    }
     let to = match target {
       "done" => kumbarium_docket::TaskState::Done,
       "dropped" => kumbarium_docket::TaskState::Dropped,

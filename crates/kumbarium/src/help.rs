@@ -315,8 +315,9 @@ kum serve
 Speaks MCP over stdio: newline-delimited JSON-RPC 2.0. Not for
 humans; agents' clients spawn it (`claude mcp add kumbarium --
 ~/.cargo/bin/kumbarium serve`). Tools: remember, link, recall,
-confirm, supersede, forget, task_file, task_update,
-handoff_write, lease_take, lease_release, secret_read. Every
+confirm, supersede, task_file, task_update, handoff_write,
+lease_take, lease_release, secret_read (deletion is the
+human's verb: kum forget, D-046). Every
 call is audited under the agent identity the client declared
 at initialize, alongside a librarian-MINTED session id
 (D-044): agents are claimed, sessions are minted. stdout
@@ -344,7 +345,9 @@ across all agents and sessions.
   update it with `supersede`, never with a fresh `remember`:
   first `recall` the stale entry, then supersede the id it
   returned (add a short `note` like 'typo fix' for trivial
-  changes). `forget` only wrong-or-sensitive content.
+  changes). Deletion is the human's verb: for wrong-or-
+  sensitive content, `link` it `contradicts` and ask them to
+  run `kum forget` (D-046).
 - Before ENDING substantive work, leave the briefing with
   `handoff_write`: what is mid-flight, decided-but-unfinished,
   sharp edges. The next session receives it automatically with

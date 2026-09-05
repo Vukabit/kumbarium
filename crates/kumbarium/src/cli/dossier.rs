@@ -224,6 +224,7 @@ struct Tally {
   rejected: usize,
   secret_reads: Vec<String>,
   secret_refused: Vec<String>,
+  secret_missing: Vec<String>,
   secret_execs: usize,
   secret_copies: usize,
 }
@@ -371,10 +372,18 @@ pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
           .get("granted")
           .and_then(|x| x.as_bool())
           .unwrap_or(false);
-        if granted {
-          t.secret_reads.push(name);
-        } else {
+        // Pre-fidelity events lack `found`; treat absent as
+        // true so history renders as it was understood then.
+        let found = detail
+          .get("found")
+          .and_then(|x| x.as_bool())
+          .unwrap_or(true);
+        if !granted {
           t.secret_refused.push(name);
+        } else if !found {
+          t.secret_missing.push(name);
+        } else {
+          t.secret_reads.push(name);
         }
       }
       "secret_exec" => t.secret_execs += 1,
@@ -484,6 +493,7 @@ pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
 
   if !t.secret_reads.is_empty()
     || !t.secret_refused.is_empty()
+    || !t.secret_missing.is_empty()
     || t.secret_execs + t.secret_copies > 0
   {
     println!("\n{}", sty.bold("the restricted stacks"));
@@ -500,6 +510,13 @@ pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
         sty.red("REFUSED:"),
         t.secret_refused.len(),
         t.secret_refused.join(", ")
+      );
+    }
+    if !t.secret_missing.is_empty() {
+      println!(
+        "  sought but not stocked: {} ({})",
+        t.secret_missing.len(),
+        t.secret_missing.join(", ")
       );
     }
     if t.secret_execs + t.secret_copies > 0 {
