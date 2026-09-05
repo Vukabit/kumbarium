@@ -18,8 +18,9 @@ use std::path::Path;
 use rusqlite::Connection;
 
 pub use export::{
-  SessionStory, StoredEvent, describe_event, events_asc, render_minutes,
-  session_last_at, session_story, sessions_matching, summary, tail,
+  SessionStory, StoredEvent, describe_event, events_after, events_asc,
+  max_rowid, render_minutes, session_last_at, session_story, sessions_matching,
+  summary, tail,
 };
 
 /// What `verify_chain` concluded: either the whole ledger checks

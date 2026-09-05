@@ -253,26 +253,14 @@ pub fn run() -> ExitCode {
       grep_cmd(pattern, Some(ns), true)
     }
     ["move", id, ns] => move_cmd(id, ns),
-    ["audit", "tail", rest @ ..] => {
-      let mut n = 20usize;
-      let mut scope = None;
-      let mut it = rest.iter();
-      while let Some(arg) = it.next() {
-        match *arg {
-          "--scope" => match it.next() {
-            Some(sc) => scope = Some(*sc),
-            None => return fail("--scope needs a namespace"),
-          },
-          num => match num.parse() {
-            Ok(v) => n = v,
-            Err(_) => {
-              return fail("audit tail takes a number");
-            }
-          },
-        }
-      }
-      audit_tail(n, scope)
-    }
+    ["audit", "tail", rest @ ..] => match audit_read_args(rest, 20) {
+      Ok((n, scope)) => audit_tail(n, scope),
+      Err(e) => fail(&e),
+    },
+    ["audit", "follow", rest @ ..] => match audit_read_args(rest, 10) {
+      Ok((n, scope)) => audit_follow(n, scope),
+      Err(e) => fail(&e),
+    },
     ["instructions"] => {
       let sty = style::Style::detect();
       if let Some(md) = help::page("instructions") {
@@ -376,6 +364,31 @@ pub fn run() -> ExitCode {
   }
 }
 
+/// Shared arg parsing for the audit readers (`tail`, `follow`):
+/// an optional count and `--scope <ns>`, `default_n` when no
+/// count is given.
+fn audit_read_args<'a>(
+  rest: &[&'a str],
+  default_n: usize,
+) -> Result<(usize, Option<&'a str>), String> {
+  let mut n = default_n;
+  let mut scope = None;
+  let mut it = rest.iter();
+  while let Some(arg) = it.next() {
+    match *arg {
+      "--scope" => match it.next() {
+        Some(sc) => scope = Some(*sc),
+        None => return Err("--scope needs a namespace".into()),
+      },
+      num => match num.parse() {
+        Ok(v) => n = v,
+        Err(_) => return Err(format!("expected a number, got {num:?}")),
+      },
+    }
+  }
+  Ok((n, scope))
+}
+
 /// The shared argument shape of the browse commands: one
 /// optional namespace positional plus `--all` / `--json` in
 /// any order; anything else is refused loudly (a swallowed
@@ -439,7 +452,7 @@ fn usage_of(word: &str) -> Option<&'static str> {
     "reject" => "kumbarium reject <id> [reason]",
     "secret" => "kumbarium secret <verb> ... (kum help secrets for the verbs)",
     "secrets" => "kumbarium secrets [ns]",
-    "audit" => "kumbarium audit [tail [n] [--scope ns] | verify]",
+    "audit" => "kumbarium audit [tail [n]|follow [n]|verify] [--scope ns]",
     "export" => "kumbarium export [minutes|bundle <ns>]",
     "import" => "kumbarium import [bundle <FILE>|claude]",
     "namespace" => {

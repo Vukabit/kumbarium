@@ -451,6 +451,7 @@ const PAGE_AUDIT: &str = "\
 
 ```
 kum audit tail [n] [--scope <ns>]
+kum audit follow [n] [--scope <ns>]
 kum audit verify
 ```
 
@@ -459,8 +460,12 @@ Minutes leave through the loading dock: `kum export minutes`
 
 Every librarian transaction is an event: who (agent identity),
 when, what, in which scope. `tail` shows the most recent n
-(default 20) as prose. Storage is always strict ISO-8601 UTC;
-rendering localizes.
+(default 20) as prose. `follow` prints a short backlog and then
+STREAMS new events as they are witnessed, oldest-first, until
+Ctrl-C: the real-time view of what agents are doing right now
+(what `watch` cannot give, since a growing log is not a re-run
+command). Storage is always strict ISO-8601 UTC; rendering
+localizes.
 
 The ledger is HASH-CHAINED: each event stores
 sha256(previous hash + its own fields, the minted session id

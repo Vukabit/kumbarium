@@ -251,6 +251,8 @@ the restricted stacks:
 the witness:
   kumbarium audit tail [n]            recent audit events
              [--scope <ns>]           (optionally one scope)
+  kumbarium audit follow [n]          stream events live as they
+             [--scope <ns>]           are witnessed (Ctrl-C ends)
   kumbarium audit verify              recompute the ledger's
                                       hash chain; tampering
                                       names its first break

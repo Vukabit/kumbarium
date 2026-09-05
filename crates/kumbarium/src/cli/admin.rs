@@ -73,55 +73,108 @@ pub(crate) fn namespace_list() -> ExitCode {
   }
 }
 
+const AUDIT_COLS: &[Col] = &[
+  Col {
+    title: "at (local)",
+    width: 19,
+  },
+  Col {
+    title: "kind",
+    width: 15,
+  },
+  Col {
+    title: "agent",
+    width: 20,
+  },
+  Col {
+    title: "scope",
+    width: 20,
+  },
+  Col {
+    title: "detail",
+    width: 0,
+  },
+];
+
+/// One event as an aligned, wrapped row (shared by tail and
+/// follow, so the two renderings cannot drift).
+fn print_event_row(e: &kumbarium_audit::StoredEvent, sty: &style::Style) {
+  let detail = kumbarium_audit::describe_event(&e.kind, &e.detail);
+  let lines = hang(body_col(AUDIT_COLS), &detail);
+  println!(
+    "{} {} {} {} {}",
+    sty.dim(&cell(AUDIT_COLS, 0, &local_display(&e.at))),
+    sty.event(&cell(AUDIT_COLS, 1, &e.kind)),
+    cell(AUDIT_COLS, 2, &e.agent_id),
+    cell(AUDIT_COLS, 3, &e.scope),
+    lines[0]
+  );
+  for line in &lines[1..] {
+    println!("{line}");
+  }
+}
+
 pub(crate) fn audit_tail(n: usize, scope: Option<&str>) -> ExitCode {
   let (_, state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
-  const COLS: &[Col] = &[
-    Col {
-      title: "at (local)",
-      width: 19,
-    },
-    Col {
-      title: "kind",
-      width: 15,
-    },
-    Col {
-      title: "agent",
-      width: 20,
-    },
-    Col {
-      title: "scope",
-      width: 20,
-    },
-    Col {
-      title: "detail",
-      width: 0,
-    },
-  ];
   match kumbarium_audit::tail(&state.audit, n, scope) {
     Ok(events) => {
       let sty = style::Style::detect();
-      println!("{}", sty.dim(&table_header(COLS)));
+      println!("{}", sty.dim(&table_header(AUDIT_COLS)));
       for e in events {
-        let detail = kumbarium_audit::describe_event(&e.kind, &e.detail);
-        let lines = hang(body_col(COLS), &detail);
-        println!(
-          "{} {} {} {} {}",
-          sty.dim(&cell(COLS, 0, &local_display(&e.at))),
-          sty.event(&cell(COLS, 1, &e.kind)),
-          cell(COLS, 2, &e.agent_id),
-          cell(COLS, 3, &e.scope),
-          lines[0]
-        );
-        for line in &lines[1..] {
-          println!("{line}");
-        }
+        print_event_row(&e, &sty);
       }
       ExitCode::SUCCESS
     }
     Err(e) => fail(&e.to_string()),
+  }
+}
+
+/// `kum audit follow`: stream witnessed events as they land.
+/// The one real-time diagnostic the OS cannot give (a growing
+/// log, not a re-run command: this is what `watch` cannot do).
+/// Prints a short backlog, then polls for new rows and streams
+/// them oldest-first; Ctrl-C to stop.
+pub(crate) fn audit_follow(n: usize, scope: Option<&str>) -> ExitCode {
+  let (_, state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  let sty = style::Style::detect();
+  println!("{}", sty.dim(&table_header(AUDIT_COLS)));
+  // The backlog, oldest-first, so the stream reads as one
+  // continuous chronological tail.
+  match kumbarium_audit::tail(&state.audit, n, scope) {
+    Ok(mut events) => {
+      events.reverse();
+      for e in &events {
+        print_event_row(e, &sty);
+      }
+    }
+    Err(e) => return fail(&e.to_string()),
+  }
+  // Stream from now on. Seed the cursor at the current head so
+  // the backlog is not reprinted; each poll is a fresh WAL read
+  // snapshot, so commits from live serve processes appear.
+  let mut cursor = match kumbarium_audit::max_rowid(&state.audit) {
+    Ok(c) => c,
+    Err(e) => return fail(&e.to_string()),
+  };
+  loop {
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+    match kumbarium_audit::events_after(&state.audit, cursor, scope) {
+      Ok(rows) => {
+        for (rowid, e) in rows {
+          print_event_row(&e, &sty);
+          cursor = cursor.max(rowid);
+        }
+      }
+      // A transient read error (e.g. mid-checkpoint) must not
+      // kill a long-running follow; report once and keep going.
+      Err(e) => eprintln!("kumbarium: follow read hiccup: {e}"),
+    }
   }
 }
 

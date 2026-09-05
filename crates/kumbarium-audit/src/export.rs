@@ -57,6 +57,61 @@ pub fn tail(
   Ok(rows)
 }
 
+/// The current maximum rowid: the cursor `follow` starts from
+/// so it streams only what lands AFTER it began, never the
+/// whole history. 0 on an empty ledger.
+pub fn max_rowid(conn: &Connection) -> Result<i64, AuditError> {
+  Ok(
+    conn.query_row("SELECT COALESCE(MAX(rowid), 0) FROM events", [], |r| {
+      r.get(0)
+    })?,
+  )
+}
+
+/// Events whose rowid is greater than `after` (insertion order,
+/// the true stream order), oldest first, optionally one scope's.
+/// Returns each row's rowid alongside it so the caller advances
+/// its cursor. The read sees commits from other processes: in
+/// WAL, each query is a fresh read snapshot.
+pub fn events_after(
+  conn: &Connection,
+  after: i64,
+  scope: Option<&str>,
+) -> Result<Vec<(i64, StoredEvent)>, AuditError> {
+  let mut stmt = match scope {
+    Some(_) => conn.prepare(
+      "SELECT rowid, id, at, agent_id, session_id, kind, scope, detail
+       FROM events
+       WHERE rowid > ?1 AND scope = ?2 ORDER BY rowid ASC",
+    )?,
+    None => conn.prepare(
+      "SELECT rowid, id, at, agent_id, session_id, kind, scope, detail
+       FROM events
+       WHERE rowid > ?1 ORDER BY rowid ASC",
+    )?,
+  };
+  let map = |row: &rusqlite::Row<'_>| {
+    Ok((
+      row.get::<_, i64>(0)?,
+      StoredEvent {
+        id: row.get(1)?,
+        at: row.get(2)?,
+        agent_id: row.get(3)?,
+        session_id: row.get(4)?,
+        kind: row.get(5)?,
+        scope: row.get(6)?,
+        detail: row.get(7)?,
+      },
+    ))
+  };
+  let rows = match scope {
+    Some(sc) => stmt.query_map(rusqlite::params![after, sc], map)?,
+    None => stmt.query_map([after], map)?,
+  }
+  .collect::<Result<Vec<_>, _>>()?;
+  Ok(rows)
+}
+
 /// (event count, newest event timestamp) for `kum status`.
 pub fn summary(conn: &Connection) -> Result<(i64, Option<String>), AuditError> {
   let count =
