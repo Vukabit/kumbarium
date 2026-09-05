@@ -125,8 +125,9 @@ Usage:
 
 wire agents up:
   kumbarium serve                     speak MCP over stdio
-  kumbarium serve reload [pid]        hot-swap live serves onto
-                                      the current binary
+  kumbarium serve reload [pid|--all]  hot-swap live serves onto
+                                      the current binary (--all
+                                      or bare = every session)
   kumbarium instructions [--snippet]  agent setup: MCP
                                       registration + root-file
                                       instruction block

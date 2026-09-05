@@ -157,6 +157,9 @@ pub(crate) fn serve_reload_cmd(pid: Option<&str>) -> ExitCode {
         None => "no live serve processes to reload (kum processes)",
       });
     }
+    if wanted.is_none() && rows.len() > 1 {
+      println!("reloading {} live serve processes:", rows.len());
+    }
     let mut failures = 0;
     for r in &rows {
       let ok = unsafe { libc::kill(r.pid as libc::pid_t, libc::SIGUSR1) } == 0;

@@ -89,8 +89,16 @@ pub fn run() -> ExitCode {
       Err(e) => fail(&e.to_string()),
     },
     ["serve"] => serve(),
-    ["serve", "reload"] => cli::process::serve_reload_cmd(None),
-    ["serve", "reload", pid] => cli::process::serve_reload_cmd(Some(pid)),
+    ["serve", "reload"] | ["serve", "reload", "--all"] => {
+      cli::process::serve_reload_cmd(None)
+    }
+    ["serve", "reload", pid] if !pid.starts_with('-') => {
+      cli::process::serve_reload_cmd(Some(pid))
+    }
+    ["serve", "reload", other] => fail(&format!(
+      "unknown argument {other:?}; usage: kumbarium serve \
+       reload [pid|--all]"
+    )),
     ["namespace", "add", path, rest @ ..] => {
       namespace_add(path, &rest.join(" "))
     }
@@ -464,7 +472,7 @@ fn usage_of(word: &str) -> Option<&'static str> {
     "doctor" => "kumbarium doctor [--deep] [--apply] [--json]",
     "config" => "kumbarium config [--init|--open]",
     "paths" => "kumbarium paths",
-    "serve" => "kumbarium serve [reload [pid]]",
+    "serve" => "kumbarium serve [reload [pid|--all]]",
     "update" => "kumbarium update [--check|--yes]",
     "completions" => "kumbarium completions bash|zsh|fish [--install]",
     "instructions" => "kumbarium instructions [--snippet]",

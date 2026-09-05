@@ -525,12 +525,13 @@ at initialize, alongside a librarian-MINTED session id:
 agents are claimed, sessions are minted. stdout
 carries protocol only; diagnostics go to stderr.
 
-`kum serve reload [pid]` hot-swaps live serve processes onto
-the current binary: the process re-execs in place (same pid,
-same pipes, session carried over), then tells its client the
-tool list changed. Run it after an update instead of
-restarting client sessions; `kum processes` shows who needs
-it. Unix only; on Windows restart the client session. The
+`kum serve reload [pid|--all]` hot-swaps live serve processes
+onto the current binary: the process re-execs in place (same
+pid, same pipes, session carried over), then tells its client
+the tool list changed. A pid reloads one; `--all` (or the bare
+form) reloads every live session. Run it after an update
+instead of restarting client sessions; `kum processes` shows
+who needs it. Unix only; on Windows restart the client session. The
 `serve.idle_ping_minutes` config (default 0, off) makes an
 idle serve ping its client and exit cleanly if nobody
 answers: the wedged-client watchdog.
