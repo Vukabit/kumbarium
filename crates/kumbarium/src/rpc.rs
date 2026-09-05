@@ -24,6 +24,10 @@ const INVALID_PARAMS: i64 = -32602;
 
 /// Serve until the reader closes (the client hanging up ends
 /// the process). One message per line in, one per line out.
+// On unix the hot transport (below) is the production path and
+// this generic loop serves tests and other platforms; the
+// allow covers the unix production build only.
+#[cfg_attr(unix, allow(dead_code))]
 pub fn serve<R: BufRead, W: Write>(
   reader: R,
   writer: &mut W,
@@ -62,8 +66,16 @@ fn handle_line(state: &mut ServerState, line: &str) -> Option<Value> {
     // Notification: method only. Nothing requires action in the
     // legacy lifecycle (initialized, cancelled, ...).
     (None, Some(_)) => None,
-    // A response from the client (we never send requests), or
-    // garbage with an id: id-less garbage gets no reply.
+    // A response from the client: the answer to a request WE
+    // sent (the idle ping is the only one). Any inbound
+    // traffic already resets the idle clock in the hot loop,
+    // so the pong needs no bookkeeping here.
+    (Some(_), None)
+      if msg.get("result").is_some() || msg.get("error").is_some() =>
+    {
+      None
+    }
+    // Garbage with an id; id-less garbage gets no reply.
     (Some(id), None) => {
       Some(error_response(id, INVALID_REQUEST, "invalid request"))
     }
@@ -112,6 +124,18 @@ fn initialize(state: &mut ServerState, id: Value, params: &Value) -> Value {
       );
     }
     state.agent_id = name.to_string();
+    // The presence record (D-048) claims the identity too, so
+    // kum processes names who is sitting where.
+    if let Some(p) = &state.presence {
+      p.update(&super::procs::PresenceInfo {
+        pid: std::process::id(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        agent: state.agent_id.clone(),
+        session: state.session_id.clone(),
+        client: super::procs::parent_client_name(),
+        since: kumbarium_util::now_iso8601(),
+      });
+    }
   }
   let requested = params
     .get("protocolVersion")
@@ -165,6 +189,192 @@ fn error_response(id: Value, code: i64, message: &str) -> Value {
     "id": id,
     "error": { "code": code, "message": message },
   })
+}
+
+/// The hot transport (D-048, unix only): the same protocol as
+/// `serve`, driven by a poll loop instead of blocking reads,
+/// which buys the two things a blocking loop cannot give:
+/// SIGUSR1 handled between messages (the reload trigger), and
+/// an idle clock (the wedged-client watchdog). The generic
+/// `serve` stays the test transport and the non-unix path.
+#[cfg(unix)]
+pub mod hot {
+  use std::io::Write;
+  use std::sync::atomic::{AtomicBool, Ordering};
+  use std::time::{Duration, Instant};
+
+  use serde_json::json;
+
+  use super::super::tools::ServerState;
+
+  static RELOAD: AtomicBool = AtomicBool::new(false);
+
+  extern "C" fn on_sigusr1(_: libc::c_int) {
+    RELOAD.store(true, Ordering::Relaxed);
+  }
+
+  /// Serve stdio until EOF, reload, or a failed idle ping.
+  /// `residue` is input carried across a re-exec (bytes read
+  /// but not yet processed by the previous incarnation).
+  pub fn serve(
+    state: &mut ServerState,
+    mut buf: Vec<u8>,
+    procs_dir: &std::path::Path,
+    idle_ping_minutes: i64,
+  ) -> std::io::Result<()> {
+    unsafe {
+      let handler: extern "C" fn(libc::c_int) = on_sigusr1;
+      libc::signal(libc::SIGUSR1, handler as usize as libc::sighandler_t);
+      let flags = libc::fcntl(0, libc::F_GETFL);
+      libc::fcntl(0, libc::F_SETFL, flags | libc::O_NONBLOCK);
+    }
+    let mut stdout = std::io::stdout();
+    let mut last_traffic = Instant::now();
+    // (when the ping went out, how many have gone unanswered)
+    let mut ping: Option<Instant> = None;
+    let mut ping_tries = 0u32;
+    loop {
+      // Drain complete lines before anything else: a reload
+      // must never jump the queue past a received request.
+      while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+        let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
+        let text = String::from_utf8_lossy(&line_bytes);
+        let line = text.trim();
+        if line.is_empty() {
+          continue;
+        }
+        if let Some(response) = super::handle_line(state, line) {
+          writeln!(stdout, "{response}")?;
+          stdout.flush()?;
+        }
+      }
+      if RELOAD.swap(false, Ordering::Relaxed) {
+        // reload() only returns on exec failure; the session
+        // continues on this binary and says so.
+        if let Err(e) = reload(state, &buf, procs_dir) {
+          eprintln!(
+            "kumbarium: reload failed ({e}); continuing on \
+             the current binary"
+          );
+        }
+      }
+      // The wedged-client watchdog: config-gated, and any
+      // inbound traffic resets it (a busy client never sees a
+      // ping).
+      if idle_ping_minutes > 0 {
+        let idle_for = Duration::from_secs(idle_ping_minutes as u64 * 60);
+        match ping {
+          None if last_traffic.elapsed() >= idle_for => {
+            let msg = json!({
+              "jsonrpc": "2.0",
+              "id": "kumbarium-idle-ping",
+              "method": "ping",
+            });
+            writeln!(stdout, "{msg}")?;
+            stdout.flush()?;
+            ping = Some(Instant::now());
+            ping_tries += 1;
+          }
+          Some(sent) if sent.elapsed() >= Duration::from_secs(60) => {
+            if ping_tries < 2 {
+              // One retry: some clients answer lazily.
+              ping = None;
+              last_traffic = Instant::now() - idle_for;
+            } else {
+              eprintln!(
+                "kumbarium: client unresponsive to ping; \
+                 shutting down cleanly (presence record \
+                 removed; leases lapse on TTL)"
+              );
+              return Ok(());
+            }
+          }
+          _ => {}
+        }
+      }
+      // Wait for input, 200ms at a time.
+      let mut pfd = libc::pollfd {
+        fd: 0,
+        events: libc::POLLIN,
+        revents: 0,
+      };
+      let n = unsafe { libc::poll(&mut pfd, 1, 200) };
+      if n < 0 {
+        let err = std::io::Error::last_os_error();
+        if err.kind() == std::io::ErrorKind::Interrupted {
+          continue;
+        }
+        return Err(err);
+      }
+      if n == 0 {
+        continue;
+      }
+      if pfd.revents & (libc::POLLIN | libc::POLLHUP) != 0 {
+        let mut chunk = [0u8; 8192];
+        let r = unsafe {
+          libc::read(0, chunk.as_mut_ptr() as *mut libc::c_void, chunk.len())
+        };
+        match r {
+          // EOF: the client hung up; the transport is the
+          // heartbeat and it just stopped.
+          0 => return Ok(()),
+          r if r > 0 => {
+            buf.extend_from_slice(&chunk[..r as usize]);
+            last_traffic = Instant::now();
+            ping = None;
+            ping_tries = 0;
+          }
+          _ => {
+            let err = std::io::Error::last_os_error();
+            match err.kind() {
+              std::io::ErrorKind::WouldBlock
+              | std::io::ErrorKind::Interrupted => continue,
+              _ => return Err(err),
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// Re-exec the kumbarium binary in place: fds survive exec,
+  /// so the pid and the client's pipes are kept and the swap
+  /// is invisible to the transport. Session state (and any
+  /// half-read input) crosses via a state file the reborn
+  /// process consumes exactly once.
+  fn reload(
+    state: &ServerState,
+    residue: &[u8],
+    procs_dir: &std::path::Path,
+  ) -> std::io::Result<()> {
+    use std::os::unix::process::CommandExt;
+    let blob = json!({
+      "agent_id": state.agent_id,
+      "session_id": state.session_id,
+      "served_handoffs":
+        state.served_handoffs.iter().collect::<Vec<_>>(),
+      "residue": residue,
+    });
+    std::fs::create_dir_all(procs_dir)?;
+    let path = procs_dir.join(format!("reload-{}.json", std::process::id()));
+    std::fs::write(&path, blob.to_string())?;
+    // The INSTALL PATH, resolved fresh: after an update the
+    // same path names the new file. (/proc/self/exe-style
+    // handles would re-run the old image.)
+    let exe = std::env::current_exe()?;
+    eprintln!(
+      "kumbarium: reloading into {} (session {} carries over)",
+      exe.display(),
+      &state.session_id[state.session_id.len().saturating_sub(8)..]
+    );
+    let err = std::process::Command::new(exe)
+      .arg("serve")
+      .env("KUMBARIUM_RELOAD_STATE", &path)
+      .exec();
+    // Only reachable when exec failed.
+    let _ = std::fs::remove_file(&path);
+    Err(err)
+  }
 }
 
 #[cfg(test)]

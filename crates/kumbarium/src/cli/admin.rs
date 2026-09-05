@@ -304,6 +304,21 @@ pub(crate) fn status_cmd() -> ExitCode {
       println!("  reading room: {} active{stale_note}", active.len());
     }
   }
+  {
+    let live = super::super::procs::live(&p.procs_dir);
+    if !live.is_empty() {
+      let old = live
+        .iter()
+        .filter(|r| r.version != env!("CARGO_PKG_VERSION"))
+        .count();
+      let note = if old > 0 {
+        format!(" ({old} on an older binary; kum serve reload)")
+      } else {
+        String::new()
+      };
+      println!("  processes: {} live{note}", live.len());
+    }
+  }
   match kumbarium_store::namespaces(&state.library) {
     Ok(rows) => {
       for (path, _, _) in rows {
@@ -466,6 +481,17 @@ pub(crate) fn status_json() -> ExitCode {
     out.insert(
       "reading_room".into(),
       serde_json::json!({ "active": active, "stale": stale }),
+    );
+  }
+  {
+    let live = super::super::procs::live(&p.procs_dir);
+    let old = live
+      .iter()
+      .filter(|r| r.version != env!("CARGO_PKG_VERSION"))
+      .count();
+    out.insert(
+      "processes".into(),
+      serde_json::json!({ "live": live.len(), "stale_binary": old }),
     );
   }
   match kumbarium_store::namespaces(&state.library) {

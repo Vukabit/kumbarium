@@ -10,6 +10,7 @@ mod import;
 mod keystore;
 mod markdown;
 mod paths;
+mod procs;
 mod rpc;
 mod style;
 mod tools;
@@ -88,6 +89,8 @@ pub fn run() -> ExitCode {
       Err(e) => fail(&e.to_string()),
     },
     ["serve"] => serve(),
+    ["serve", "reload"] => cli::process::serve_reload_cmd(None),
+    ["serve", "reload", pid] => cli::process::serve_reload_cmd(Some(pid)),
     ["namespace", "add", path, rest @ ..] => {
       namespace_add(path, &rest.join(" "))
     }
@@ -107,6 +110,24 @@ pub fn run() -> ExitCode {
     ["import", "bundle", file, "--pending"] => import_bundle_cmd(file, true),
     ["backup", "list"] => backup_list(),
     ["backup"] => backup_now(),
+    ["doctor", rest @ ..] => {
+      let mut deep = false;
+      let mut apply = false;
+      let mut json = false;
+      let mut bad = None;
+      for a in rest {
+        match *a {
+          "--deep" => deep = true,
+          "--apply" => apply = true,
+          "--json" => json = true,
+          other => bad = Some(other.to_string()),
+        }
+      }
+      match bad {
+        Some(flag) => fail(&format!("unknown flag {flag:?}")),
+        None => cli::doctor::doctor_cmd(deep, apply, json),
+      }
+    }
     ["list", rest @ ..] => match browse_args(rest) {
       Ok((ns, all, json)) => list_entries(ns, all, json),
       Err(e) => fail(&e),
@@ -202,6 +223,16 @@ pub fn run() -> ExitCode {
     ["unretire", id] => retire_cmd(id, false),
     ["status"] => status_cmd(),
     ["status", "--json"] => status_json(),
+    ["processes", rest @ ..] => match browse_args(rest) {
+      Ok((Some(_), _, _)) | Ok((_, true, _)) => {
+        fail("usage: kumbarium processes [--json]")
+      }
+      Ok((None, false, json)) => cli::process::processes_cmd(json),
+      Err(e) => fail(&e),
+    },
+    ["update"] => cli::update::update_cmd(false, false),
+    ["update", "--check"] => cli::update::update_cmd(true, false),
+    ["update", "--yes"] => cli::update::update_cmd(false, true),
     ["completions", shell] => cli::completions::completions_cmd(shell),
     ["completions"] => {
       fail("completions needs a shell: kumbarium completions bash|zsh|fish")
@@ -411,10 +442,13 @@ fn usage_of(word: &str) -> Option<&'static str> {
       "kumbarium namespace [add <path> [desc]|describe <path> <desc>|list]"
     }
     "status" => "kumbarium status",
+    "processes" => "kumbarium processes [--json]",
     "backup" => "kumbarium backup [list]",
+    "doctor" => "kumbarium doctor [--deep] [--apply] [--json]",
     "config" => "kumbarium config [--init|--open]",
     "paths" => "kumbarium paths",
-    "serve" => "kumbarium serve",
+    "serve" => "kumbarium serve [reload [pid]]",
+    "update" => "kumbarium update [--check|--yes]",
     "completions" => "kumbarium completions bash|zsh|fish",
     "instructions" => "kumbarium instructions [--snippet]",
     "version" => "kumbarium version",
@@ -434,6 +468,7 @@ fn help_topic(word: &str) -> &'static str {
     "review" | "approve" | "reject" | "inbox" => "approvals",
     "forget" | "unretire" => "retire",
     "confirm" => "list",
+    "doctor" => "doctor",
     "link" => "show",
     w if help::page(w).is_some() => {
       // page() accepts it directly; leak the word as 'static
@@ -569,6 +604,7 @@ pub(crate) fn open_stores() -> Result<Stores, String> {
     secrets_path: p.secrets_db.clone(),
     leases: None,
     leases_path: p.leases_db.clone(),
+    presence: None,
   };
   Ok((p, state))
 }
@@ -794,6 +830,16 @@ fn backup_list() -> ExitCode {
   ExitCode::SUCCESS
 }
 
+/// Force a snapshot of every section, reporting nothing (the
+/// doctor's pre-repair safety net; the loud version is
+/// backup_now).
+pub(crate) fn backup_now_quiet(
+  p: &paths::Paths,
+  state: &tools::ServerState,
+) -> Result<(), String> {
+  maintenance(p, state, true).map(|_| ())
+}
+
 fn backup_now() -> ExitCode {
   let (p, state) = match open_stores() {
     Ok(v) => v,
@@ -815,6 +861,42 @@ fn serve() -> ExitCode {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
+  // Reload carryover (D-048): a re-exec'd serve consumes its
+  // predecessor's state file exactly once (the session id,
+  // claimed agent, served-handoffs set so the opening frame
+  // does not replay, and any half-read input bytes).
+  let mut residue: Vec<u8> = Vec::new();
+  let mut reloaded = false;
+  if let Some(sp) = std::env::var_os("KUMBARIUM_RELOAD_STATE") {
+    unsafe { std::env::remove_var("KUMBARIUM_RELOAD_STATE") };
+    let sp = std::path::PathBuf::from(sp);
+    if let Ok(text) = std::fs::read_to_string(&sp) {
+      let _ = std::fs::remove_file(&sp);
+      if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+        if let Some(a) = v.get("agent_id").and_then(|x| x.as_str()) {
+          state.agent_id = a.into();
+        }
+        if let Some(s) = v.get("session_id").and_then(|x| x.as_str()) {
+          state.session_id = s.into();
+        }
+        if let Some(arr) = v.get("served_handoffs").and_then(|x| x.as_array()) {
+          state.served_handoffs = arr
+            .iter()
+            .filter_map(|x| x.as_str())
+            .map(str::to_string)
+            .collect();
+        }
+        if let Some(arr) = v.get("residue").and_then(|x| x.as_array()) {
+          residue = arr
+            .iter()
+            .filter_map(|x| x.as_u64())
+            .map(|b| b as u8)
+            .collect();
+        }
+        reloaded = true;
+      }
+    }
+  }
   // On-launch backup check (12h-or-elapsed policy); failures
   // are reported but never block serving.
   match maintenance(&p, &state, false) {
@@ -825,16 +907,56 @@ fn serve() -> ExitCode {
     }
     Err(e) => eprintln!("kumbarium: {e}"),
   }
+  // Presence (D-048): the record that says this process is
+  // here. Best-effort; awareness never blocks serving.
+  state.presence = procs::Presence::register(
+    &p.procs_dir,
+    &procs::PresenceInfo {
+      pid: std::process::id(),
+      version: VERSION.into(),
+      agent: state.agent_id.clone(),
+      session: state.session_id.clone(),
+      client: procs::parent_client_name(),
+      since: kumbarium_util::now_iso8601(),
+    },
+  );
   // stdout is protocol-only; say where we are on stderr.
   eprintln!(
     "kumbarium {VERSION} serving MCP on stdio \
      (library: {})",
     p.memory_db.display()
   );
-  let stdin = std::io::stdin();
   let mut stdout = std::io::stdout();
-  match rpc::serve(stdin.lock(), &mut stdout, &mut state) {
-    Ok(()) => ExitCode::SUCCESS,
-    Err(e) => fail(&format!("transport error: {e}")),
+  if reloaded {
+    eprintln!(
+      "kumbarium: reborn after reload; session {} continues",
+      &state.session_id[state.session_id.len().saturating_sub(8)..]
+    );
+    // The client refetches the tool list on this notification,
+    // so a new binary's tools appear mid-conversation.
+    use std::io::Write;
+    let note = serde_json::json!({
+      "jsonrpc": "2.0",
+      "method": "notifications/tools/list_changed",
+    });
+    let _ = writeln!(stdout, "{note}");
+    let _ = stdout.flush();
+  }
+  #[cfg(unix)]
+  {
+    let idle = state.cfg.serve_idle_ping_minutes;
+    match rpc::hot::serve(&mut state, residue, &p.procs_dir, idle) {
+      Ok(()) => ExitCode::SUCCESS,
+      Err(e) => fail(&format!("transport error: {e}")),
+    }
+  }
+  #[cfg(not(unix))]
+  {
+    let _ = residue;
+    let stdin = std::io::stdin();
+    match rpc::serve(stdin.lock(), &mut stdout, &mut state) {
+      Ok(()) => ExitCode::SUCCESS,
+      Err(e) => fail(&format!("transport error: {e}")),
+    }
   }
 }

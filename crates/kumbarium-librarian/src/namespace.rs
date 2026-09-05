@@ -49,6 +49,7 @@ pub const RESERVED_WORDS: &[&str] = &[
   "dashboard",
   "describe",
   "docket",
+  "doctor",
   "done",
   "drop",
   "export",
@@ -71,6 +72,8 @@ pub const RESERVED_WORDS: &[&str] = &[
   "namespace",
   "namespaces",
   "paths",
+  "processes",
+  "procs",
   "reject",
   "retire",
   "revert",
@@ -91,6 +94,7 @@ pub const RESERVED_WORDS: &[&str] = &[
   "task",
   "tasks",
   "unretire",
+  "update",
   "version",
 ];
 

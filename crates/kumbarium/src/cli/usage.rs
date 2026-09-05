@@ -125,6 +125,8 @@ Usage:
 
 wire agents up:
   kumbarium serve                     speak MCP over stdio
+  kumbarium serve reload [pid]        hot-swap live serves onto
+                                      the current binary
   kumbarium instructions [--snippet]  agent setup: MCP
                                       registration + root-file
                                       instruction block
@@ -259,8 +261,12 @@ upkeep:
                                       rewrite its description
   kumbarium namespace list            list namespaces
   kumbarium status                    library health at a glance
+  kumbarium processes                 live kumbarium processes:
+                                      pid, binary, agent, client
   kumbarium backup                    snapshot every section now
   kumbarium backup list               every section's snapshots
+  kumbarium doctor [--deep]           examine the building;
+       [--apply] [--json]             --apply fixes safe debris
   kumbarium config [--init|--open]    effective tunables
                                       (--init writes template,
                                       --open edits it)
@@ -269,6 +275,9 @@ upkeep:
 meta:
   kumbarium completions <shell>       completion script for
                                       bash | zsh | fish
+  kumbarium update [--check|--yes]     check for a newer release
+                                      and install it (curl; the
+                                      one networked command)
   kumbarium version                   print the version
   kumbarium help [topic]              manual pages with grammar
                                       and examples

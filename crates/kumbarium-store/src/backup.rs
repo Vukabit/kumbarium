@@ -22,6 +22,37 @@ pub struct Retention {
 
 const MS_PER_DAY: i64 = 86_400_000;
 
+/// Integrity-check an existing database file WITHOUT opening it
+/// for writes or running any migration (the doctor's read-only
+/// probe). `deep` runs the full `integrity_check` (O(N log N),
+/// index cross-checks and UNIQUE verification); otherwise the
+/// cheaper `quick_check`. Returns Ok(None) when the file is
+/// sound, Ok(Some(problems)) when it is not.
+pub fn integrity(
+  path: &Path,
+  deep: bool,
+) -> Result<Option<Vec<String>>, StoreError> {
+  let conn = Connection::open_with_flags(
+    path,
+    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+      | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+  )?;
+  let pragma = if deep {
+    "PRAGMA integrity_check"
+  } else {
+    "PRAGMA quick_check"
+  };
+  let mut stmt = conn.prepare(pragma)?;
+  let rows = stmt
+    .query_map([], |row| row.get::<_, String>(0))?
+    .collect::<Result<Vec<_>, _>>()?;
+  if rows.len() == 1 && rows[0] == "ok" {
+    Ok(None)
+  } else {
+    Ok(Some(rows))
+  }
+}
+
 /// Snapshot `conn`'s database into `dir`, returning the new
 /// file's path. Crash-safe: the copy lands under a temp name,
 /// is integrity-checked, then renamed; a failure at any point
@@ -170,6 +201,24 @@ mod tests {
     assert_eq!(parse_file_name(&name), Some(now));
     assert_eq!(parse_file_name("library.db"), None);
     assert_eq!(parse_file_name(".tmp-x.db"), None);
+  }
+
+  #[test]
+  fn integrity_passes_a_sound_db_and_reads_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("library.db");
+    let _ = crate::open(&src).unwrap();
+    // A sound database returns None at either tier.
+    assert!(integrity(&src, false).unwrap().is_none());
+    assert!(integrity(&src, true).unwrap().is_none());
+    // Read-only: a truncated garbage file reports problems
+    // rather than being opened for writes or migrated.
+    let junk = dir.path().join("junk.db");
+    std::fs::write(&junk, b"this is not a sqlite database").unwrap();
+    assert!(
+      integrity(&junk, false).is_err()
+        || integrity(&junk, false).unwrap().is_some()
+    );
   }
 
   #[test]

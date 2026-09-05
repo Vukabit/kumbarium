@@ -40,6 +40,11 @@ pub struct ServerState {
   /// been served (the FIRST recall in a scope prepends it,
   /// D-036; later recalls stay clean).
   pub served_handoffs: std::collections::HashSet<String>,
+  /// The presence registration (D-048), held only by serve:
+  /// the record under library/procs/ that says this process is
+  /// here, updated when initialize claims an identity. None
+  /// for CLI invocations and tests.
+  pub presence: Option<super::procs::Presence>,
 }
 
 impl ServerState {
@@ -117,6 +122,7 @@ impl ServerState {
       secrets_path: std::path::PathBuf::new(),
       leases: None,
       leases_path: std::path::PathBuf::new(),
+      presence: None,
     }
   }
 }

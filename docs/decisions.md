@@ -766,3 +766,82 @@ divergences (no auto-paging, uniform exit 1, flat-verb/noun
 mix) plus the SQLite-door stance (SQLite is a tooling door,
 never a channel for governed agents) are stated in the manual
 as `kum help conventions`.
+
+## D-048: the process rung (2026-09-04)
+
+The library knew what agents DID (the ledger) and what they
+were DOING (the reading room), never who was simply THERE.
+This rung adds process awareness and the verbs it unlocks,
+across docs/design/process-lifecycle.md and docs/design/
+doctor.md.
+
+PRESENCE. Each serve process drops a record under
+library/procs/, made trustworthy not by a pid check (pids get
+reused) but by an OS advisory lock that dies with the process:
+a record whose lock still refuses us is alive, one we can lock
+is a dead process's debris. Three failure shapes, three
+answers: a dead client closes stdin (EOF; serve exits and the
+record self-removes), a crashed kumbarium leaves debris the
+doctor sweeps, and a WEDGED client is caught by the config-
+gated idle ping (serve.idle_ping_minutes, default 0; MCP ping
+is bidirectional per spec, so pinging the client is standard,
+and no answer after a retry means serve exits cleanly).
+
+kum processes lists live incarnations (pid, binary version,
+agent, session, client, activity), the third axis beside the
+roster and the reading room. The version column is load-
+bearing: after an update it shows who is still on the old
+binary. There is deliberately NO kill verb: clients own their
+serve children and respawn them, and killing a writer mid-
+transaction manufactures the corruption the doctor exists to
+find; the pid is handed over and kill is the OS's verb.
+
+kum serve reload [pid] hot-swaps live serves onto the current
+binary by re-exec: fds survive exec, so the pid and the
+client's pipes are kept and the swap is invisible; the session
+id carries across (the session models the conversation, not
+the binary), and the reborn process emits
+notifications/tools/list_changed so new tools appear mid-
+conversation. Unix only; Windows is told to restart the
+client. The hot transport (a poll loop) replaces the blocking
+read loop on unix precisely to make SIGUSR1 (the reload
+trigger) and the idle clock possible; the blocking loop stays
+the test and non-unix path.
+
+kum update is the ONE networked verb: the librarian never
+phones home, and the network happens only inside it, reached
+through curl (the tooling door, as SQLite is storage's) rather
+than a compiled-in HTTP stack. Package-manager installs defer
+to their manager; only the standalone install self-replaces,
+and only after the download's SHA-256 matches the release's
+published sum (release.yml now emits .sha256 sidecars; no
+checksum to verify is a failure, never a silent pass). Both
+binaries swap together, old kept one generation as .bak;
+migrations are forward-only and the prompt says so.
+
+The SESSION CARD makes minted ids addressable: kum show
+resolves a session fragment as its fifth and last resolver
+(entries, tasks, briefings, secrets, then sessions), rendering
+the agent, liveness, activity window, event counts, scopes,
+and leases. Building-wide ids were always the point; this
+closes the last id that printed everywhere but resolved
+nowhere.
+
+kum doctor is the MECHANIC, the janitor's structural sibling:
+the janitor judges facts, the doctor judges the building
+(integrity, schemas, invariants, debris, the keystore). It
+follows a peer survey (git fsck, restic/borg check, pg_amcheck,
+SQLite's pragmas, fsck(8) preen mode). Preview is read-only and
+lock-free; --apply is PREEN-CLASS ONLY (fsck -p): sweep debris,
+re-chain an unhashed tail, and nothing more. It never repairs
+EVIDENCE (a hash mismatch, content divergence, a failed
+integrity check are reported with their remedy, never
+rewritten, because repairing evidence destroys it), never
+deletes data, and defers file surgery while any serve process
+is live. No --reverse: --apply snapshots first, so reversal is
+a real restore. One witnessed doctor event per apply; preview
+witnesses nothing. Exit 0 healthy, 1 on any finding.
+
+The whole rung reads one registry: presence records feed
+kum processes, serve reload, the idle watchdog, the doctor's
+deferral, and the session card's liveness line.

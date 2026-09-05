@@ -18,7 +18,8 @@ use std::path::Path;
 use rusqlite::Connection;
 
 pub use export::{
-  StoredEvent, describe_event, events_asc, render_minutes, summary, tail,
+  SessionStory, StoredEvent, describe_event, events_asc, render_minutes,
+  session_last_at, session_story, sessions_matching, summary, tail,
 };
 
 /// What `verify_chain` concluded: either the whole ledger checks
@@ -78,6 +79,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     "0009_agent_read_kinds",
     include_str!("../migrations/0009_agent_read_kinds.sql"),
   ),
+  (
+    10,
+    "0010_doctor_kind",
+    include_str!("../migrations/0010_doctor_kind.sql"),
+  ),
 ];
 
 /// The version pre-squash ledgers sit at: their schema is
@@ -119,6 +125,7 @@ pub enum EventKind {
   HandoffDrop,
   Get,
   TaskList,
+  Doctor,
   SecretSet,
   SecretRead,
   SecretGrant,
@@ -156,6 +163,7 @@ impl EventKind {
       EventKind::HandoffDrop => "handoff_drop",
       EventKind::Get => "get",
       EventKind::TaskList => "task_list",
+      EventKind::Doctor => "doctor",
       EventKind::SecretSet => "secret_set",
       EventKind::SecretRead => "secret_read",
       EventKind::SecretGrant => "secret_grant",

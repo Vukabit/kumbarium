@@ -267,6 +267,119 @@ fn valid_date(date: &str) -> Result<(), String> {
   }
 }
 
+/// The session card (`kum show` fall-through, fifth and last
+/// resolver, D-048): a minted session id becomes addressable
+/// wherever it was printed. A rendering, nothing written, not
+/// witnessed.
+pub(crate) fn show_session(
+  state: &mut super::super::tools::ServerState,
+  id: &str,
+) -> Result<ExitCode, String> {
+  let not_found = || {
+    format!(
+      "no entry, task, handoff, secret, or session with id \
+       {id:?} (ids: the 8-char short form, the full id, or any \
+       unique fragment of 4+ hex chars)"
+    )
+  };
+  if id.len() < 4 {
+    return Err(not_found());
+  }
+  let mut candidates = kumbarium_audit::sessions_matching(&state.audit, id)
+    .map_err(|e| e.to_string())?;
+  // Sessions too young to have witnessed anything exist only
+  // in the presence registry.
+  let procs_dir = super::super::paths::resolve()
+    .map(|p| p.procs_dir)
+    .map_err(|e| e.to_string())?;
+  let live = super::super::procs::live(&procs_dir);
+  for r in &live {
+    if r.session.contains(id) && !candidates.contains(&r.session) {
+      candidates.push(r.session.clone());
+    }
+  }
+  match candidates.as_slice() {
+    [] => return Err(not_found()),
+    [_] => {}
+    many => {
+      let shorts: Vec<&str> = many
+        .iter()
+        .map(|s| s.get(s.len().saturating_sub(8)..).unwrap_or(s))
+        .collect();
+      return Err(format!(
+        "session fragment {id:?} is ambiguous: {}",
+        shorts.join(", ")
+      ));
+    }
+  }
+  let session = candidates.remove(0);
+  let short = session.get(session.len().saturating_sub(8)..).unwrap_or("");
+  let sty = style::Style::detect();
+  let story = kumbarium_audit::session_story(&state.audit, &session)
+    .map_err(|e| e.to_string())?;
+  let alive = live.iter().find(|r| r.session == session);
+  println!("{}", sty.bold(&format!("session {short} (minted)")));
+  println!("id:         {session}");
+  let agent = story
+    .as_ref()
+    .map(|s| s.agent.clone())
+    .or_else(|| alive.map(|r| r.agent.clone()))
+    .unwrap_or_else(|| "unknown".into());
+  println!("agent:      {agent}");
+  match alive {
+    Some(r) => println!(
+      "alive:      yes; pid {} on {} since {} (kum processes)",
+      r.pid,
+      r.version,
+      local_display(&r.since)
+    ),
+    None => println!("alive:      no (the serve process has exited)"),
+  }
+  match &story {
+    Some(s) => {
+      println!(
+        "first act:  {}   last act: {}",
+        local_display(&s.first_at),
+        local_display(&s.last_at)
+      );
+      let kinds = s
+        .by_kind
+        .iter()
+        .map(|(k, n)| format!("{n} {k}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+      println!("events:     {} ({kinds})", s.events);
+      if !s.scopes.is_empty() {
+        println!("scopes:     {}", s.scopes.join(", "));
+      }
+    }
+    None => println!("witnessed:  nothing yet (alive, no tool calls so far)"),
+  }
+  if state.leases_path.exists() {
+    let now = kumbarium_util::now_ms();
+    let ttl = state.cfg.leases_ttl_minutes;
+    if let Ok(conn) = state.leases()
+      && let Ok(active) = kumbarium_leases::active_in(conn, None, now, ttl)
+    {
+      let held: Vec<String> = active
+        .iter()
+        .filter(|l| l.session_id == session)
+        .map(|l| format!("{}/{}", l.namespace, l.resource))
+        .collect();
+      if !held.is_empty() {
+        println!("leases:     {}", held.join(", "));
+      }
+    }
+  }
+  println!(
+    "\n{}",
+    sty.dim(&format!(
+      "deep story: kum dossier {agent} --session {short}"
+    ))
+  );
+  Ok(ExitCode::SUCCESS)
+}
+
 pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
   let mut since: Option<String> = None;
   let mut until: Option<String> = None;

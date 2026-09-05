@@ -23,6 +23,12 @@ pub struct Config {
   pub recall_default_limit: usize,
   pub janitor_dormant_days: i64,
   pub leases_ttl_minutes: i64,
+  /// The wedged-client watchdog (D-048): after this many idle
+  /// minutes, serve pings the client; no answer means the
+  /// patron is a ghost and serve shuts down cleanly. 0 (the
+  /// default) disables it, because some clients never answer
+  /// server pings.
+  pub serve_idle_ping_minutes: i64,
   /// Write policy (D-027): what a write becomes for agents not
   /// listed in `pending_agents`. true = pending-by-default.
   pub approvals_default_pending: bool,
@@ -56,6 +62,7 @@ impl Default for Config {
       recall_default_limit: 8,
       janitor_dormant_days: 45,
       leases_ttl_minutes: 120,
+      serve_idle_ping_minutes: 0,
       approvals_default_pending: false,
       approvals_pending_agents: Vec::new(),
       agents_retired: Vec::new(),
@@ -111,6 +118,14 @@ dormant_days = 45
 # witnessed activity; expiry is computed at read time, so
 # changing this re-prices the room instantly.
 ttl_minutes = 120
+
+[serve]
+# The wedged-client watchdog: after this many idle minutes the
+# server pings its client; an unanswered ping means the session
+# is a ghost and serve exits cleanly (its presence record and
+# leases self-clean). 0 disables (some clients never answer
+# server pings).
+idle_ping_minutes = 0
 
 [approvals]
 # Write policy (D-027). live = writes circulate immediately
@@ -234,6 +249,9 @@ pub fn parse(text: &str) -> (Config, Vec<String>) {
       }
       "leases.ttl_minutes" => {
         cfg.leases_ttl_minutes = value.max(1);
+      }
+      "serve.idle_ping_minutes" => {
+        cfg.serve_idle_ping_minutes = value.max(0);
       }
       "janitor.dormant_days" => {
         cfg.janitor_dormant_days = value.max(1);

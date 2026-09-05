@@ -230,6 +230,24 @@ pub(crate) fn confirm_destruction(what: &str, yes: bool) -> Result<(), String> {
   }
 }
 
+/// A plain yes/no prompt (not the destruction gate): returns
+/// false on a non-tty so a scripted caller without --yes is
+/// simply declined, never blocked on a read that never comes.
+pub(crate) fn confirm(question: &str) -> bool {
+  use std::io::IsTerminal;
+  if !std::io::stdin().is_terminal() {
+    return false;
+  }
+  eprint!("{question} [y/N] ");
+  use std::io::Write as _;
+  let _ = std::io::stderr().flush();
+  let mut line = String::new();
+  if std::io::stdin().read_line(&mut line).is_err() {
+    return false;
+  }
+  matches!(line.trim(), "y" | "Y" | "yes")
+}
+
 /// One column of a table. A table's whole geometry is a
 /// `&[Col]`: the header, every cell pad, and the wrap column
 /// all derive from the same spec, so they cannot drift apart.

@@ -75,6 +75,108 @@ pub fn summary(conn: &Connection) -> Result<(i64, Option<String>), AuditError> {
   Ok((count, latest))
 }
 
+/// A session's most recent witnessed moment, for activity
+/// columns (the ledger is the heartbeat). None for a session
+/// that has never witnessed anything.
+pub fn session_last_at(
+  conn: &Connection,
+  session_id: &str,
+) -> Result<Option<String>, AuditError> {
+  conn
+    .query_row(
+      "SELECT at FROM events WHERE session_id = ?1
+       ORDER BY at DESC LIMIT 1",
+      [session_id],
+      |row| row.get(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+      rusqlite::Error::QueryReturnedNoRows => Ok(None),
+      other => Err(other.into()),
+    })
+}
+
+/// Distinct minted session ids matching a fragment (the
+/// session resolver behind `kum show <frag>`). Empty session
+/// fields (pre-D-045 rows) never match.
+pub fn sessions_matching(
+  conn: &Connection,
+  fragment: &str,
+) -> Result<Vec<String>, AuditError> {
+  let mut stmt = conn.prepare(
+    "SELECT DISTINCT session_id FROM events
+     WHERE session_id != '' AND session_id LIKE ?1
+     ORDER BY session_id",
+  )?;
+  let rows = stmt
+    .query_map([format!("%{fragment}%")], |row| row.get(0))?
+    .collect::<Result<Vec<String>, _>>()?;
+  Ok(rows)
+}
+
+/// One session's witnessed story, summarized for the card.
+pub struct SessionStory {
+  pub agent: String,
+  pub first_at: String,
+  pub last_at: String,
+  pub events: i64,
+  pub by_kind: Vec<(String, i64)>,
+  pub scopes: Vec<String>,
+}
+
+pub fn session_story(
+  conn: &Connection,
+  session_id: &str,
+) -> Result<Option<SessionStory>, AuditError> {
+  let head = conn
+    .query_row(
+      "SELECT agent_id, MIN(at), MAX(at), COUNT(*) FROM events
+       WHERE session_id = ?1",
+      [session_id],
+      |row| {
+        Ok((
+          row.get::<_, String>(0)?,
+          row.get::<_, String>(1)?,
+          row.get::<_, String>(2)?,
+          row.get::<_, i64>(3)?,
+        ))
+      },
+    )
+    .map(Some)
+    .or_else(|e| match e {
+      rusqlite::Error::QueryReturnedNoRows => Ok(None),
+      // Aggregates over zero rows yield NULLs, arriving as an
+      // InvalidColumnType instead of NoRows.
+      rusqlite::Error::InvalidColumnType(..) => Ok(None),
+      other => Err(other),
+    })?;
+  let Some((agent, first_at, last_at, events)) = head else {
+    return Ok(None);
+  };
+  let mut stmt = conn.prepare(
+    "SELECT kind, COUNT(*) FROM events WHERE session_id = ?1
+     GROUP BY kind ORDER BY COUNT(*) DESC, kind",
+  )?;
+  let by_kind = stmt
+    .query_map([session_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+    .collect::<Result<Vec<(String, i64)>, _>>()?;
+  let mut stmt = conn.prepare(
+    "SELECT DISTINCT scope FROM events
+     WHERE session_id = ?1 AND scope != '' ORDER BY scope",
+  )?;
+  let scopes = stmt
+    .query_map([session_id], |row| row.get(0))?
+    .collect::<Result<Vec<String>, _>>()?;
+  Ok(Some(SessionStory {
+    agent,
+    first_at,
+    last_at,
+    events,
+    by_kind,
+    scopes,
+  }))
+}
+
 /// Every event, oldest first (the minutes ordering).
 pub fn events_asc(conn: &Connection) -> Result<Vec<StoredEvent>, AuditError> {
   query(
@@ -256,6 +358,10 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
       "task_list" => Some(format!(
         "surveyed the open docket ({} matters served)",
         n("returned").unwrap_or(0)
+      )),
+      "doctor" => Some(format!(
+        "ran the doctor ({} repair(s) applied)",
+        n("repaired").unwrap_or(0)
       )),
       "secret_set" => Some(format!("stocked secret {:?}", s("name")?)),
       "secret_read" => {

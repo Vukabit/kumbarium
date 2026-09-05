@@ -15,7 +15,9 @@ use std::path::Path;
 // return it, so callers get the type without a rusqlite dep.
 pub use rusqlite::Connection;
 
-pub use backup::{Retention, backup, latest_backup_ms, prune, snapshots};
+pub use backup::{
+  Retention, backup, integrity, latest_backup_ms, prune, snapshots,
+};
 pub use entries::{
   Entry, Hit, ImportOutcome, Kind, NewEntry, Stats, Status, approve, confirm,
   describe_namespace, entries_in, extend_chain, find_by_source, forget, get,

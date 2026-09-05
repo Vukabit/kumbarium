@@ -9,8 +9,8 @@
 pub const TOPICS: &str = "instructions serve environment ids \
 namespaces namespace list show grep history revert retire \
 move approvals docket handoff leases secrets brief agents \
-dossier janitor audit export import status backup alias \
-conventions";
+dossier processes janitor audit export import status backup \
+update doctor alias conventions";
 
 /// The whole manual, in READING order: the building tour, not
 /// the accident of declaration order. Setup first, then the
@@ -40,12 +40,15 @@ pub const MANUAL_ORDER: &[&str] = &[
   "brief",
   "agents",
   "dossier",
+  "processes",
   "janitor",
   "audit",
   "export",
   "import",
   "status",
   "backup",
+  "update",
+  "doctor",
   "alias",
   "conventions",
 ];
@@ -80,10 +83,120 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "lease" | "leases" => PAGE_LEASES,
     "agent" | "agents" | "roster" => PAGE_AGENTS,
     "environment" | "env" => PAGE_ENVIRONMENT,
+    "processes" | "process" | "procs" => PAGE_PROCESSES,
     "conventions" | "stances" | "completions" | "json" => PAGE_CONVENTIONS,
+    "update" => PAGE_UPDATE,
+    "doctor" | "repair" => PAGE_DOCTOR,
     _ => return None,
   })
 }
+
+const PAGE_DOCTOR: &str = "\
+## doctor: the mechanic
+
+```
+kum doctor            examine; report; repair nothing
+kum doctor --deep     the expensive tier (integrity_check,
+                      backup coverage)
+kum doctor --apply    perform the safe repairs, witnessed
+kum doctor --json     machine findings
+```
+
+The janitor judges FACTS (confidence, circulation); the doctor
+judges the BUILDING (files, schemas, invariants, integrity).
+Neither does the other's job.
+
+Checks, grouped by section: database integrity (a read-only
+`quick_check`, `integrity_check` under `--deep`); the audit
+chain (intact, or the first break named); referential drift
+(matters and briefings on namespaces the registry no longer
+knows); debris (interrupted-backup temp files, stale presence
+records from dead processes); the keystore (a present-but-
+failing one is the downgrade-attack shape); and, under
+`--deep`, backup coverage.
+
+Preview by default, `--apply` for repair, the same idiom as
+janitor and revert. But `--apply` is PREEN-CLASS ONLY: it
+sweeps debris, re-chains an unhashed ledger tail (pure
+recomputation), and nothing more. It NEVER repairs evidence: a
+hash mismatch, content divergence, or a failed integrity check
+is reported with its remedy (restore a snapshot, investigate),
+never rewritten, because repairing evidence destroys it. There
+is no `--reverse`: `--apply` snapshots every section first, so
+reversal is a real restore (`kum backup list`), stronger than
+an undo flag.
+
+Preview is lock-free (a read snapshot, safe beside live
+sessions). `--apply` takes the maintenance lock and DEFERS
+file surgery while any serve process is live, naming the pids
+to close. One `doctor` event is witnessed per apply, carrying
+the repair count; preview witnesses nothing. Exit 0 healthy,
+1 on any finding (the uniform stance; branch on `--json`).
+";
+
+const PAGE_UPDATE: &str = "\
+## update: the one networked verb
+
+```
+kum update            check; if newer, show what changes,
+                      prompt, then swap
+kum update --check    report only; exit 1 if an update exists
+kum update --yes      no prompt (for scripts)
+```
+
+The librarian never phones home: no background checks, no
+version nags in other commands. The network happens ONLY
+inside this command, and it reaches the network through
+`curl` (the tooling door, the way sqlite3 is storage's), so a
+build carries no HTTP stack for a feature most installs never
+run.
+
+Package managers own their installs: a cargo or Homebrew
+kumbarium is told the right upgrade command
+(`cargo install kumbarium --force`, `brew upgrade kumbarium`)
+and nothing is swapped. Only a standalone-tarball install
+self-replaces, and only after the download's SHA-256 matches
+the release's published sum (no checksum to check is a failure,
+never a silent pass). Both binaries (`kum` and `kumbarium`)
+swap together, the old kept one generation as `.bak`.
+
+Migrations run forward only: after an update, sections do not
+migrate back, so downgrading is unsupported; snapshots are the
+way back (`kum backup list`). Live serve sessions keep the old
+binary until `kum serve reload` swaps them (`kum processes`
+shows who is still on it).
+";
+
+const PAGE_PROCESSES: &str = "\
+## processes: the occupancy listing
+
+```
+kum processes [--json]
+```
+
+The third axis beside the roster and the reading room:
+`kum agents` is identities across history, `kum leases` is
+work claims, this is live incarnations, right now. Each serve
+process registers a presence record under `library/procs/`,
+held trustworthy by an OS file lock that dies with the
+process: a row shown here is liveness-verified, never a pid a
+recycled number could fool.
+
+Columns: pid, binary version, the claimed agent, the minted
+session (8-char short, pasteable into `kum dossier
+--session`), the client that spawned it, since, and last
+witnessed activity (the ledger is the heartbeat). A row on an
+OLDER binary than this CLI paints yellow with the remedy
+inline: `kum serve reload <pid>` swaps the binary under the
+live session without restarting the client.
+
+Deliberately absent: a kill verb. Clients own their serve
+children (and respawn them), and killing writers
+mid-transaction manufactures corruption; where termination is
+truly wanted, the pid is right there and `kill` is the OS's
+verb. The registry is per-home: a second KUMBARIUM_HOME is a
+different building with its own register.
+";
 
 const PAGE_CONVENTIONS: &str = "\
 ## conventions: deliberate stances
@@ -404,6 +517,16 @@ call is audited under the agent identity the client declared
 at initialize, alongside a librarian-MINTED session id:
 agents are claimed, sessions are minted. stdout
 carries protocol only; diagnostics go to stderr.
+
+`kum serve reload [pid]` hot-swaps live serve processes onto
+the current binary: the process re-execs in place (same pid,
+same pipes, session carried over), then tells its client the
+tool list changed. Run it after an update instead of
+restarting client sessions; `kum processes` shows who needs
+it. Unix only; on Windows restart the client session. The
+`serve.idle_ping_minutes` config (default 0, off) makes an
+idle serve ping its client and exit cleanly if nobody
+answers: the wedged-client watchdog.
 ";
 
 /// The copy-paste block for an agent's root instruction file.

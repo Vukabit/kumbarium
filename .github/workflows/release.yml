@@ -62,9 +62,14 @@ jobs:
              "target/release/kum${{ matrix.ext }}" \
              LICENSE-MIT LICENSE-APACHE README.md "$name/"
           tar -czf "$name.tar.gz" "$name"
+          # The sidecar kum update verifies before it swaps: a
+          # bundle with no checksum to check is a failure state,
+          # never a silent pass.
+          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
       - name: attach
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          name="kumbarium-${GITHUB_REF_NAME}-${{ matrix.target }}"
           gh release upload "${GITHUB_REF_NAME}" \
-            "kumbarium-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
+            "$name.tar.gz" "$name.tar.gz.sha256"
