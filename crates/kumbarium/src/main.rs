@@ -233,7 +233,11 @@ pub fn run() -> ExitCode {
     ["update"] => cli::update::update_cmd(false, false),
     ["update", "--check"] => cli::update::update_cmd(true, false),
     ["update", "--yes"] => cli::update::update_cmd(false, true),
-    ["completions", shell] => cli::completions::completions_cmd(shell),
+    ["completions", shell] => cli::completions::completions_cmd(shell, false),
+    ["completions", shell, "--install"]
+    | ["completions", "--install", shell] => {
+      cli::completions::completions_cmd(shell, true)
+    }
     ["completions"] => {
       fail("completions needs a shell: kumbarium completions bash|zsh|fish")
     }
@@ -449,7 +453,7 @@ fn usage_of(word: &str) -> Option<&'static str> {
     "paths" => "kumbarium paths",
     "serve" => "kumbarium serve [reload [pid]]",
     "update" => "kumbarium update [--check|--yes]",
-    "completions" => "kumbarium completions bash|zsh|fish",
+    "completions" => "kumbarium completions bash|zsh|fish [--install]",
     "instructions" => "kumbarium instructions [--snippet]",
     "version" => "kumbarium version",
     "help" => "kumbarium help [topic|--all]",

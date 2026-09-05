@@ -274,7 +274,8 @@ upkeep:
 
 meta:
   kumbarium completions <shell>       completion script for
-                                      bash | zsh | fish
+       [--install]                    bash | zsh | fish (--install
+                                      writes it to the right path)
   kumbarium update [--check|--yes]     check for a newer release
                                       and install it (curl; the
                                       one networked command)

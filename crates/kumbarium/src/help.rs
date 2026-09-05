@@ -219,8 +219,10 @@ docker), the divergence is a decision, never an accident:
   status, tasks, agents, secrets, leases. Values never appear
   in any of them; secrets emit metadata only, structurally.
 - COMPLETIONS: `kum completions bash|zsh|fish` prints the
-  script (install it in your shell's completion path; it is
-  static and never opens the library).
+  script (static, never opens the library); `--install` writes
+  it to the shell's conventional path, and the plain form
+  prints where that is. Completes the command word, from the
+  same list as the did-you-mean hints.
 - ONE DOOR FOR AGENTS. Agents speak MCP and nothing else. The
   SQLite files are a TOOLING door: yours to open (sqlite3,
   backups, forensics), never a channel a governed agent may
