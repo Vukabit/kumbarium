@@ -201,7 +201,8 @@ different building with its own register.
 const PAGE_CONVENTIONS: &str = "\
 ## conventions: deliberate stances
 
-Where kumbarium diverges from its peer group (git, cargo, gh,
+Where kumbarium's CLI diverges from the conventions of the
+tools its command surface takes after (git, cargo, gh,
 docker), the divergence is a decision, never an accident:
 
 - NO AUTO-PAGING. Output streams; SIGPIPE is handled cleanly,
