@@ -701,8 +701,12 @@ fn recall(
       let conn = state.handoff()?;
       if let Ok(Some(h)) = kumbarium_handoff::standing(conn, scope) {
         briefing = Some(format!(
-          "STANDING HANDOFF for {} (left by {} at {}):\n{}\n---",
-          h.namespace, h.agent_id, h.created_at, h.content
+          "STANDING HANDOFF for {} (left by {} at {}, id={}):\n{}\n---",
+          h.namespace,
+          h.agent_id,
+          h.created_at,
+          &h.id[h.id.len().saturating_sub(8)..],
+          h.content
         ));
       }
     }
@@ -734,13 +738,26 @@ fn recall(
           let mut block =
             format!("OPEN MATTERS for {scope} demanding attention:");
           for t in &must {
+            // Say WHY it interrupts (the selection reason was
+            // computed to pick it; do not discard it), and
+            // WHERE it lives when that differs from the scope.
+            let why =
+              match super::cli::docket::days_to_goal(t.goal.as_deref(), now) {
+                Some(d) if d < 0 => format!(", OVERDUE {}d", -d),
+                _ => String::new(),
+              };
             let goal = t
               .goal
               .as_deref()
               .map(|g| format!(" (goal {g})"))
               .unwrap_or_default();
+            let shelf = if t.namespace != scope {
+              format!(" [{}]", t.namespace)
+            } else {
+              String::new()
+            };
             block.push_str(&format!(
-              "\n- [{}] id={} {}{goal}",
+              "\n- [{}{why}] id={} {}{goal}{shelf}",
               t.severity.as_str(),
               &t.id[t.id.len().saturating_sub(8)..],
               t.content.lines().next().unwrap_or("")
@@ -945,17 +962,20 @@ fn render_hit(
 }
 
 fn confidence_basis(e: &kumbarium_store::Entry) -> String {
-  // The janitor's stored basis explains the number it set;
-  // before any pass, fall back to the confirm/created stamps.
-  if let Some(basis) = &e.confidence_basis {
-    return basis.clone();
-  }
+  // The janitor's stored basis explains the number it set, but
+  // its relative ages froze at pass time, so the ABSOLUTE days
+  // always ride along: an agent judging staleness needs dates,
+  // not last month's "over 1 day".
   let day = |s: &str| s.get(..10).unwrap_or(s).to_string();
-  match &e.last_confirmed_at {
+  let stamps = match &e.last_confirmed_at {
     Some(at) => format!("confirmed {}", day(at)),
     None => {
       format!("never confirmed; created {}", day(&e.created_at))
     }
+  };
+  match &e.confidence_basis {
+    Some(basis) => format!("{basis}; {stamps}"),
+    None => stamps,
   }
 }
 
@@ -1138,11 +1158,30 @@ fn secret_read(
     json!({ "name": name, "granted": granted, "found": found }),
   )?;
   if !granted {
-    return Err(format!(
-      "no grant: your identity ({agent}) is not granted \
-       {namespace}/{name}. Ask the human to run: kumbarium \
-       secret grant {namespace} {name} {agent}"
-    ));
+    // Lapsed and never-granted deserve different relays: the
+    // agent should ask for a re-grant, not a first grant, when
+    // a lease ran out.
+    let lapsed = kumbarium_secrets::grants(state.secrets()?, Some(&namespace))
+      .ok()
+      .and_then(|rows| {
+        rows
+          .into_iter()
+          .find(|g| g.name == name && g.agent_id == agent)
+          .and_then(|g| g.expires_at)
+      });
+    return Err(match lapsed {
+      Some(until) => format!(
+        "your grant on {namespace}/{name} lapsed on {}; ask the \
+         human to re-grant: kumbarium secret grant {namespace} \
+         {name} {agent} [--until DATE]",
+        until.get(..10).unwrap_or(&until)
+      ),
+      None => format!(
+        "no grant: your identity ({agent}) is not granted \
+         {namespace}/{name}. Ask the human to run: kumbarium \
+         secret grant {namespace} {name} {agent}"
+      ),
+    });
   }
   match status {
     kumbarium_secrets::StockStatus::Live => {}

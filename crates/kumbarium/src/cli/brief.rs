@@ -168,9 +168,10 @@ pub(crate) fn brief_cmd(ns: &str) -> ExitCode {
         println!(
           "  {}",
           sty.dim(&format!(
-            "left by {} at {}:",
+            "left by {} at {} (id {}):",
             h.agent_id,
-            local_display(&h.created_at)
+            local_display(&h.created_at),
+            kumbarium_handoff::short_id(&h.id)
           ))
         );
         for line in indent_block(2, &h.content) {
@@ -214,22 +215,36 @@ pub(crate) fn brief_cmd(ns: &str) -> ExitCode {
       width: 6,
     },
     Col {
+      title: "namespace",
+      width: 20,
+    },
+    Col {
       title: "matter",
       width: 0,
     },
   ];
+  let now = kumbarium_util::now_ms();
   for t in matters.iter().take(MATTER_CAP) {
-    let goal = t
-      .goal
-      .as_deref()
-      .map(|g| format!(" (goal {g})"))
-      .unwrap_or_default();
+    // The binder must not hide the alarms other surfaces
+    // paint: an overdue goal reads overdue here too.
+    let days = super::docket::days_to_goal(t.goal.as_deref(), now);
+    let goal = match (t.goal.as_deref(), days) {
+      (Some(_), Some(d)) if d < 0 => {
+        format!(" ({})", sty.red(&format!("goal over {}d", -d)))
+      }
+      (Some(g), Some(d)) if d <= 7 => {
+        format!(" ({})", sty.yellow(&format!("goal {g}, in {d}d")))
+      }
+      (Some(g), _) => format!(" (goal {g})"),
+      _ => String::new(),
+    };
     let first = t.content.lines().next().unwrap_or("");
     let lines = hang(body_col(MATTER_COLS), &format!("{first}{goal}"));
     println!(
-      "  {} {} {}",
+      "  {} {} {} {}",
       sty.id(&cell(MATTER_COLS, 1, kumbarium_docket::short_id(&t.id))),
       cell(MATTER_COLS, 2, t.severity.as_str()),
+      sty.dim(&cell(MATTER_COLS, 3, &t.namespace)),
       lines[0],
     );
     for line in &lines[1..] {
@@ -279,11 +294,15 @@ pub(crate) fn brief_cmd(ns: &str) -> ExitCode {
     let mut held: Vec<String> = Vec::new();
     for scope in &chain {
       if let Ok(rows) = kumbarium_secrets::list(conn, Some(scope)) {
+        let today = kumbarium_util::now_iso8601();
         for m in rows {
-          let expiry = m
-            .expires_at
-            .map(|d| format!(" (expires {d})"))
-            .unwrap_or_default();
+          let expiry = match m.expires_at {
+            Some(d) if &today[..10] > d.as_str() => {
+              format!(" ({})", sty.red(&format!("EXPIRED {d}")))
+            }
+            Some(d) => format!(" (expires {d})"),
+            None => String::new(),
+          };
           held.push(format!("{}/{}{expiry}", m.namespace, m.name));
         }
       }

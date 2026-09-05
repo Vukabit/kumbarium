@@ -97,13 +97,16 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
        released; kum lease break <id> clears):"
     );
     for l in &report.stale_leases {
+      // The remedy the header names is runnable from this very
+      // line: id first, local time like every sibling row.
       println!(
-        "  {} (session {}) held {}/{} (last active {})",
+        "  {} {} (session {}) held {}/{} (last active {})",
+        sty.id(kumbarium_leases::short_id(&l.id)),
         l.agent_id,
         kumbarium_leases::short_id(&l.session_id),
         l.namespace,
         l.resource,
-        l.last_active
+        local_display(&l.last_active)
       );
     }
   }
@@ -194,6 +197,48 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
   ExitCode::SUCCESS
 }
 
+/// One dim provenance line for a pending write's author, so
+/// "weigh the provenance" comes WITH the provenance (the
+/// first-time-contributor pattern): first witnessed, prior desk
+/// record, corrected-by-others count, and the dossier pointer.
+fn writer_provenance(state: &tools::ServerState, writer: &str) -> String {
+  let events = kumbarium_audit::events_asc(&state.audit).unwrap_or_default();
+  let mut first_at: Option<String> = None;
+  let mut approved = 0usize;
+  let mut rejected = 0usize;
+  for ev in &events {
+    if ev.agent_id == writer && first_at.is_none() {
+      first_at = Some(ev.at.clone());
+    }
+    if ev.kind == "approve" || ev.kind == "reject" {
+      let submitter = serde_json::from_str::<serde_json::Value>(&ev.detail)
+        .ok()
+        .and_then(|d| {
+          d.get("submitter")
+            .and_then(|s| s.as_str().map(String::from))
+        });
+      if submitter.as_deref() == Some(writer) {
+        if ev.kind == "approve" {
+          approved += 1;
+        } else {
+          rejected += 1;
+        }
+      }
+    }
+  }
+  let since = match first_at {
+    Some(at) => {
+      let local = local_display(&at);
+      format!("first witnessed {}", local.get(..10).unwrap_or(&local))
+    }
+    None => "never witnessed before this".to_string(),
+  };
+  format!(
+    "{since}; desk record: {approved} approved, {rejected} \
+     rejected (kum dossier {writer})"
+  )
+}
+
 /// Extract the v2 shelf inputs (goal chains, grants, secret
 /// expiry metadata; never values) so the janitor pass stays
 /// pure computation. Missing shelves mean empty inputs.
@@ -225,6 +270,7 @@ fn gather_shelves(
   {
     for l in stale {
       shelves.stale_leases.push(kumbarium_janitor::StaleLease {
+        id: l.id,
         namespace: l.namespace,
         resource: l.resource,
         agent_id: l.agent_id,
@@ -296,6 +342,10 @@ pub(crate) fn inbox_cmd() -> ExitCode {
       width: 20,
     },
     Col {
+      title: "kind",
+      width: 13,
+    },
+    Col {
       title: "namespace",
       width: 20,
     },
@@ -309,11 +359,12 @@ pub(crate) fn inbox_cmd() -> ExitCode {
     let first = e.content.lines().next().unwrap_or("");
     let excerpt: String = first.chars().take(40).collect();
     println!(
-      "{} {} {} {} {}",
+      "{} {} {} {} {} {}",
       sty.id(&cell(INBOX_COLS, 0, kumbarium_store::short_id(&e.id))),
       sty.dim(&cell(INBOX_COLS, 1, &local_display(&e.created_at))),
       cell(INBOX_COLS, 2, &e.agent_id),
-      cell(INBOX_COLS, 3, &e.namespace),
+      sty.kind(&cell(INBOX_COLS, 3, e.kind.as_str())),
+      cell(INBOX_COLS, 4, &e.namespace),
       excerpt
     );
   }
@@ -350,11 +401,12 @@ pub(crate) fn inbox_cmd() -> ExitCode {
       let first = t.content.lines().next().unwrap_or("");
       let excerpt: String = first.chars().take(40).collect();
       println!(
-        "{} {} {} {} [{}] {}",
+        "{} {} {} {} {} [{}] {}",
         sty.id(&cell(INBOX_COLS, 0, kumbarium_docket::short_id(&t.id))),
         sty.dim(&cell(INBOX_COLS, 1, &local_display(&t.created_at))),
         cell(INBOX_COLS, 2, &t.agent_id),
-        cell(INBOX_COLS, 3, &t.namespace),
+        cell(INBOX_COLS, 3, ""),
+        cell(INBOX_COLS, 4, &t.namespace),
         t.severity.as_str(),
         excerpt
       );
@@ -393,11 +445,12 @@ pub(crate) fn inbox_cmd() -> ExitCode {
       let first = h.content.lines().next().unwrap_or("");
       let excerpt: String = first.chars().take(40).collect();
       println!(
-        "{} {} {} {} {}",
+        "{} {} {} {} {} {}",
         sty.id(&cell(INBOX_COLS, 0, kumbarium_handoff::short_id(&h.id))),
         sty.dim(&cell(INBOX_COLS, 1, &local_display(&h.created_at))),
         cell(INBOX_COLS, 2, &h.agent_id),
-        cell(INBOX_COLS, 3, &h.namespace),
+        cell(INBOX_COLS, 3, ""),
+        cell(INBOX_COLS, 4, &h.namespace),
         excerpt
       );
     }
@@ -450,6 +503,10 @@ pub(crate) fn review_cmd(id: &str) -> ExitCode {
     "submitted:  {} by {}",
     local_display(&e.created_at),
     e.agent_id
+  );
+  println!(
+    "writer:     {}",
+    sty.dim(&writer_provenance(&state, &e.agent_id))
   );
   if !e.source.is_empty() {
     println!("source:     {}", e.source);
@@ -683,6 +740,10 @@ fn review_task(state: &mut tools::ServerState, id: &str) -> ExitCode {
     local_display(&t.created_at),
     t.agent_id
   );
+  println!(
+    "writer:     {}",
+    sty.dim(&writer_provenance(state, &t.agent_id))
+  );
   if !t.source.is_empty() {
     println!("source:     {}", t.source);
   }
@@ -734,6 +795,10 @@ fn review_handoff(state: &mut tools::ServerState, id: &str) -> ExitCode {
     local_display(&h.created_at),
     h.agent_id
   );
+  println!(
+    "writer:     {}",
+    sty.dim(&writer_provenance(state, &h.agent_id))
+  );
   println!("namespace:  {}", h.namespace);
   println!(
     "id:         {} (short: {})",
@@ -741,6 +806,21 @@ fn review_handoff(state: &mut tools::ServerState, id: &str) -> ExitCode {
     kumbarium_handoff::short_id(&h.id)
   );
   println!("\n{}", h.content);
+  // Approval DISPLACES the incumbent: judging without seeing
+  // what is lost is judging blind (the audit's finding).
+  match kumbarium_handoff::standing(state.handoff().unwrap(), &h.namespace) {
+    Ok(Some(current)) if current.id != h.id => {
+      println!(
+        "\n{} {} (left by {} {}): {}",
+        sty.yellow("would displace"),
+        kumbarium_handoff::short_id(&current.id),
+        current.agent_id,
+        local_display(&current.created_at),
+        current.content.lines().next().unwrap_or("")
+      );
+    }
+    _ => println!("\n{}", sty.dim("no standing briefing to displace")),
+  }
   println!(
     "\n{}",
     sty.dim(

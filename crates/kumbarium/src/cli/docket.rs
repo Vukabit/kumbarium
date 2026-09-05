@@ -16,7 +16,7 @@ fn docket_conn(
 
 /// Days from today to the goal date (negative = overdue), or
 /// None for a goalless matter.
-fn days_to_goal(goal: Option<&str>, now_ms: i64) -> Option<i64> {
+pub(crate) fn days_to_goal(goal: Option<&str>, now_ms: i64) -> Option<i64> {
   let goal = goal?;
   let ms = kumbarium_util::parse_iso8601_ms(&format!("{goal}T00:00:00.000Z"))?;
   Some((ms - now_ms).div_euclid(86_400_000))
@@ -36,7 +36,7 @@ fn severity_paint(
 }
 
 /// The goal cell: date plus creep mark, painted by proximity.
-fn goal_paint(
+pub(crate) fn goal_paint(
   sty: &style::Style,
   days: Option<i64>,
   goal: Option<&str>,
@@ -440,7 +440,14 @@ pub(crate) fn tasks_cmd(rest: &[&str]) -> ExitCode {
   ];
   println!("{}", sty.dim(&table_header(COLS)));
   for t in &tasks {
-    let days = days_to_goal(t.goal.as_deref(), now);
+    // A judged matter is history, not an emergency: no overdue
+    // paint, and the resolution day rides the mark instead.
+    let judged = t.state != kumbarium_docket::TaskState::Open;
+    let days = if judged {
+      None
+    } else {
+      days_to_goal(t.goal.as_deref(), now)
+    };
     // The goal cell is painted mid-cell, so it pads by its
     // PLAIN length (escapes are zero display width) to the
     // spec's width like every other cell.
@@ -455,10 +462,20 @@ pub(crate) fn tasks_cmd(rest: &[&str]) -> ExitCode {
       })
       .unwrap_or(1);
     let pad = COLS[2].width.saturating_sub(plain_goal_len);
+    let when = t
+      .done_at
+      .as_deref()
+      .map(|at| {
+        let local = local_display(at);
+        local.get(..10).unwrap_or(&local).to_string()
+      })
+      .unwrap_or_default();
     let mark = match t.state {
-      kumbarium_docket::TaskState::Done => " [done]",
-      kumbarium_docket::TaskState::Dropped => " [dropped]",
-      kumbarium_docket::TaskState::Open => "",
+      kumbarium_docket::TaskState::Done => format!(" [done {when}]"),
+      kumbarium_docket::TaskState::Dropped => {
+        format!(" [dropped {when}]")
+      }
+      kumbarium_docket::TaskState::Open => String::new(),
     };
     let matter = t.content.lines().next().unwrap_or("");
     let lines = hang(body_col(COLS), matter);
@@ -471,7 +488,7 @@ pub(crate) fn tasks_cmd(rest: &[&str]) -> ExitCode {
       age_of(&t.created_at, now),
       cell(COLS, 4, &t.namespace),
       lines[0],
-      sty.dim(mark),
+      sty.dim(&mark),
       aw = COLS[3].width,
     );
     for line in &lines[1..] {
@@ -512,10 +529,14 @@ pub(crate) fn roadmap_cmd(ns: Option<&str>) -> ExitCode {
       Some(d) if d <= 7 => 1,
       Some(d) if d <= 30 => 2,
       Some(_) => 3,
+      // Severity outranks the missing date: an urgent matter
+      // with no goal is NOW, not "someday" (the audit's
+      // buried-emergency finding).
+      None if t.severity == kumbarium_docket::Severity::Urgent => 1,
       None => 4,
     }
   };
-  let names = ["overdue", "now", "next", "later", "someday"];
+  let names = ["overdue", "now", "next", "later", "no goal"];
   // Unscoped, matters group per shelf inside each horizon
   // (global first, then alphabetical); a scoped roadmap skips
   // the redundant group headers.
@@ -595,6 +616,9 @@ pub(crate) fn show_task(
     kumbarium_docket::short_id(&t.id)
   );
   println!("namespace:  {}", t.namespace);
+  if !t.source.is_empty() {
+    println!("source:     {} (mechanical tie)", t.source);
+  }
   println!("severity:   {}", t.severity.as_str());
   println!("goal:       {}", t.goal.as_deref().unwrap_or("none"));
   println!("state:      {}", t.state.as_str());

@@ -85,15 +85,29 @@ pub(crate) fn leases_cmd(ns: Option<&str>) -> ExitCode {
       let note = l
         .note
         .as_deref()
-        .map(|n| format!("  ({n})"))
+        .map(|n| format!("; {n}"))
         .unwrap_or_default();
-      let lines = hang(body_col(COLS), &format!("{}{}", l.resource, note));
+      // The freshness the TTL keys on is RENEWAL, not taking:
+      // a card renewed a minute ago is fresh however old its
+      // since column reads (docker-ps discipline).
+      let active_ago = kumbarium_util::parse_iso8601_ms(&l.renewed_at)
+        .map(|ms| {
+          let mins = ((now - ms) / 60_000).max(0);
+          match mins {
+            0 => "active <1m ago".to_string(),
+            m if m < 60 => format!("active {m}m ago"),
+            m => format!("active {}h{}m ago", m / 60, m % 60),
+          }
+        })
+        .unwrap_or_default();
+      let lines = hang(
+        body_col(COLS),
+        &format!("{}  ({active_ago}{})", l.resource, note),
+      );
       let holder = format!(
         "{} ({})",
         l.agent_id,
-        l.session_id
-          .get(l.session_id.len().saturating_sub(4)..)
-          .unwrap_or("?")
+        kumbarium_leases::short_id(&l.session_id)
       );
       println!(
         "{} {} {} {} {}",
@@ -120,9 +134,7 @@ pub(crate) fn leases_cmd(ns: Option<&str>) -> ExitCode {
       let holder = format!(
         "{} ({})",
         l.agent_id,
-        l.session_id
-          .get(l.session_id.len().saturating_sub(4)..)
-          .unwrap_or("?")
+        kumbarium_leases::short_id(&l.session_id)
       );
       println!(
         "  {} {} {}/{} (last active {})",

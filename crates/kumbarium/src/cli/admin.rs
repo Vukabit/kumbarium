@@ -190,14 +190,52 @@ pub(crate) fn status_cmd() -> ExitCode {
     && let Ok(conn) = kumbarium_docket::open(&p.docket_db)
     && let Ok((open, urgent, pending)) = kumbarium_docket::counts(&conn)
   {
+    // Known ill-health belongs in the health summary: overdue
+    // is computed here exactly as the timeline computes it.
+    let overdue = kumbarium_docket::tasks_in(&conn, None, false)
+      .map(|tasks| {
+        let now = kumbarium_util::now_ms();
+        tasks
+          .iter()
+          .filter(|t| {
+            super::docket::days_to_goal(t.goal.as_deref(), now)
+              .is_some_and(|d| d < 0)
+          })
+          .count()
+      })
+      .unwrap_or(0);
     let mut line = format!("  docket:    {open} open");
+    let mut flags = Vec::new();
     if urgent > 0 {
-      line.push_str(&format!(" ({urgent} urgent)"));
+      flags.push(format!("{urgent} urgent"));
+    }
+    if overdue > 0 {
+      flags.push(format!("{overdue} overdue"));
+    }
+    if !flags.is_empty() {
+      line.push_str(&format!(" ({})", flags.join(", ")));
     }
     if pending > 0 {
-      line.push_str(&format!(", {pending} pending"));
+      line.push_str(&format!(", {pending} pending (kum inbox)"));
     }
     println!("{line}");
+  }
+  if p.handoff_db.exists()
+    && let Ok(conn) = kumbarium_handoff::open(&p.handoff_db)
+    && let Ok(pending) = kumbarium_handoff::pending_handoffs(&conn)
+    && !pending.is_empty()
+  {
+    // A pending briefing is the sharpest injection surface in
+    // the building; the health page must never be silent on it.
+    println!(
+      "  desk:      {} pending {} awaiting judgment (kum inbox)",
+      pending.len(),
+      if pending.len() == 1 {
+        "briefing"
+      } else {
+        "briefings"
+      }
+    );
   }
   if p.secrets_db.exists()
     && let Ok(conn) = kumbarium_secrets::open(&p.secrets_db)
@@ -207,7 +245,21 @@ pub(crate) fn status_cmd() -> ExitCode {
       Ok(Some(kumbarium_secrets::Sealing::Plaintext)) => ", PLAINTEXT",
       _ => "",
     };
-    println!("  secrets:   {live} stocked, {grants} grants{sealing}");
+    let today = kumbarium_util::now_iso8601();
+    let expired = kumbarium_secrets::list(&conn, None)
+      .map(|rows| {
+        rows
+          .iter()
+          .filter(|m| m.expires_at.as_deref().is_some_and(|d| &today[..10] > d))
+          .count()
+      })
+      .unwrap_or(0);
+    let exp = if expired > 0 {
+      format!(" ({expired} EXPIRED)")
+    } else {
+      String::new()
+    };
+    println!("  secrets:   {live} stocked{exp}, {grants} grants{sealing}");
   }
   if p.leases_db.exists()
     && let Ok(conn) = kumbarium_leases::open(&p.leases_db)
@@ -217,9 +269,22 @@ pub(crate) fn status_cmd() -> ExitCode {
       kumbarium_util::now_ms(),
       state.cfg.leases_ttl_minutes,
     )
-    && !active.is_empty()
   {
-    println!("  reading room: {} active lease(s)", active.len());
+    let stale = kumbarium_leases::stale_in(
+      &conn,
+      kumbarium_util::now_ms(),
+      state.cfg.leases_ttl_minutes,
+    )
+    .map(|v| v.len())
+    .unwrap_or(0);
+    if !active.is_empty() || stale > 0 {
+      let stale_note = if stale > 0 {
+        format!(", {stale} stale (kum leases)")
+      } else {
+        String::new()
+      };
+      println!("  reading room: {} active{stale_note}", active.len());
+    }
   }
   match kumbarium_store::namespaces(&state.library) {
     Ok(rows) => {

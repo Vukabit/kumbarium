@@ -117,6 +117,9 @@ pub struct UnwitnessedGrant {
 /// crashed-agent shape. The janitor reports; the human breaks.
 #[derive(Debug, Clone)]
 pub struct StaleLease {
+  /// The card's id: the finding's own remedy (kum lease break
+  /// <id>) must be runnable from the finding.
+  pub id: String,
   pub namespace: String,
   pub resource: String,
   pub agent_id: String,

@@ -912,7 +912,7 @@ pub(crate) fn secrets_cmd(ns: Option<&str>) -> ExitCode {
         width: 20,
       },
       Col {
-        title: "rotated",
+        title: "stocked (local)",
         width: 0,
       },
     ];
@@ -942,12 +942,18 @@ pub(crate) fn secrets_cmd(ns: Option<&str>) -> ExitCode {
   if !grants.is_empty() {
     println!("\n{}", sty.bold("grants (deny-by-default elsewhere)"));
     for g in &grants {
+      // Humanized: the day access was granted and the day the
+      // lease ends, as the human typed them, never the internal
+      // end-of-day timestamp.
+      let granted_day = g.created_at.get(..10).unwrap_or(&g.created_at);
       let lease = match &g.expires_at {
-        Some(until) => format!(" until {until}"),
+        Some(until) => {
+          format!(", until {}", until.get(..10).unwrap_or(until))
+        }
         None => String::new(),
       };
       println!(
-        "  {}/{} {} {} ({}{lease})",
+        "  {}/{} {} {} ({}, granted {granted_day}{lease})",
         g.namespace,
         g.name,
         sty.dim("->"),
@@ -1017,6 +1023,30 @@ pub(crate) fn show_secret(
       kumbarium_secrets::short_id(next),
       kumbarium_secrets::short_id(&m.id)
     );
+  }
+  {
+    let holders = kumbarium_secrets::grants(conn, Some(&m.namespace))
+      .map(|rows| {
+        rows
+          .into_iter()
+          .filter(|g| g.name == m.name)
+          .map(|g| {
+            let until = g
+              .expires_at
+              .map(|u| {
+                format!(" until {}", u.get(..10).unwrap_or("?").to_owned())
+              })
+              .unwrap_or_default();
+            format!("{}{until}", g.agent_id)
+          })
+          .collect::<Vec<_>>()
+      })
+      .unwrap_or_default();
+    if holders.is_empty() {
+      println!("grants:     none (agents are refused)");
+    } else {
+      println!("grants:     {}", holders.join(", "));
+    }
   }
   println!(
     "\nkum secret read {} {} prints the value (witnessed)",
