@@ -397,18 +397,37 @@ pub fn supersede_task(
   result
 }
 
+/// Follow the supersession chain to its live head. A task id
+/// the opening frame handed out goes stale the moment the
+/// matter is regraded (every regrade mints a new id); resolving
+/// to the head means a stale id still acts on the CURRENT
+/// version, so an agent holding a frame-issued id never dead-
+/// ends on "already superseded" (D-051).
+fn head_of(conn: &Connection, id: &str) -> Result<String, DocketError> {
+  let mut cur = id.to_string();
+  for _ in 0..1000 {
+    match get(conn, &cur)?.superseded_by {
+      Some(next) => cur = next,
+      None => return Ok(cur),
+    }
+  }
+  Ok(cur)
+}
+
 fn supersede_locked(
   conn: &Connection,
   old_id: &str,
   edit: &TaskEdit,
   agent_id: &str,
 ) -> Result<Task, DocketError> {
-  let old = get(conn, old_id)?;
+  // Auto-forward: a stale id in the chain acts on the live head.
+  let head = head_of(conn, old_id)?;
+  let old = get(conn, &head)?;
   if old.superseded_by.is_some() {
-    return Err(DocketError::AlreadySuperseded(old_id.to_string()));
+    return Err(DocketError::AlreadySuperseded(head.clone()));
   }
   if old.state != TaskState::Open {
-    return Err(DocketError::NotOpen(old_id.to_string()));
+    return Err(DocketError::NotOpen(head.clone()));
   }
   let content = edit.content.clone().unwrap_or_else(|| old.content.clone());
   validate_content(&content)?;
@@ -444,7 +463,7 @@ fn supersede_locked(
   conn.execute(
     "UPDATE tasks SET superseded_by = ?1, updated_at = ?2
      WHERE id = ?3",
-    params![id, now, old_id],
+    params![id, now, head],
   )?;
   get(conn, &id)
 }
@@ -489,12 +508,15 @@ pub fn set_state(
   to: TaskState,
   note: Option<&str>,
 ) -> Result<(), DocketError> {
-  let task = get(conn, id)?;
+  // Auto-forward a stale id to the live head (D-051), so done/
+  // drop from a frame-issued id lands on the current matter.
+  let head = head_of(conn, id)?;
+  let task = get(conn, &head)?;
   if task.superseded_by.is_some() {
-    return Err(DocketError::AlreadySuperseded(id.to_string()));
+    return Err(DocketError::AlreadySuperseded(head));
   }
   if task.state != TaskState::Open || to == TaskState::Open {
-    return Err(DocketError::NotOpen(id.to_string()));
+    return Err(DocketError::NotOpen(head));
   }
   let now = kumbarium_util::now_iso8601();
   conn.execute(
@@ -502,7 +524,7 @@ pub fn set_state(
      SET state = ?1, done_at = ?2, updated_at = ?2,
          note = COALESCE(?3, note)
      WHERE id = ?4",
-    params![to.as_str(), now, note, id],
+    params![to.as_str(), now, note, head],
   )?;
   Ok(())
 }
@@ -705,9 +727,46 @@ mod tests {
     assert_eq!(chain[1].goal.as_deref(), Some("2026-09-20"));
     // Only the head lists.
     assert_eq!(tasks_in(&conn, None, false).unwrap().len(), 1);
-    // Superseded versions are frozen.
-    let err = set_state(&conn, &v1.id, TaskState::Done, None);
-    assert!(matches!(err, Err(DocketError::AlreadySuperseded(_))));
+    // A stale id auto-forwards to the live head (D-051): acting
+    // on v1's id closes the CURRENT version v2, not a dead row.
+    set_state(&conn, &v1.id, TaskState::Done, None).unwrap();
+    assert_eq!(get(&conn, &v2.id).unwrap().state, TaskState::Done);
+    assert_eq!(get(&conn, &v1.id).unwrap().state, TaskState::Open);
+  }
+
+  #[test]
+  fn a_stale_id_regrades_the_live_head() {
+    // D-051: the frame hands out an id that a regrade supersedes;
+    // a second regrade using that ORIGINAL id must still land on
+    // the current version, not dead-end on AlreadySuperseded.
+    let conn = open_in_memory().unwrap();
+    let v1 = file_task(&conn, &task_in("global", "the matter")).unwrap();
+    let v2 = supersede_task(
+      &conn,
+      &v1.id,
+      &TaskEdit {
+        severity: Some(Severity::High),
+        ..TaskEdit::default()
+      },
+      "a",
+    )
+    .unwrap();
+    // Regrade AGAIN with the original (now stale) id.
+    let v3 = supersede_task(
+      &conn,
+      &v1.id,
+      &TaskEdit {
+        severity: Some(Severity::Urgent),
+        ..TaskEdit::default()
+      },
+      "a",
+    )
+    .unwrap();
+    assert_ne!(v3.id, v2.id);
+    assert_eq!(v3.severity, Severity::Urgent);
+    assert!(v3.superseded_by.is_none(), "v3 is the live head");
+    assert_eq!(history(&conn, &v1.id).unwrap().len(), 3);
+    assert_eq!(tasks_in(&conn, None, false).unwrap().len(), 1);
   }
 
   #[test]

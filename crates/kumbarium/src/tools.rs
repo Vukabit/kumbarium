@@ -150,7 +150,8 @@ pub fn list() -> Value {
   namespace must already be registered (the user registers \
   namespaces; ask them if yours is missing). Send content whole: \
   the librarian splits oversized content into linked parts \
-  itself.",
+  itself. The response flags near-duplicates already on the \
+  shelf, so you need not recall-before-writing.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -209,6 +210,13 @@ pub fn list() -> Value {
               },
               "required": ["id", "rel"]
             }
+          },
+          "strict": {
+            "type": "boolean",
+            "description": "Refuse the write if the shelf already \
+  holds a similar entry, returning the candidates so you can \
+  supersede or link one instead of adding a duplicate. Default \
+  false: store, but flag the near-matches in the response."
           }
         },
         "required": ["namespace", "kind", "content"]
@@ -596,6 +604,27 @@ fn remember(
   let mut new = new_entry_args(args)?;
   new.agent_id = state.agent_id.clone();
   new.status = write_status(state);
+  // Near-duplicate check (D-052): the librarian already ranks
+  // by relevance, so surface the closest existing entries at
+  // write time instead of making the agent recall-before-write.
+  // Advisory by default; `strict` refuses and hands the
+  // candidates back so the agent can supersede or link instead.
+  let strict = args.get("strict").and_then(Value::as_bool).unwrap_or(false);
+  let near = nearby_duplicates(state, &new)?;
+  if strict && !near.is_empty() {
+    let mut msg = String::from(
+      "not stored (strict): the shelf already holds similar \
+       entries; supersede or link one, or retry without \
+       strict:",
+    );
+    for (id, line, rel) in &near {
+      msg.push_str(&format!(
+        "\n  {} ({rel:.2}) {line}",
+        kumbarium_store::short_id(id)
+      ));
+    }
+    return Err(msg);
+  }
   let ids = store_split(state, &new, None, None)?;
   let head = ids[0].clone();
   let mut linked = 0usize;
@@ -626,7 +655,80 @@ fn remember(
       "links": linked,
     }),
   )?;
-  Ok(vec![render_stored("Remembered", &ids, &new, linked)])
+  let mut blocks = vec![render_stored("Remembered", &ids, &new, linked)];
+  if !near.is_empty() {
+    let mut note = format!(
+      "note: {} similar entr(y/ies) already on this shelf \
+       (stored anyway; supersede or link if this duplicates one):",
+      near.len()
+    );
+    for (id, line, rel) in &near {
+      note.push_str(&format!(
+        "\n  {} ({rel:.2}) {line}",
+        kumbarium_store::short_id(id)
+      ));
+    }
+    blocks.push(note);
+  }
+  Ok(blocks)
+}
+
+/// The existing entries most similar to a would-be write, on
+/// the SAME shelf (a duplicate lives where its twin does, not
+/// up the chain). FTS provides a cheap shortlist; the actual
+/// judgment is token overlap (Jaccard), which is
+/// corpus-independent, where bm25 scores are not comparable
+/// across shelves (they read ~0 on a small one). Only genuinely
+/// close matches (>= the floor) are returned, so an ordinary
+/// write reports nothing. A silent internal search: it never
+/// witnesses a recall event.
+fn nearby_duplicates(
+  state: &ServerState,
+  new: &kumbarium_store::NewEntry,
+) -> Result<Vec<(String, String, f64)>, String> {
+  const FLOOR: f64 = 0.5;
+  let want = tokenize(&new.content);
+  if want.is_empty() {
+    return Ok(Vec::new());
+  }
+  let chain = [new.namespace.clone()];
+  let hits = kumbarium_store::recall(&state.library, &new.content, &chain, 5)
+    .map_err(describe_store_error)?;
+  let mut out = Vec::new();
+  for h in hits {
+    let have = tokenize(&h.entry.content);
+    let inter = want.intersection(&have).count();
+    let union = want.union(&have).count();
+    let j = if union == 0 {
+      0.0
+    } else {
+      inter as f64 / union as f64
+    };
+    if j >= FLOOR {
+      let line: String = h
+        .entry
+        .content
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(60)
+        .collect();
+      out.push((h.entry.id, line, j));
+    }
+  }
+  out.sort_by(|a, b| b.2.total_cmp(&a.2));
+  Ok(out)
+}
+
+/// Lowercase alphanumeric tokens of length >= 2, as a set: the
+/// unit of the duplicate-overlap measure.
+fn tokenize(s: &str) -> std::collections::HashSet<String> {
+  s.to_lowercase()
+    .split(|c: char| !c.is_alphanumeric())
+    .filter(|w| w.len() >= 2)
+    .map(str::to_string)
+    .collect()
 }
 
 /// Store `new`, splitting oversized content into parts chained

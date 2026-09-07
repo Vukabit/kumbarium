@@ -923,3 +923,35 @@ stays provable, D-036), with a `frame` marker distinguishing
 an explicit re-orientation. Auto-re-serve after N idle minutes
 was considered and deferred as optional polish; the explicit
 call is the mechanism.
+
+## D-051: a stale task id acts on the live head (2026-09-07)
+
+Every task_update regrades by supersession, minting a NEW id
+and retiring the old; but the opening frame hands agents the id
+of the moment, so by a second regrade that id is dead. Agents
+reported (kum/feedback) hitting "already superseded" with no
+current id offered, forcing a task_list to recover. Fix:
+task_update, done, and drop AUTO-FORWARD any id in a chain to
+its live head (head_of walks superseded_by to the end) and act
+there, so a frame-issued id keeps working across regrades. The
+chain is an implementation detail; the agent means "the
+matter," and the matter is its head. AlreadySuperseded (now
+effectively unreachable from these paths) carries the head id
+if it ever fires. Superseded rows stay frozen as history; only
+the operation forwards.
+
+## D-052: remember surfaces near-duplicates at write time (2026-09-07)
+
+The dedup discipline asked agents to recall before every
+remember; agents reported (kum/feedback) that this is a
+roundtrip per fact, so they batch or skip it and duplicates get
+in. Fix: remember itself reports the closest existing entries
+ON THE SAME SHELF in its response ("N similar ...; stored
+anyway"), and a `strict` flag refuses and returns the
+candidates so the agent supersedes or links instead. The
+similarity measure is token overlap (Jaccard) over an FTS
+shortlist, NOT the render's bm25->0..1 mapping, which reads ~0
+on a small shelf and is not comparable across shelves; Jaccard
+is corpus-independent. Advisory by default (never blocks: the
+manager informs, it does not nanny). Same-shelf only, because a
+duplicate lives where its twin does.
