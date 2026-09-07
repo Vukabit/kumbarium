@@ -22,9 +22,9 @@ pub use entries::{
   Entry, Hit, ImportOutcome, Kind, NewEntry, Stats, Status, approve, confirm,
   describe_namespace, entries_in, extend_chain, find_by_source, forget, get,
   import_entry, namespace_id, namespaces, pending_in, predecessor_of,
-  quarantine, recall, register_namespace, reject, remember, remove_namespace,
-  resolve_id, retire, set_confidence, short_id, stats, supersede, unretire,
-  version_history,
+  quarantine, recall, recall_filtered, register_namespace, reject, remember,
+  remove_namespace, resolve_id, retire, set_confidence, short_id, stats,
+  supersede, unretire, version_history,
 };
 pub use links::{Link, Rel, continues_chain, link, links_of, unlink};
 

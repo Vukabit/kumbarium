@@ -487,16 +487,50 @@ pub fn recall(
   namespaces: &[String],
   limit: usize,
 ) -> Result<Vec<Hit>, StoreError> {
+  recall_filtered(conn, query, namespaces, limit, &[])
+}
+
+/// Recall with an optional KIND filter: when `kinds` is
+/// non-empty, only entries of those kinds match (an agent can
+/// ask for `decision`/`project_state` only and skip the global
+/// preference noise). Empty `kinds` = no filter (the plain
+/// `recall`).
+pub fn recall_filtered(
+  conn: &Connection,
+  query: &str,
+  namespaces: &[String],
+  limit: usize,
+  kinds: &[Kind],
+) -> Result<Vec<Hit>, StoreError> {
   let Some(fts) = fts_query(query) else {
     return Ok(Vec::new());
   };
   if namespaces.is_empty() {
     return Ok(Vec::new());
   }
-  let ns_marks = (0..namespaces.len())
-    .map(|i| format!("?{}", i + 3))
-    .collect::<Vec<_>>()
-    .join(", ");
+  // Positional params in emission order: fts, namespaces...,
+  // kinds..., limit.
+  let mut args: Vec<String> = vec![fts];
+  let mut idx = 1;
+  let mut ns_marks = Vec::new();
+  for ns in namespaces {
+    idx += 1;
+    ns_marks.push(format!("?{idx}"));
+    args.push(ns.clone());
+  }
+  let mut kind_clause = String::new();
+  if !kinds.is_empty() {
+    let mut marks = Vec::new();
+    for k in kinds {
+      idx += 1;
+      marks.push(format!("?{idx}"));
+      args.push(k.as_str().to_string());
+    }
+    kind_clause = format!(" AND e.kind IN ({})", marks.join(", "));
+  }
+  idx += 1;
+  let limit_mark = format!("?{idx}");
+  args.push((limit as i64).to_string());
   let sql = format!(
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id, e.source,
             e.confidence, e.superseded_by, e.created_at,
@@ -510,12 +544,11 @@ pub fn recall(
        AND e.superseded_by IS NULL
        AND e.retired_at IS NULL
        AND e.status = 'live'
-       AND ns.path IN ({ns_marks})
+       AND ns.path IN ({}){kind_clause}
      ORDER BY rank
-     LIMIT ?2"
+     LIMIT {limit_mark}",
+    ns_marks.join(", ")
   );
-  let mut args: Vec<String> = vec![fts, (limit as i64).to_string()];
-  args.extend(namespaces.iter().cloned());
   let mut stmt = conn.prepare(&sql)?;
   let rows = stmt.query_map(params_from_iter(args.iter()), |row| {
     Ok((row_to_entry(row)?, row.get::<_, f64>(16)?))
@@ -1085,6 +1118,35 @@ mod tests {
     .unwrap();
     let hits = recall(&conn, "commit formatting", &chain(), 10).unwrap();
     assert_eq!(hits.len(), 1, "porter stems formatting/formatted");
+  }
+
+  #[test]
+  fn recall_filtered_narrows_by_kind() {
+    let mut conn = store();
+    let dec = NewEntry {
+      namespace: "project/demo-app".into(),
+      kind: Kind::Decision,
+      content: "zephyr uses argon2id hashing".into(),
+      agent_id: "t".into(),
+      source: String::new(),
+      tags: vec![],
+      status: Status::Live,
+    };
+    let pref = NewEntry {
+      kind: Kind::Preference,
+      content: "zephyr hashing preference".into(),
+      ..dec.clone()
+    };
+    remember(&mut conn, &dec).unwrap();
+    remember(&mut conn, &pref).unwrap();
+    let all =
+      recall_filtered(&conn, "zephyr hashing", &chain(), 10, &[]).unwrap();
+    assert_eq!(all.len(), 2, "both kinds match unfiltered");
+    let dec_only =
+      recall_filtered(&conn, "zephyr hashing", &chain(), 10, &[Kind::Decision])
+        .unwrap();
+    assert_eq!(dec_only.len(), 1, "kind filter narrows to decisions");
+    assert_eq!(dec_only[0].entry.kind.as_str(), "decision");
   }
 
   #[test]

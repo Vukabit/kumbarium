@@ -271,6 +271,21 @@ pub fn list() -> Value {
   'project/my-app' or 'global'."
           },
           "limit": { "type": "integer", "minimum": 1 },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "preference", "project_state", "decision",
+                "reference"
+              ]
+            },
+            "description": "Restrict to these kinds, e.g. \
+  ['decision','project_state'] to skip preference/reference \
+  noise. Omit for all kinds. (Results below a relevance floor \
+  are dropped automatically, so a generous limit is not padded \
+  with near-zero matches.)"
+          },
           "frame": {
             "type": "boolean",
             "description": "Re-orient: return the opening frame \
@@ -1033,11 +1048,31 @@ fn recall(
     .unwrap_or(state.cfg.recall_default_limit);
   let chain = kumbarium_librarian::namespace_chain(scope)
     .map_err(|e| format!("invalid scope: {e}"))?;
-  let hits = match query {
-    Some(q) => kumbarium_store::recall(&state.library, q, &chain, limit)
-      .map_err(describe_store_error)?,
+  // Optional kind filter: an agent can ask for decisions and
+  // project_state only, skipping preference/reference noise.
+  let kinds: Vec<kumbarium_store::Kind> = args
+    .get("kinds")
+    .and_then(Value::as_array)
+    .map(|a| {
+      a.iter()
+        .filter_map(Value::as_str)
+        .filter_map(kumbarium_store::Kind::parse)
+        .collect()
+    })
+    .unwrap_or_default();
+  let raw = match query {
+    Some(q) => {
+      kumbarium_store::recall_filtered(&state.library, q, &chain, limit, &kinds)
+        .map_err(describe_store_error)?
+    }
     None => Vec::new(),
   };
+  // Relevance floor: drop the near-zero-relevance padding the
+  // OR-token match pulls in, so a generous limit is not filled
+  // with noise (D-053). Skipped when even the top hit is weak
+  // (a small corpus reads low; hiding everything would be
+  // worse than showing it).
+  let (hits, below_floor) = apply_relevance_floor(raw);
   // Served first, literally (D-036, D-037): the FIRST recall
   // this session makes in a scope carries the opening frame:
   // the standing briefing, then the matters that MUST interrupt
@@ -1230,7 +1265,36 @@ fn recall(
   for (i, hit) in hits.iter().enumerate() {
     blocks.push(render_hit(&state.library, i + 1, hit));
   }
+  if below_floor > 0 {
+    blocks.push(format!(
+      "({below_floor} more below the relevance floor, not \
+       shown; raise limit or refine the query to see them)"
+    ));
+  }
   Ok(blocks)
+}
+
+/// Drop hits whose relevance falls below the floor, so a
+/// generous limit is not padded with near-zero matches
+/// (D-053). Returns the kept hits and how many were dropped.
+/// If even the top hit is below the floor the corpus or query
+/// is weak; keep everything rather than blank the result.
+fn apply_relevance_floor(
+  hits: Vec<kumbarium_store::Hit>,
+) -> (Vec<kumbarium_store::Hit>, usize) {
+  const FLOOR: f64 = 0.1;
+  let rel = |h: &kumbarium_store::Hit| {
+    let s = h.bm25.abs();
+    s / (s + 5.0)
+  };
+  let top = hits.iter().map(rel).fold(0.0_f64, f64::max);
+  if top < FLOOR {
+    return (hits, 0);
+  }
+  let before = hits.len();
+  let kept: Vec<_> = hits.into_iter().filter(|h| rel(h) >= FLOOR).collect();
+  let dropped = before - kept.len();
+  (kept, dropped)
 }
 
 fn supersede(

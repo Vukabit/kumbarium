@@ -955,3 +955,33 @@ on a small shelf and is not comparable across shelves; Jaccard
 is corpus-independent. Advisory by default (never blocks: the
 manager informs, it does not nanny). Same-shelf only, because a
 duplicate lives where its twin does.
+
+## D-053: recall gains a kind filter and a relevance floor (2026-09-07)
+
+Agents reported (kum/feedback) that a project recall comes back
+padded with low-relevance GLOBAL hits, because the namespace
+chain merges global into every query and the ranking did not
+let them narrow. Two additions, both refinements of recall, no
+new tool (D-050's rule):
+
+- KIND FILTER: recall takes an optional `kinds` list; when set,
+  only those kinds match. An agent narrows to
+  decision/project_state and the global preference noise drops
+  out. store::recall_filtered carries it (plain recall is the
+  empty-filter wrapper, so no caller churned).
+- RELEVANCE FLOOR: results below a relevance floor are dropped
+  even when the limit has room, and the response says "N more
+  below the floor" so the agent can raise the limit. The floor
+  is on RELEVANCE (the bm25-derived score), never confidence,
+  so confidence-never-ranks (D-026) holds. It is guarded: if
+  even the top hit is below the floor the corpus or query is
+  weak, so everything is kept rather than blanking the result
+  (bm25 reads low on a small shelf).
+
+Deliberately NOT done: hard-excluding the global chain by
+default would kill the cross-scope founding feature (a global
+fact surfacing in a project, the gremvaux demo); the kind
+filter is the surgical tool instead. A `tags` filter and an
+ancestor-scope DOWN-WEIGHT (rank same-scope above inherited)
+are the natural next refinements, deferred to a ranking design
+pass; the chain stays flat-merged for now.
