@@ -13,8 +13,8 @@ Kumbarium is a local-first, agent-agnostic memory library for
 AI agents. Claude, Gemini, and local models share one store
 over MCP; a deterministic Rust librarian is the sole
 gatekeeper; and a separate hash-chained ledger witnesses every
-transaction. One static binary, two SQLite files, no cloud, no
-daemon required.
+transaction. One static binary, local SQLite files (one per
+section, plus the ledger), no cloud, no daemon required.
 
 ## The charter
 
@@ -39,24 +39,52 @@ a promise.
 
 ## What agents get
 
-Six MCP tools, learned from the schemas alone:
+Thirteen MCP tools, learned from the schemas alone, opening as
+the library's sections do:
 
-| verb | what it does |
-|---|---|
-| `remember` | store a durable fact (oversized content splits itself) |
-| `recall` | ranked search over the scope's chain, never a sibling's |
-| `confirm` | volunteer evidence a recalled fact proved correct in use |
-| `supersede` | replace a stale fact; the old version chains forward |
-| `link` | typed edges: relates_to, continues, duplicates, contradicts |
-| `forget` | hard-remove wrong or sensitive content |
+**The collection** — `remember` (store a durable fact;
+oversized content splits itself), `recall` (ranked search over
+the scope's chain, never a sibling's), `get` (one entry in
+full by id, edges included), `supersede` (replace a stale
+fact; the old version chains forward), `confirm` (volunteer
+evidence a fact proved correct in use), `link` (typed edges:
+relates_to, continues, duplicates, contradicts).
+
+**The docket** — `task_file`, `task_update`, `task_list`: the
+shared task list, filed and regraded by agents, served
+urgent-first at the top of the next session's first recall.
+
+**The coordination section** — `handoff_write` (the standing
+briefing for the next session in a scope) and `lease_take` /
+`lease_release` (reading-room reservations, so parallel agents
+do not collide).
+
+**The restricted stacks** — `secret_read`: pull a scoped,
+audited credential the human granted; the value never travels
+any other surface.
+
+Deletion is deliberately *not* on this list: `forget` is the
+human's verb. An agent that finds wrong or sensitive content
+flags it with a `contradicts` link and asks (D-046).
 
 ## What you get
 
 The human runs the porcelain: `kum list / show / grep /
-history / revert` (preview plus `--apply` sign-off), `retire`,
+history / revert` (preview plus `--apply` sign-off), the
+deletion verbs agents never get (`forget`, `retire`),
 namespaces (registered by you, never invented by an agent),
-timestamped backups, deterministic meeting-minutes export, and
-three pieces agents cannot touch:
+timestamped backups, and deterministic meeting-minutes export.
+
+The manager's read surfaces render the same ledger for a
+person: `kum brief` (a scope's day-one binder), `kum dossier`
+and `kum agents` (one agent's witnessed story, and the
+roster), `kum leases` and `kum processes` (who is working
+where, and which serve processes are live), `kum doctor` (a
+mechanical integrity pass), and `kum audit tail` / `follow`
+(the witness itself, static or streamed live). None of it can
+tell an agent what to do; all of it says what happened.
+
+And three pieces agents cannot touch:
 
 - **The janitor** (`kum janitor`): the only mover of the
   confidence number, and pure ledger math. Survival is the
@@ -137,7 +165,8 @@ framework, no diff library, no hash library: the JSON-RPC
 loop, LCS diff, SHA-256, TOML subset, and terminal rendering
 are a few hundred lines each and vendored in full. Shipped
 dependencies are the ones you would keep under oath: rusqlite,
-serde, thiserror, uuid, libc, directories. Supply chains are
+serde, thiserror, uuid, zeroize, libc, directories. Supply
+chains are
 attack surface; this one is short enough to read.
 
 ## Contributing
