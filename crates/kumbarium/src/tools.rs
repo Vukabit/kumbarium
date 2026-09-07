@@ -247,19 +247,33 @@ pub fn list() -> Value {
   with an opening frame prepended: the standing briefing the \
   last session left, urgent or overdue docket matters, and who \
   holds reading-room leases there; read that frame before the \
-  hits.",
+  hits. Lost that frame (context compaction, a long gap)? Call \
+  again with frame:true to re-orient.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string" },
+          "query": {
+            "type": "string",
+            "description": "The search. Optional ONLY with \
+  frame:true (re-orient without searching); otherwise required."
+          },
           "scope": {
             "type": "string",
             "description": "Namespace to search from, e.g. \
   'project/my-app' or 'global'."
           },
-          "limit": { "type": "integer", "minimum": 1 }
+          "limit": { "type": "integer", "minimum": 1 },
+          "frame": {
+            "type": "boolean",
+            "description": "Re-orient: return the opening frame \
+  (standing briefing, urgent/overdue matters, lease roster), \
+  identical to your first recall in the scope and regenerated \
+  from current state. Combine with a query for both, or omit \
+  the query for just the frame. Use it after a context \
+  compaction or whenever you doubt your context."
+          }
         },
-        "required": ["query", "scope"]
+        "required": ["scope"]
       }
     },
     {
@@ -892,10 +906,24 @@ fn recall(
   state: &mut ServerState,
   args: &Value,
 ) -> Result<Vec<String>, String> {
-  let query = required_str(args, "query")?;
   let scope =
     kumbarium_librarian::normalize_namespace(required_str(args, "scope")?);
   let scope = scope.as_str();
+  let want_frame = args.get("frame").and_then(Value::as_bool).unwrap_or(false);
+  // The query is optional ONLY with frame:true (a pure
+  // re-orientation, no search); otherwise it is required.
+  let query = args
+    .get("query")
+    .and_then(Value::as_str)
+    .map(str::trim)
+    .filter(|s| !s.is_empty());
+  if query.is_none() && !want_frame {
+    return Err(
+      "recall needs a query (or frame:true to re-orient without \
+       a search)"
+        .into(),
+    );
+  }
   let limit = args
     .get("limit")
     .and_then(Value::as_u64)
@@ -903,8 +931,11 @@ fn recall(
     .unwrap_or(state.cfg.recall_default_limit);
   let chain = kumbarium_librarian::namespace_chain(scope)
     .map_err(|e| format!("invalid scope: {e}"))?;
-  let hits = kumbarium_store::recall(&state.library, query, &chain, limit)
-    .map_err(describe_store_error)?;
+  let hits = match query {
+    Some(q) => kumbarium_store::recall(&state.library, q, &chain, limit)
+      .map_err(describe_store_error)?,
+    None => Vec::new(),
+  };
   // Served first, literally (D-036, D-037): the FIRST recall
   // this session makes in a scope carries the opening frame:
   // the standing briefing, then the matters that MUST interrupt
@@ -916,7 +947,12 @@ fn recall(
   let mut room = None;
   let mut matters_served = 0usize;
   let mut leases_served = 0usize;
-  if !state.served_handoffs.contains(scope) {
+  // Serve the frame on explicit frame:true (re-orientation,
+  // D-050) OR on the first recall in this scope this session.
+  // One block feeds both paths, so an on-demand frame is
+  // byte-identical to the first-recall one, regenerated from
+  // current state.
+  if want_frame || !state.served_handoffs.contains(scope) {
     let handoff_reachable = state.handoff.is_some()
       || state.handoff_path.as_os_str().is_empty()
       || state.handoff_path.exists();
@@ -1051,8 +1087,9 @@ fn recall(
     kumbarium_audit::EventKind::Recall,
     scope,
     json!({
-      "query": query,
+      "query": query.unwrap_or(""),
       "returned": ids,
+      "frame": want_frame,
       "handoff_served": briefing.is_some(),
       "matters_served": matters_served,
       "leases_served": leases_served,
@@ -1068,6 +1105,17 @@ fn recall(
   if let Some(r) = room {
     blocks.push(r);
   }
+  // Frame-only re-orientation (no query): return just the frame,
+  // or say plainly there was nothing to serve.
+  let Some(query) = query else {
+    if blocks.is_empty() {
+      blocks.push(format!(
+        "Nothing to serve for {scope}: no standing briefing, \
+         interrupting matters, or active leases."
+      ));
+    }
+    return Ok(blocks);
+  };
   if hits.is_empty() {
     blocks.push(format!("No memories matched {query:?} in scope {scope}."));
     return Ok(blocks);

@@ -884,3 +884,42 @@ rename` (relocate a populated shelf's path, re-pointing its
 content) and `namespace archive` (hide a dead-but-populated
 shelf from the default list and recall chain without deleting,
 parallel to entry retire).
+
+## D-050: the opening frame is re-requestable (2026-09-07)
+
+D-037 served the opening frame (standing briefing + urgent and
+overdue matters + lease roster) on the FIRST recall in a scope
+per session, once. Agents on long, compacted sessions
+reported the gap three separate ways in kum/feedback: a
+mid-session context compaction wipes the frame from the
+agent's context, and because first-recall already fired, every
+later recall returns bare hits. The agent then rebuilds
+continuity from its own compaction summary instead of from the
+store, sometimes re-deriving facts a memory already held.
+
+The fix (refined with Shawn): recall gains a `frame: true`
+parameter. When set, recall serves the frame regardless of
+whether it was already served this session; the query becomes
+optional, so `recall {scope, frame:true}` with no query is a
+pure re-orientation (frame only, no search), and
+`recall {scope, query, frame:true}` returns both. The frame is
+served by ONE block that both the automatic first-recall path
+and the explicit path run, so the on-demand frame is
+byte-identical to the first-recall one by construction. It
+regenerates from CURRENT state: a matter closed or a briefing
+rewritten since first recall is reflected. It is
+re-orientation, not replay.
+
+Exposed as a recall PARAMETER, not a new tool, deliberately:
+agents (kum/feedback, theme 8) pay a deferred-tool cost per
+distinct MCP tool in some clients, so extending an existing
+tool beats adding one. This is the standing design rule the
+feedback produced: add parameters, not tools, unless there is
+no existing verb to carry the behavior.
+
+Still witnessed: a frame serve records handoff_served /
+matters_served / leases_served on the Recall event (receipt
+stays provable, D-036), with a `frame` marker distinguishing
+an explicit re-orientation. Auto-re-serve after N idle minutes
+was considered and deferred as optional polish; the explicit
+call is the mechanism.

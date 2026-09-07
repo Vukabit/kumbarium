@@ -563,7 +563,11 @@ Long-term memory lives in the Kumbarium MCP tools, shared
 across all agents and sessions.
 
 - At the start of substantive work, `recall` with scope
-  `project/<name>` for the current project (or `global`).
+  `project/<name>` for the current project (or `global`). Your
+  first recall in a scope prepends an opening frame (the
+  standing briefing, urgent matters, who else is working
+  there); if you lose it to a context compaction or a long
+  gap, `recall` again with `frame: true` to re-orient.
 - `remember` durable new facts: preferences, decisions,
   standing constraints. Project facts go in the project
   namespace; cross-project facts in `global`. Send content
