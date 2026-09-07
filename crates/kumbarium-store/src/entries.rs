@@ -134,6 +134,32 @@ pub fn register_namespace(
   Ok(conn.last_insert_rowid())
 }
 
+/// Remove a namespace's registry row. Refuses (NamespaceNotEmpty)
+/// if ANY entry references it, at any status: the row is only
+/// safe to drop when nothing on this shelf would orphan. This
+/// crate guards its OWN db (entries); the caller is responsible
+/// for the other sections (docket, handoff, secrets). The
+/// historical ledger events that named the path are untouched
+/// and immutable.
+pub fn remove_namespace(
+  conn: &Connection,
+  path: &str,
+) -> Result<(), StoreError> {
+  let Some(id) = namespace_id(conn, path)? else {
+    return Err(StoreError::NamespaceNotRegistered(path.to_string()));
+  };
+  let count: i64 = conn.query_row(
+    "SELECT count(*) FROM entries WHERE namespace_id = ?1",
+    [id],
+    |row| row.get(0),
+  )?;
+  if count > 0 {
+    return Err(StoreError::NamespaceNotEmpty(path.to_string(), count));
+  }
+  conn.execute("DELETE FROM namespaces WHERE path = ?1", [path])?;
+  Ok(())
+}
+
 /// Rewrite a registered namespace's description (the charter
 /// line the binder shows). The registry is metadata: edits are
 /// in place, not chained.

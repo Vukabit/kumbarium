@@ -85,6 +85,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     "0010_doctor_kind",
     include_str!("../migrations/0010_doctor_kind.sql"),
   ),
+  (
+    11,
+    "0011_namespace_kinds",
+    include_str!("../migrations/0011_namespace_kinds.sql"),
+  ),
 ];
 
 /// The version pre-squash ledgers sit at: their schema is
@@ -127,6 +132,8 @@ pub enum EventKind {
   Get,
   TaskList,
   Doctor,
+  NamespaceAdd,
+  NamespaceRemove,
   SecretSet,
   SecretRead,
   SecretGrant,
@@ -165,6 +172,8 @@ impl EventKind {
       EventKind::Get => "get",
       EventKind::TaskList => "task_list",
       EventKind::Doctor => "doctor",
+      EventKind::NamespaceAdd => "namespace_add",
+      EventKind::NamespaceRemove => "namespace_remove",
       EventKind::SecretSet => "secret_set",
       EventKind::SecretRead => "secret_read",
       EventKind::SecretGrant => "secret_grant",

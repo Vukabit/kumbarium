@@ -434,6 +434,7 @@ const PAGE_NAMESPACE: &str = "\
 ```
 kum namespace add <path> [description]
 kum namespace describe <path> <description>
+kum namespace rm <path>
 kum namespace list
 ```
 
@@ -443,9 +444,20 @@ which is the firewall against taxonomy drift. Path grammar in
 line (the binder opens with it); `describe` rewrites it in
 place, so a typo'd charter is not forever.
 
+`rm` drops the registry row, but only when the shelf is EMPTY
+(no entries, matters, briefings, or secrets reference it, at
+any status): the rmdir stance. A populated namespace is
+refused, naming what it holds and pointing at `kum move` /
+`kum forget` first; removal never cascade-deletes content.
+Human-only and witnessed, like `add`. Removing an empty typo'd
+namespace is the common case; the historical ledger events
+that named the path stay (the witness is immutable). `global`
+cannot be removed.
+
 ```
 kum namespace add project/my-app \"the new thing\"
 kum namespace describe project/my-app \"the shipped thing\"
+kum namespace rm projet/typo
 kum namespace list
 ```
 ";

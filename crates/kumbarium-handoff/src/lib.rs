@@ -299,6 +299,20 @@ pub fn import_handoff(
   Ok(())
 }
 
+/// How many briefings a namespace holds, at ANY status: the
+/// emptiness check behind `kum namespace rm`. Zero means the
+/// diary never had a page on that shelf.
+pub fn count_in(
+  conn: &Connection,
+  namespace: &str,
+) -> Result<i64, HandoffError> {
+  Ok(conn.query_row(
+    "SELECT count(*) FROM handoffs WHERE namespace = ?1",
+    [namespace],
+    |row| row.get(0),
+  )?)
+}
+
 /// Every live briefing on one shelf (the whole diary), oldest
 /// first: what a bundle carries.
 pub fn handoffs_in(

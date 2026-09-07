@@ -726,6 +726,21 @@ pub fn counts(conn: &Connection) -> Result<(i64, i64), SecretsError> {
   Ok((live, granted))
 }
 
+/// How many secrets a namespace holds, at ANY status (live,
+/// superseded, shredded): the emptiness check behind
+/// `kum namespace rm`. A shredded secret still leaves a record
+/// on the shelf, so it counts.
+pub fn count_in(
+  conn: &Connection,
+  namespace: &str,
+) -> Result<i64, SecretsError> {
+  Ok(conn.query_row(
+    "SELECT count(*) FROM secrets WHERE namespace = ?1",
+    [namespace],
+    |row| row.get(0),
+  )?)
+}
+
 fn row_to_meta(row: &rusqlite::Row<'_>) -> Result<SecretMeta, rusqlite::Error> {
   Ok(SecretMeta {
     id: row.get(0)?,

@@ -262,6 +262,8 @@ upkeep:
   kumbarium namespace add <path> [d]  register a namespace
   kumbarium namespace describe <path> <d>
                                       rewrite its description
+  kumbarium namespace rm <path>       drop an EMPTY namespace
+                                      (refuses if populated)
   kumbarium namespace list            list namespaces
   kumbarium status                    library health at a glance
   kumbarium processes                 live kumbarium processes:

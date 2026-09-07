@@ -105,6 +105,9 @@ pub fn run() -> ExitCode {
     ["namespace", "describe", path, rest @ ..] => {
       namespace_describe(path, &rest.join(" "))
     }
+    ["namespace", "rm", path] | ["namespace", "remove", path] => {
+      namespace_remove(path)
+    }
     ["namespace", "list"] | ["namespace"] => namespace_list(),
     ["import", "claude", rest @ ..] => import_claude(rest),
     ["export"] => {
@@ -464,7 +467,8 @@ fn usage_of(word: &str) -> Option<&'static str> {
     "export" => "kumbarium export [minutes|bundle <ns>]",
     "import" => "kumbarium import [bundle <FILE>|claude]",
     "namespace" => {
-      "kumbarium namespace [add <path> [desc]|describe <path> <desc>|list]"
+      "kumbarium namespace [add <path> [desc]|describe <path> \
+       <desc>|rm <path>|list]"
     }
     "status" => "kumbarium status",
     "processes" => "kumbarium processes [--json]",

@@ -845,3 +845,42 @@ witnesses nothing. Exit 0 healthy, 1 on any finding.
 The whole rung reads one registry: presence records feed
 kum processes, serve reload, the idle watchdog, the doctor's
 deferral, and the session card's liveness line.
+
+## D-049: namespace removal is the rmdir stance (2026-09-07)
+
+The registry could be added to and edited (describe) but never
+pruned: a typo'd `namespace add` sat forever, and a dead
+project's shelf could not be closed. `kum namespace rm <path>`
+fixes that WITHOUT breaking the deletion doctrine that governs
+everything else (supersede-don't-delete; forget is a deliberate
+per-entry human verb; the witness keeps all).
+
+The stance: removal drops only the registry ROW, and only when
+the shelf is EMPTY. Empty means no entry, matter, briefing, or
+secret references the path at ANY status (superseded, retired,
+shredded rows still count as content on the shelf). A populated
+namespace is refused, naming what it holds and pointing at
+`kum move` / `kum forget`; removal NEVER cascade-deletes
+content, because a verb that silently wiped a shelf's contents
+would contradict the whole spine. This is `rmdir`, not `rm -rf`.
+The store crate guards its own db (refuses if any entry
+references the id); the CLI additionally checks docket, handoff,
+and secrets before removing, so no section can orphan.
+
+Human-only (symmetric with add: agents cannot create
+namespaces, so they cannot remove them). `global` is never
+removable (it is the root of every recall chain). And the whole
+registry lifecycle is now WITNESSED: `namespace_add` and
+`namespace_remove` events land on the hash-chained ledger
+(migration 0011), because opening and closing a shelf are
+governance acts. The removal is reversible by re-adding, but
+the ledger's record that the path once existed is immutable, as
+the witness always is. (describe-witnessing is a small
+follow-up; the create/destroy bookends are the load-bearing
+pair.)
+
+The natural neighbors, recorded but not built: `namespace
+rename` (relocate a populated shelf's path, re-pointing its
+content) and `namespace archive` (hide a dead-but-populated
+shelf from the default list and recall chain without deleting,
+parallel to entry retire).

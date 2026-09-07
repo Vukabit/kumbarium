@@ -418,6 +418,10 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
         "ran the doctor ({} repair(s) applied)",
         n("repaired").unwrap_or(0)
       )),
+      "namespace_add" => Some(format!("registered namespace {}", s("path")?)),
+      "namespace_remove" => {
+        Some(format!("removed namespace {} (was empty)", s("path")?))
+      }
       "secret_set" => Some(format!("stocked secret {:?}", s("name")?)),
       "secret_read" => {
         // found:false = the name was not on the shelf; nothing

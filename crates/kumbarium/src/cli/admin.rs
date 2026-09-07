@@ -23,7 +23,107 @@ pub(crate) fn namespace_add(path: &str, description: &str) -> ExitCode {
   };
   match kumbarium_store::register_namespace(&state.library, path, description) {
     Ok(_) => {
+      witness_registry(&state, kumbarium_audit::EventKind::NamespaceAdd, path);
       println!("registered {path}");
+      ExitCode::SUCCESS
+    }
+    Err(e) => fail(&e.to_string()),
+  }
+}
+
+/// The registry lifecycle is witnessed (D-049): who opened or
+/// closed a shelf, on the ledger. Best-effort like every audit
+/// append; a witness failure is reported but the registry
+/// change already happened.
+fn witness_registry(
+  state: &super::super::tools::ServerState,
+  kind: kumbarium_audit::EventKind,
+  path: &str,
+) {
+  let event = kumbarium_audit::Event {
+    agent_id: "kumbarium-cli".into(),
+    session_id: state.session_id.clone(),
+    kind,
+    scope: path.to_string(),
+    detail: serde_json::json!({ "path": path }),
+  };
+  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+    eprintln!("kumbarium: registry change made, but audit append failed: {e}");
+  }
+}
+
+/// `kum namespace rm <path>`: drop an EMPTY namespace's registry
+/// row (D-049, the rmdir stance). Refuses if any section holds
+/// content, naming what and pointing at move/forget; never
+/// cascade-deletes. Human-only, witnessed. `global` is never
+/// removable (it is the root of every recall chain).
+pub(crate) fn namespace_remove(path: &str) -> ExitCode {
+  let path = &kumbarium_librarian::normalize_namespace(path);
+  if path == "global" {
+    return fail(
+      "global is the root of every recall chain and cannot be \
+       removed",
+    );
+  }
+  let (p, mut state) = match open_stores() {
+    Ok(v) => v,
+    Err(e) => return fail(&e),
+  };
+  if kumbarium_store::namespace_id(&state.library, path)
+    .ok()
+    .flatten()
+    .is_none()
+  {
+    return fail(&format!("namespace {path:?} is not registered"));
+  }
+  // Tally content across every section; refuse if any holds a
+  // row (the shelf must be empty, entries at any status
+  // included).
+  let mut held: Vec<String> = Vec::new();
+  let entries = kumbarium_store::entries_in(&state.library, Some(path), true)
+    .map(|v| v.len())
+    .unwrap_or(0);
+  if entries > 0 {
+    held.push(format!("{entries} entr(y/ies)"));
+  }
+  if p.docket_db.exists()
+    && let Ok(conn) = state.docket()
+    && let Ok(tasks) =
+      kumbarium_docket::tasks_in(conn, Some(std::slice::from_ref(path)), true)
+    && !tasks.is_empty()
+  {
+    held.push(format!("{} task(s)", tasks.len()));
+  }
+  if p.handoff_db.exists()
+    && let Ok(conn) = state.handoff()
+    && let Ok(n) = kumbarium_handoff::count_in(conn, path)
+    && n > 0
+  {
+    held.push(format!("{n} briefing(s)"));
+  }
+  if p.secrets_db.exists()
+    && let Ok(conn) = state.secrets()
+    && let Ok(n) = kumbarium_secrets::count_in(conn, path)
+    && n > 0
+  {
+    held.push(format!("{n} secret(s)"));
+  }
+  if !held.is_empty() {
+    return fail(&format!(
+      "namespace {path:?} is not empty ({}); move them (kum \
+       move) or forget them (kum forget), then retry. The \
+       registry row is only removable when the shelf is bare.",
+      held.join(", ")
+    ));
+  }
+  match kumbarium_store::remove_namespace(&state.library, path) {
+    Ok(()) => {
+      witness_registry(
+        &state,
+        kumbarium_audit::EventKind::NamespaceRemove,
+        path,
+      );
+      println!("removed namespace {path} (was empty)");
       ExitCode::SUCCESS
     }
     Err(e) => fail(&e.to_string()),
