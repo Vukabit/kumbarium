@@ -269,7 +269,9 @@ upkeep:
   kumbarium processes                 live kumbarium processes:
                                       pid, binary, agent, client
   kumbarium persisted                 numbered inventory of every
-                                      file kumbarium has on disk
+       [--open N|--show N]            file kumbarium has on disk
+                                      (--open N edits row N,
+                                      --show N reveals it)
   kumbarium backup                    snapshot every section now
   kumbarium backup list               every section's snapshots
   kumbarium doctor [--deep]           examine the building;

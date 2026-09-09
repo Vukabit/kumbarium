@@ -12,7 +12,17 @@ use super::term::*;
 /// is there): this walks the real tree and lists every file it
 /// finds, so "what has this tool written to my disk" has a
 /// literal, sequential answer. Read-only.
-pub(crate) fn persisted_cmd(json: bool) -> ExitCode {
+/// What `kum persisted` should do beyond listing: act on one
+/// numbered row (the left-column index).
+pub(crate) enum PersistedAction {
+  List,
+  /// Reveal row N in the OS file explorer.
+  Show(usize),
+  /// Open row N in $VISUAL / $EDITOR.
+  Open(usize),
+}
+
+pub(crate) fn persisted_cmd(json: bool, action: PersistedAction) -> ExitCode {
   let p = match paths::resolve() {
     Ok(p) => p,
     Err(e) => return fail(&e.to_string()),
@@ -30,6 +40,45 @@ pub(crate) fn persisted_cmd(json: bool) -> ExitCode {
     files.push(p.config_file.clone());
   }
   files.sort();
+
+  // --open / --show act on the numbered row (1-indexed, same
+  // order as the listing). Resolved against the CURRENT tree,
+  // so the number means what a fresh `kum persisted` shows.
+  let picked = match action {
+    PersistedAction::List => None,
+    PersistedAction::Show(n) | PersistedAction::Open(n) => Some(n),
+  };
+  if let Some(n) = picked {
+    let Some(path) = n.checked_sub(1).and_then(|i| files.get(i)) else {
+      return fail(&format!(
+        "no persisted file #{n} ({} on disk; kum persisted lists them)",
+        files.len()
+      ));
+    };
+    let path = path.clone();
+    return match action {
+      PersistedAction::Show(_) => match reveal(&path) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => fail(&e),
+      },
+      PersistedAction::Open(_) => {
+        // A .db opened in an editor is binary noise; warn but
+        // obey (config, logs, exports are the readable ones).
+        if path.extension().and_then(|e| e.to_str()) == Some("db") {
+          eprintln!(
+            "kumbarium: note: {} is a binary database; --show \
+             reveals it, most editors will show gibberish",
+            path.display()
+          );
+        }
+        match open_in_editor(&path) {
+          Ok(()) => ExitCode::SUCCESS,
+          Err(e) => fail(&e),
+        }
+      }
+      PersistedAction::List => unreachable!(),
+    };
+  }
 
   let categorize = |path: &Path| -> &'static str {
     let s = path.to_string_lossy();

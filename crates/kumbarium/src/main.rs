@@ -234,8 +234,16 @@ pub fn run() -> ExitCode {
     ["unretire", id] => retire_cmd(id, false),
     ["status"] => status_cmd(),
     ["status", "--json"] => status_json(),
-    ["persisted"] => persisted_cmd(false),
-    ["persisted", "--json"] => persisted_cmd(true),
+    ["persisted"] => persisted_cmd(false, PersistedAction::List),
+    ["persisted", "--json"] => persisted_cmd(true, PersistedAction::List),
+    ["persisted", "--open", n] => match n.parse() {
+      Ok(n) => persisted_cmd(false, PersistedAction::Open(n)),
+      Err(_) => fail("--open needs a row number (see kum persisted)"),
+    },
+    ["persisted", "--show", n] => match n.parse() {
+      Ok(n) => persisted_cmd(false, PersistedAction::Show(n)),
+      Err(_) => fail("--show needs a row number (see kum persisted)"),
+    },
     ["processes", rest @ ..] => match browse_args(rest) {
       Ok((Some(_), _, _)) | Ok((_, true, _)) => {
         fail("usage: kumbarium processes [--json]")
@@ -474,7 +482,7 @@ fn usage_of(word: &str) -> Option<&'static str> {
     }
     "status" => "kumbarium status",
     "processes" => "kumbarium processes [--json]",
-    "persisted" => "kumbarium persisted [--json]",
+    "persisted" => "kumbarium persisted [--json|--open N|--show N]",
     "backup" => "kumbarium backup [list]",
     "doctor" => "kumbarium doctor [--deep] [--apply] [--json]",
     "config" => "kumbarium config [--init|--open]",
