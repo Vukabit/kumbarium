@@ -268,6 +268,8 @@ upkeep:
   kumbarium status                    library health at a glance
   kumbarium processes                 live kumbarium processes:
                                       pid, binary, agent, client
+  kumbarium persisted                 numbered inventory of every
+                                      file kumbarium has on disk
   kumbarium backup                    snapshot every section now
   kumbarium backup list               every section's snapshots
   kumbarium doctor [--deep]           examine the building;

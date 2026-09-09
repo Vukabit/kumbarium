@@ -72,6 +72,7 @@ pub const RESERVED_WORDS: &[&str] = &[
   "namespace",
   "namespaces",
   "paths",
+  "persisted",
   "processes",
   "procs",
   "reject",

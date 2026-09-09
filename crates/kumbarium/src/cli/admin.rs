@@ -1,9 +1,153 @@
 //! Upkeep: namespaces, status, the witness readers, config.
 
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use super::super::{config, open_stores, paths, style};
 use super::term::*;
+
+/// `kum persisted`: a numbered inventory of everything kumbarium
+/// actually has on disk, right now. Distinct from `kum paths`
+/// (which shows the configured LOCATIONS whether or not a file
+/// is there): this walks the real tree and lists every file it
+/// finds, so "what has this tool written to my disk" has a
+/// literal, sequential answer. Read-only.
+pub(crate) fn persisted_cmd(json: bool) -> ExitCode {
+  let p = match paths::resolve() {
+    Ok(p) => p,
+    Err(e) => return fail(&e.to_string()),
+  };
+  // The data root holds every section, backup, export, log,
+  // lock, and presence record; config may live elsewhere
+  // (Linux), so it is added explicitly.
+  let data_root = match p.audit_db.parent() {
+    Some(d) => d.to_path_buf(),
+    None => return fail("cannot resolve the data root"),
+  };
+  let mut files: Vec<PathBuf> = Vec::new();
+  collect_files(&data_root, &mut files);
+  if p.config_file.exists() && !files.contains(&p.config_file) {
+    files.push(p.config_file.clone());
+  }
+  files.sort();
+
+  let categorize = |path: &Path| -> &'static str {
+    let s = path.to_string_lossy();
+    if s.contains("/procs/") || s.contains("\\procs\\") {
+      "presence"
+    } else if s.contains("/backups/") || s.contains("\\backups\\") {
+      "backup"
+    } else if s.contains("/exports/") || s.contains("\\exports\\") {
+      "export"
+    } else if s.contains("/logs/") || s.contains("\\logs\\") {
+      "log"
+    } else if s.ends_with(".db-wal") || s.ends_with(".db-shm") {
+      "sidecar"
+    } else if s.ends_with(".db") {
+      "section"
+    } else if s.ends_with(".lock") {
+      "lock"
+    } else if s.ends_with("config.toml") {
+      "config"
+    } else {
+      "other"
+    }
+  };
+
+  if json {
+    let rows: Vec<serde_json::Value> = files
+      .iter()
+      .enumerate()
+      .map(|(i, path)| {
+        let meta = std::fs::metadata(path).ok();
+        serde_json::json!({
+          "n": i + 1,
+          "path": path.to_string_lossy(),
+          "category": categorize(path),
+          "bytes": meta.as_ref().map(|m| m.len()),
+          "modified_at": meta
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(file_mtime_iso),
+        })
+      })
+      .collect();
+    return print_json(&serde_json::json!(rows));
+  }
+
+  let sty = style::Style::detect();
+  if files.is_empty() {
+    println!("nothing persisted yet (kum paths shows where it will land)");
+    return ExitCode::SUCCESS;
+  }
+  let mut total: u64 = 0;
+  println!(
+    "{}",
+    sty.dim("  #  size       modified (local)     kind      path")
+  );
+  for (i, path) in files.iter().enumerate() {
+    let meta = std::fs::metadata(path).ok();
+    let bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    total += bytes;
+    let modified = meta
+      .as_ref()
+      .and_then(|m| m.modified().ok())
+      .and_then(file_mtime_iso)
+      .map(|iso| local_display(&iso))
+      .unwrap_or_default();
+    println!(
+      "{:>3}  {:>9}  {:<19}  {:<8}  {}",
+      i + 1,
+      human_size(bytes),
+      modified,
+      categorize(path),
+      path.display()
+    );
+  }
+  println!(
+    "{}",
+    sty.dim(&format!(
+      "{} file(s), {} on disk under {}",
+      files.len(),
+      human_size(total),
+      data_root.display()
+    ))
+  );
+  ExitCode::SUCCESS
+}
+
+/// Recursively collect every regular file under `dir` (missing
+/// dirs are simply skipped; this is a best-effort inventory).
+fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
+  let Ok(read) = std::fs::read_dir(dir) else {
+    return;
+  };
+  for entry in read.flatten() {
+    let path = entry.path();
+    if path.is_dir() {
+      collect_files(&path, out);
+    } else {
+      out.push(path);
+    }
+  }
+}
+
+/// A file's mtime as an ISO-8601 UTC string, for local_display.
+fn file_mtime_iso(t: std::time::SystemTime) -> Option<String> {
+  let ms = t.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64;
+  Some(kumbarium_util::format_iso8601_ms(ms))
+}
+
+/// Bytes as a compact human string (B / KB / MB).
+fn human_size(bytes: u64) -> String {
+  if bytes < 1024 {
+    format!("{bytes} B")
+  } else if bytes < 1024 * 1024 {
+    format!("{} KB", bytes / 1024)
+  } else {
+    format!("{} MB", bytes / (1024 * 1024))
+  }
+}
 
 pub(crate) fn namespace_add(path: &str, description: &str) -> ExitCode {
   let path = &kumbarium_librarian::normalize_namespace(path);
@@ -474,19 +618,50 @@ pub(crate) fn status_cmd() -> ExitCode {
   }
   match kumbarium_store::namespaces(&state.library) {
     Ok(rows) => {
-      for (path, _, _) in rows {
-        let n: i64 = state
-          .library
-          .query_row(
-            "SELECT count(*) FROM entries e
-             JOIN namespaces ns ON ns.id = e.namespace_id
-             WHERE ns.path = ?1 AND e.superseded_by IS NULL
-               AND e.retired_at IS NULL AND e.status = 'live'",
-            [&path],
-            |row| row.get(0),
-          )
-          .unwrap_or(0);
+      // Sorted by live-entry count (busiest first), empties
+      // dropped, and capped: a flat alphabetical dump of every
+      // registered shelf buries the signal once there are
+      // dozens. `kum namespace list` remains the full roll.
+      let total = rows.len();
+      let mut counted: Vec<(String, i64)> = rows
+        .into_iter()
+        .map(|(path, _, _)| {
+          let n: i64 = state
+            .library
+            .query_row(
+              "SELECT count(*) FROM entries e
+               JOIN namespaces ns ON ns.id = e.namespace_id
+               WHERE ns.path = ?1 AND e.superseded_by IS NULL
+                 AND e.retired_at IS NULL AND e.status = 'live'",
+              [&path],
+              |row| row.get(0),
+            )
+            .unwrap_or(0);
+          (path, n)
+        })
+        .collect();
+      counted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+      let nonempty = counted.iter().filter(|(_, n)| *n > 0).count();
+      const CAP: usize = 12;
+      println!(
+        "{}",
+        sty.bold(&format!(
+          "namespaces ({total} registered, {nonempty} with entries)"
+        ))
+      );
+      let mut shown = 0;
+      for (path, n) in counted.iter().filter(|(_, n)| *n > 0).take(CAP) {
         println!("  {path:<22} {n}");
+        shown += 1;
+      }
+      if nonempty > shown {
+        println!(
+          "{}",
+          sty.dim(&format!(
+            "  (+{} more with entries; kum namespace list)",
+            nonempty - shown
+          ))
+        );
       }
     }
     Err(e) => return fail(&e.to_string()),

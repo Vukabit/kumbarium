@@ -43,6 +43,7 @@ pub(crate) const COMMAND_WORDS: &[&str] = &[
   "import",
   "namespace",
   "processes",
+  "persisted",
   "status",
   "backup",
   "doctor",

@@ -234,6 +234,8 @@ pub fn run() -> ExitCode {
     ["unretire", id] => retire_cmd(id, false),
     ["status"] => status_cmd(),
     ["status", "--json"] => status_json(),
+    ["persisted"] => persisted_cmd(false),
+    ["persisted", "--json"] => persisted_cmd(true),
     ["processes", rest @ ..] => match browse_args(rest) {
       Ok((Some(_), _, _)) | Ok((_, true, _)) => {
         fail("usage: kumbarium processes [--json]")
@@ -472,6 +474,7 @@ fn usage_of(word: &str) -> Option<&'static str> {
     }
     "status" => "kumbarium status",
     "processes" => "kumbarium processes [--json]",
+    "persisted" => "kumbarium persisted [--json]",
     "backup" => "kumbarium backup [list]",
     "doctor" => "kumbarium doctor [--deep] [--apply] [--json]",
     "config" => "kumbarium config [--init|--open]",
