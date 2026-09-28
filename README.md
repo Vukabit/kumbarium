@@ -76,7 +76,9 @@ namespaces (registered by you, never invented by an agent),
 timestamped backups, and deterministic meeting-minutes export.
 
 The manager's read surfaces render the same ledger for a
-person: `kum brief` (a scope's day-one binder), `kum dossier`
+person: `kum doc` (the whole library, or one scope, as an
+offline cargo-doc-style site), `kum brief` (a scope's day-one
+binder), `kum dossier`
 and `kum agents` (one agent's witnessed story, and the
 roster), `kum leases` and `kum processes` (who is working
 where, and which serve processes are live), `kum doctor` (a

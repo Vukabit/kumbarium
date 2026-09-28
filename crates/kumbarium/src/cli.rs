@@ -7,6 +7,7 @@ pub(crate) mod admin;
 pub(crate) mod brief;
 pub(crate) mod completions;
 pub(crate) mod desk;
+pub(crate) mod doc;
 pub(crate) mod dock;
 pub(crate) mod docket;
 pub(crate) mod doctor;

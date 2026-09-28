@@ -71,7 +71,7 @@ pub(crate) fn deliver_export(
     return fail(&e);
   }
   if opts.open
-    && let Err(e) = open_in_editor(&target)
+    && let Err(e) = open_artifact(&target)
   {
     return fail(&e);
   }

@@ -25,6 +25,7 @@ pub(crate) const COMMAND_WORDS: &[&str] = &[
   "tasks",
   "roadmap",
   "brief",
+  "doc",
   "agents",
   "agent",
   "dossier",

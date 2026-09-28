@@ -985,3 +985,62 @@ filter is the surgical tool instead. A `tags` filter and an
 ancestor-scope DOWN-WEIGHT (rank same-scope above inherited)
 are the natural next refinements, deferred to a ranking design
 pass; the chain stays flat-merged for now.
+
+## D-054: kum doc, the library as a static site (2026-09-28)
+
+`cargo doc` for the Library: `kum doc` renders every registered
+shelf as a browsable, offline HTML site, and `kum doc <scope>`
+narrows the build to that namespace and its descendants (the
+`cargo doc -p <crate>` move; `kum doc project` builds every
+project shelf). The site reads like rustdoc and looks like
+Kumbarium: a root index listing every shelf (the crate list), a
+page per shelf (standing briefing, open matters, facts grouped
+by kind), a page per fact (content, provenance, confidence and
+its basis, tags, typed edges both directions, the supersession
+chain), and a search box over a prebuilt index that works from
+file:// with no server.
+
+- A TOP-LEVEL VERB, a deliberate carve-out from D-031. The
+  loading dock's rule (every artifact is a row under `kum
+  export`) stands for artifacts: files meant to travel. `kum
+  doc` is a VIEW of the library that happens to be rendered to
+  disk, the way `cargo doc` is a view of a crate; the cargo
+  spelling is the feature. It still rides the export spine's
+  flags: `--out DIR`, `--show`, `--open`; `--stdout` is refused
+  (a site is a directory, not a stream).
+- --OPEN OPENS BY ARTIFACT KIND (amends D-031): text artifacts
+  still run $VISUAL then $EDITOR; an HTML artifact goes to the
+  OS opener (open / xdg-open / start), which is the browser.
+  Same flag, same meaning ("open it"), and still no executable
+  ever comes from config.
+- WHAT RENDERS: live chain heads by default; `--all` adds
+  superseded and retired entries (the `kum list --all`
+  convention), shown on their fact pages as history and badged
+  in listings. Pending and rejected material never renders (the
+  desk has not admitted it), forgotten entries are gone, and
+  SECRETS NEVER RENDER, not even their names: a doc build is a
+  file tree anyone with disk access can read.
+- DETERMINISTIC: the same library state and flags produce the
+  same bytes (no build timestamp in the pages, stable ordering
+  by id), so a build can be diffed or committed.
+- ONE SELF-CONTAINED SITE PER BUILD at a stable path,
+  `exports/doc/` by default, replaced wholesale on every build
+  (built beside, then swapped in). A scoped build is complete on
+  its own; an edge to a fact outside the build renders as an
+  external reference (short id, "not in this build"), the way
+  rustdoc treats items outside the documented set. Accumulating
+  scoped builds into one tree, cargo-style, was rejected for v1:
+  it makes determinism a function of build history.
+- UNTRUSTED CONTENT: every memory, tag, and briefing was written
+  by an agent, so everything is HTML-escaped and content renders
+  as preformatted text; the search index ships as a script file
+  (window data, not fetched) so file:// works in every browser.
+- No new dependencies: the renderer is hand-rolled like the
+  terminal painter, and the palette follows `style.rs` (ids in
+  cyan, confidence bands green/yellow/red, contradicts in red).
+
+Deliberately NOT built yet: the audit timeline and agent pages
+(dossiers already cover them), a docket page per horizon (the
+roadmap), and markdown rendering of fact content. Related to
+the low dashboard matter (6dac5cd6), which a static site may
+partly answer.

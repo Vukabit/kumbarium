@@ -12,6 +12,7 @@ mod markdown;
 mod paths;
 mod procs;
 mod rpc;
+mod site;
 mod style;
 mod tools;
 
@@ -20,6 +21,7 @@ use std::process::ExitCode;
 use cli::admin::*;
 use cli::brief::*;
 use cli::desk::*;
+use cli::doc::*;
 use cli::dock::*;
 use cli::docket::*;
 use cli::dossier::*;
@@ -177,6 +179,7 @@ pub fn run() -> ExitCode {
     ["handoff", "drop", ns] => handoff_drop_cmd(ns),
     ["handoff", ns, rest @ ..] => handoff_cmd(ns, rest),
     ["handoff"] | ["handoffs"] => handoffs_cmd(),
+    ["doc", rest @ ..] => doc_cmd(rest),
     ["brief", ns] if !ns.starts_with('-') => brief_cmd(ns),
     ["dossier", agent, rest @ ..] => dossier_cmd(agent, rest),
     ["dossier"] => fail("dossier needs an agent: kumbarium dossier <agent>"),
@@ -458,6 +461,7 @@ fn usage_of(word: &str) -> Option<&'static str> {
     "tasks" => "kumbarium tasks [ns] [--all] [--severity S]",
     "roadmap" => "kumbarium roadmap [ns]",
     "brief" => "kumbarium brief <ns>",
+    "doc" => "kumbarium doc [ns] [--all] [--out DIR] [--show] [--open]",
     "agents" => "kumbarium agents [--all]",
     "agent" => "kumbarium agent <name> (the dossier)",
     "dossier" => {
@@ -523,6 +527,7 @@ fn help_topic(word: &str) -> &'static str {
         "revert" => "revert",
         "janitor" => "janitor",
         "brief" => "brief",
+        "doc" => "doc",
         "agents" => "agents",
         "dossier" => "dossier",
         "leases" => "leases",

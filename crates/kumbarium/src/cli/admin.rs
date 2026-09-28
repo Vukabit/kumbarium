@@ -71,7 +71,7 @@ pub(crate) fn persisted_cmd(json: bool, action: PersistedAction) -> ExitCode {
             path.display()
           );
         }
-        match open_in_editor(&path) {
+        match open_artifact(&path) {
           Ok(()) => ExitCode::SUCCESS,
           Err(e) => fail(&e),
         }
@@ -173,7 +173,11 @@ fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
   };
   for entry in read.flatten() {
     let path = entry.path();
-    if path.is_dir() {
+    // A doc build (D-054) is one artifact, not hundreds of
+    // pages: its index stands for the whole tree.
+    if path.is_dir() && path.join(super::super::site::MARKER).is_file() {
+      out.push(path.join("index.html"));
+    } else if path.is_dir() {
       collect_files(&path, out);
     } else {
       out.push(path);

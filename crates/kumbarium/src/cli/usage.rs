@@ -186,6 +186,9 @@ the binder and the dossier:
   kumbarium agents [--all]            the roster: every witnessed
                                       identity, what it holds
                                       (--all includes retired)
+  kumbarium doc [ns] [--all]          the library as a site,
+       [--out DIR] [--show] [--open]  cargo-doc style (--open:
+                                      the browser)
   kumbarium dossier <agent>           one agent's witnessed
        [--since D] [--until D]        story: served, wrote,
        [--session FRAG]               judged, credentials, the

@@ -9,7 +9,7 @@
 pub const TOPICS: &str = "instructions serve environment ids \
 namespaces namespace list show grep history revert retire \
 move approvals docket handoff leases secrets brief agents \
-dossier processes janitor audit export import status backup \
+dossier doc processes janitor audit export import status backup \
 update doctor alias conventions";
 
 /// The whole manual, in READING order: the building tour, not
@@ -40,6 +40,7 @@ pub const MANUAL_ORDER: &[&str] = &[
   "brief",
   "agents",
   "dossier",
+  "doc",
   "processes",
   "janitor",
   "audit",
@@ -80,6 +81,7 @@ pub fn page(topic: &str) -> Option<&'static str> {
     "secret" | "secrets" => PAGE_SECRETS,
     "brief" | "binder" => PAGE_BRIEF,
     "dossier" => PAGE_DOSSIER,
+    "doc" | "docs" | "site" => PAGE_DOC,
     "lease" | "leases" => PAGE_LEASES,
     "agent" | "agents" | "roster" => PAGE_AGENTS,
     "environment" | "env" => PAGE_ENVIRONMENT,
@@ -827,6 +829,36 @@ silently sharing one card. Minted ids disambiguate; they do
 not authenticate.
 ";
 
+const PAGE_DOC: &str = "\
+## doc: the library as a site
+
+```
+kum doc                 every shelf, as browsable HTML
+kum doc <ns>            that shelf and its subtree
+                        (kum doc project: every project)
+kum doc --all           include superseded and retired facts
+kum doc --open          build, then open it in the browser
+kum doc --show          build, then reveal it
+kum doc --out DIR       build into DIR instead
+```
+
+`cargo doc` for the library. A root index lists every shelf
+with its facts, open matters, and briefing; each shelf gets a
+page (standing briefing, open matters, facts grouped by kind);
+each fact gets a page (content, provenance, confidence and its
+basis, tags, edges in both directions, the supersession chain).
+Press `/` anywhere to search; it works offline from file://,
+no server.
+
+The build lands in exports/doc/ and is replaced wholesale each
+time; `--out` never replaces a folder that is not a previous
+build. A scoped build is complete on its own: an edge to a fact
+outside it reads \"not in this build\". Pending and rejected
+material never renders, and secrets never render at all, not
+even their names. The same library produces the same bytes, so
+a build can be diffed or committed.
+";
+
 const PAGE_BRIEF: &str = "\
 ## brief: the day-one binder
 
@@ -1010,7 +1042,7 @@ Shared flags on every exporter:
 - `--show`: reveal the file in the OS file explorer (macOS and
   Windows select it; Linux opens the containing folder).
 - `--open`: open the file in $VISUAL / $EDITOR (announced on a
-  dim line first).
+  dim line first); an HTML artifact opens in the browser.
 
 Minutes render local time by default; `--raw` keeps stored UTC
 (machine-comparable across exporting machines).

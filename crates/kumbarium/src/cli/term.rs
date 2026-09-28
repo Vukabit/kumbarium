@@ -38,6 +38,52 @@ pub(crate) fn reveal(path: &std::path::Path) -> Result<(), String> {
   }
 }
 
+/// Open an artifact with its natural viewer (D-054's amendment
+/// to D-031): an HTML page goes to the OS opener, which is the
+/// browser; everything else is text and goes to the editor.
+pub(crate) fn open_artifact(path: &std::path::Path) -> Result<(), String> {
+  let html = path
+    .extension()
+    .and_then(|e| e.to_str())
+    .is_some_and(|e| e.eq_ignore_ascii_case("html"));
+  if html {
+    open_with_os(path)
+  } else {
+    open_in_editor(path)
+  }
+}
+
+/// Hand a file to the OS opener (open / start / xdg-open). The
+/// opener is a fixed OS binary, never a config value.
+fn open_with_os(path: &std::path::Path) -> Result<(), String> {
+  #[cfg(target_os = "macos")]
+  let mut cmd = {
+    let mut c = std::process::Command::new("open");
+    c.arg(path);
+    c
+  };
+  #[cfg(target_os = "windows")]
+  let mut cmd = {
+    let mut c = std::process::Command::new("cmd");
+    c.args(["/C", "start", ""]).arg(path);
+    c
+  };
+  #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+  let mut cmd = {
+    let mut c = std::process::Command::new("xdg-open");
+    c.arg(path);
+    c
+  };
+  let status = cmd
+    .status()
+    .map_err(|e| format!("launching the OS opener: {e}"))?;
+  if status.success() {
+    Ok(())
+  } else {
+    Err("the OS opener exited nonzero".into())
+  }
+}
+
 /// Open a file in $VISUAL (then $EDITOR), announcing which one
 /// won before handing over the terminal. The editor inherits
 /// stdio and is waited on, so terminal editors behave.
