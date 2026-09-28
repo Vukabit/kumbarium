@@ -265,7 +265,7 @@ fn stock_error(
 }
 
 fn witness(
-  state: &tools::ServerState,
+  state: &mut tools::ServerState,
   kind: kumbarium_audit::EventKind,
   scope: &str,
   detail: serde_json::Value,
@@ -277,7 +277,8 @@ fn witness(
     scope: scope.into(),
     detail,
   };
-  kumbarium_audit::append(&state.audit, &event)
+  state
+    .witness(&event)
     .map(|_| ())
     .map_err(|e| format!("audit append failed: {e}"))
 }
@@ -451,7 +452,7 @@ fn set_cmd(ns: &str, name: &str, flags: &[&str]) -> ExitCode {
     Err(e) => return fail(&e.to_string()),
   };
   if let Err(e) = witness(
-    &state,
+    &mut state,
     kumbarium_audit::EventKind::SecretSet,
     &ns,
     serde_json::json!({ "name": name, "id": meta.id }),
@@ -526,7 +527,7 @@ fn read_cmd(ns: &str, name: &str) -> ExitCode {
   };
   let found = status == kumbarium_secrets::StockStatus::Live;
   if let Err(e) = witness(
-    &state,
+    &mut state,
     kumbarium_audit::EventKind::SecretRead,
     &ns,
     serde_json::json!({ "name": name, "granted": true, "found": found }),
@@ -581,7 +582,7 @@ fn copy_cmd(ns: &str, name: &str) -> ExitCode {
   };
   let found = status == kumbarium_secrets::StockStatus::Live;
   if let Err(e) = witness(
-    &state,
+    &mut state,
     kumbarium_audit::EventKind::SecretCopy,
     &ns,
     serde_json::json!({ "name": name, "found": found }),
@@ -705,8 +706,19 @@ fn grant_cmd(ns: &str, name: &str, agent: &str, flags: &[&str]) -> ExitCode {
     Err(e) => return fail(&e),
   };
   if agent.trim().is_empty() {
-    return fail("grant needs an agent id");
+    return fail("grant needs an actor");
   }
+  // Grants name ACTORS (D-056): a name-wide grant would reach
+  // every session claiming the name, in every workspace.
+  let actor = match kumbarium_store::resolve_actor(&state.library, agent) {
+    Ok(a) => a,
+    Err(e) => {
+      return fail(&format!(
+        "{e}; grants name actors since D-056 (a workspace's \
+         actor is minted at its first session)"
+      ));
+    }
+  };
   let conn = match state.secrets() {
     Ok(c) => c,
     Err(e) => return fail(&e),
@@ -720,31 +732,33 @@ fn grant_cmd(ns: &str, name: &str, agent: &str, flags: &[&str]) -> ExitCode {
     ));
   }
   if let Err(e) =
-    kumbarium_secrets::grant(conn, &ns, name, agent, until.as_deref())
+    kumbarium_secrets::grant(conn, &ns, name, &actor.id, until.as_deref())
   {
     return fail(&e.to_string());
   }
+  let who = actor.name.clone();
+  let mut detail = serde_json::json!({
+    "name": name, "grantee": who, "grantee_id": actor.id,
+  });
+  if let Some(ts) = &until {
+    detail["until"] = serde_json::json!(ts);
+  }
   if let Err(e) = witness(
-    &state,
+    &mut state,
     kumbarium_audit::EventKind::SecretGrant,
     &ns,
-    match &until {
-      Some(ts) => serde_json::json!({
-        "name": name, "grantee": agent, "until": ts,
-      }),
-      None => serde_json::json!({ "name": name, "grantee": agent }),
-    },
+    detail,
   ) {
     return fail(&format!("granted, but {e}"));
   }
   match &until {
     Some(ts) => println!(
-      "granted reveal on {ns}/{name} to {agent} through {} UTC \
+      "granted reveal on {ns}/{name} to {who} through {} UTC \
        (revocable anytime; every read re-checks)",
       &ts[..10]
     ),
     None => {
-      println!("granted reveal on {ns}/{name} to {agent} (revocable anytime)")
+      println!("granted reveal on {ns}/{name} to {who} (revocable anytime)")
     }
   }
   ExitCode::SUCCESS
@@ -759,22 +773,43 @@ fn revoke_cmd(ns: &str, name: &str, agent: &str) -> ExitCode {
   if let Err(e) = kumbarium_librarian::validate_namespace(&ns) {
     return fail(&format!("invalid namespace: {e}"));
   }
+  // An actor's grant first (D-056); else a legacy name-wide
+  // row keyed by the claimed name as typed.
+  let actor = kumbarium_store::resolve_actor(&state.library, agent).ok();
   let conn = match state.secrets() {
     Ok(c) => c,
     Err(e) => return fail(&e),
   };
-  let removed = match kumbarium_secrets::revoke(conn, &ns, name, agent) {
-    Ok(r) => r,
-    Err(e) => return fail(&e.to_string()),
-  };
+  let mut detail = serde_json::json!({ "name": name, "grantee": agent });
+  let mut removed = false;
+  if let Some(a) = &actor {
+    removed = match kumbarium_secrets::revoke(conn, &ns, name, &a.id) {
+      Ok(r) => r,
+      Err(e) => return fail(&e.to_string()),
+    };
+    if removed {
+      detail = serde_json::json!({
+        "name": name, "grantee": a.name, "grantee_id": a.id,
+      });
+    }
+  }
+  if !removed {
+    removed = match kumbarium_secrets::revoke(conn, &ns, name, agent) {
+      Ok(r) => r,
+      Err(e) => return fail(&e.to_string()),
+    };
+    if removed {
+      detail["legacy"] = serde_json::json!(true);
+    }
+  }
   if !removed {
     return fail(&format!("no grant on {ns}/{name} for {agent}"));
   }
   if let Err(e) = witness(
-    &state,
+    &mut state,
     kumbarium_audit::EventKind::SecretRevoke,
     &ns,
-    serde_json::json!({ "name": name, "grantee": agent }),
+    detail,
   ) {
     return fail(&format!("revoked, but {e}"));
   }
@@ -809,7 +844,7 @@ fn shred_cmd(ns: &str, name: &str, yes: bool) -> ExitCode {
     Err(e) => return fail(&e.to_string()),
   };
   if let Err(e) = witness(
-    &state,
+    &mut state,
     kumbarium_audit::EventKind::SecretShred,
     &ns,
     serde_json::json!({ "name": name, "id": meta.id }),
@@ -830,6 +865,33 @@ fn shred_cmd(ns: &str, name: &str, yes: bool) -> ExitCode {
     );
   }
   ExitCode::SUCCESS
+}
+
+/// Actor names by id, for labeling grantees (D-056).
+fn actor_names(
+  state: &tools::ServerState,
+) -> std::collections::HashMap<String, String> {
+  kumbarium_store::actors(&state.library)
+    .unwrap_or_default()
+    .into_iter()
+    .map(|a| (a.id, a.name))
+    .collect()
+}
+
+/// A grantee as a human reads it: the actor's name, or a legacy
+/// name-wide grant marked as such.
+fn grantee_label(
+  names: &std::collections::HashMap<String, String>,
+  g: &kumbarium_secrets::Grant,
+) -> String {
+  if g.grantee_kind == "actor" {
+    names
+      .get(&g.agent_id)
+      .cloned()
+      .unwrap_or_else(|| kumbarium_store::short_id(&g.agent_id).to_string())
+  } else {
+    format!("{} (name-wide, legacy)", g.agent_id)
+  }
 }
 
 /// `kum secrets [ns]`: the stacks at a glance. Names, grants,
@@ -859,6 +921,7 @@ pub(crate) fn secrets_cmd(ns: Option<&str>, json: bool) -> ExitCode {
     }
     None => None,
   };
+  let names = actor_names(&state);
   let conn = match state.secrets() {
     Ok(c) => c,
     Err(e) => return fail(&e),
@@ -897,6 +960,8 @@ pub(crate) fn secrets_cmd(ns: Option<&str>, json: bool) -> ExitCode {
         "namespace": g.namespace,
         "name": g.name,
         "agent_id": g.agent_id,
+        "grantee": grantee_label(&names, g),
+        "grantee_kind": g.grantee_kind,
         "mode": g.mode,
         "granted_at": g.created_at,
         "until": g.expires_at,
@@ -973,7 +1038,7 @@ pub(crate) fn secrets_cmd(ns: Option<&str>, json: bool) -> ExitCode {
         g.namespace,
         g.name,
         sty.dim("->"),
-        g.agent_id,
+        grantee_label(&names, g),
         g.mode
       );
     }
@@ -988,6 +1053,7 @@ pub(crate) fn show_secret(
   state: &mut tools::ServerState,
   id: &str,
 ) -> Result<ExitCode, String> {
+  let names = actor_names(state);
   let conn = state.secrets()?;
   let full = match kumbarium_secrets::resolve_id(conn, id) {
     Ok(f) => f,
@@ -1050,11 +1116,12 @@ pub(crate) fn show_secret(
           .map(|g| {
             let until = g
               .expires_at
+              .as_ref()
               .map(|u| {
                 format!(" until {}", u.get(..10).unwrap_or("?").to_owned())
               })
               .unwrap_or_default();
-            format!("{}{until}", g.agent_id)
+            format!("{}{until}", grantee_label(&names, &g))
           })
           .collect::<Vec<_>>()
       })
@@ -1235,7 +1302,7 @@ fn exec_cmd(ns: &str, name: &str, rest: &[&str]) -> ExitCode {
   };
   let found = status == kumbarium_secrets::StockStatus::Live;
   if let Err(e) = witness(
-    &state,
+    &mut state,
     kumbarium_audit::EventKind::SecretExec,
     &ns,
     serde_json::json!({ "name": name, "command": cmd[0], "found": found }),
@@ -1443,7 +1510,7 @@ fn leakscan_cmd(ns: Option<&str>) -> ExitCode {
     )
   );
   if let Err(e) = witness(
-    &state,
+    &mut state,
     kumbarium_audit::EventKind::SecretLeakscan,
     ns.as_deref().unwrap_or(""),
     serde_json::json!({ "scanned": scanned, "hits": exposures }),

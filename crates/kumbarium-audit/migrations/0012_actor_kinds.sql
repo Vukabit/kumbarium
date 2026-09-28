@@ -1,0 +1,41 @@
+-- 0012: minted actors on the ledger (D-056). Each session opens
+-- with an actor_bind (its detail names the actor; the session id
+-- every later event carries is hashed, so attribution is
+-- tamper-evident without a recipe change), and every registry
+-- act is witnessed: mint, rename, merge, retire, unretire. Same
+-- rebuild dance; hashes untouched (new kind strings only).
+
+CREATE TABLE events_new (
+  id TEXT PRIMARY KEY,
+  at TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (
+    kind IN (
+      'recall', 'remember', 'supersede', 'forget', 'eval_run',
+      'link', 'import', 'retire', 'unretire', 'confirm',
+      'janitor', 'approve', 'reject', 'task_file', 'task_update',
+      'task_done', 'task_drop', 'task_list', 'handoff_write',
+      'handoff_drop', 'secret_set', 'secret_read',
+      'secret_grant', 'secret_revoke', 'secret_shred',
+      'secret_copy', 'secret_exec', 'secret_leakscan',
+      'lease_take', 'lease_release', 'lease_break', 'get',
+      'doctor', 'namespace_add', 'namespace_remove',
+      'actor_mint', 'actor_bind', 'actor_rename', 'actor_merge',
+      'actor_retire', 'actor_unretire'
+    )
+  ),
+  scope TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '{}',
+  session_id TEXT NOT NULL DEFAULT '',
+  hash TEXT
+);
+
+INSERT INTO events_new
+  (id, at, agent_id, kind, scope, detail, session_id, hash)
+  SELECT id, at, agent_id, kind, scope, detail, session_id, hash
+  FROM events;
+DROP TABLE events;
+ALTER TABLE events_new RENAME TO events;
+
+CREATE INDEX idx_events_at ON events (at);
+CREATE INDEX idx_events_agent ON events (agent_id);

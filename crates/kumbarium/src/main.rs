@@ -1,6 +1,7 @@
 //! Kumbarium: the librarian process. `serve` speaks MCP over
 //! stdio (D-014); the rest is the human-facing CLI.
 
+mod actor;
 mod bundle;
 mod cli;
 mod config;
@@ -90,7 +91,9 @@ pub fn run() -> ExitCode {
       }
       Err(e) => fail(&e.to_string()),
     },
-    ["serve"] => serve(),
+    ["serve"] => serve(None),
+    ["serve", "--agent", name] => serve(Some(name)),
+    ["serve", "--agent"] => fail("--agent needs an actor name (kum agents)"),
     ["serve", "reload"] | ["serve", "reload", "--all"] => {
       cli::process::serve_reload_cmd(None)
     }
@@ -193,10 +196,22 @@ pub fn run() -> ExitCode {
     // Reserved for the agent-lifecycle family: no identity may
     // bear these words, so the dossier route refuses them
     // instead of rendering an empty story.
+    // The agent lifecycle (D-056): verbs over the actor registry.
+    ["agent", "add", rest @ ..] => cli::agent::agent_add_cmd(rest),
+    ["agent", "rename", actor, new] => cli::agent::agent_rename_cmd(actor, new),
+    ["agent", "merge", from, into] => cli::agent::agent_merge_cmd(from, into),
+    ["agent", "retire", actor] => cli::agent::agent_retire_cmd(actor, true),
+    ["agent", "unretire", actor] => cli::agent::agent_retire_cmd(actor, false),
+    ["agent", "list"] => agents_cmd(false, false),
+    ["agent", "show", actor, rest @ ..] => dossier_cmd(actor, rest),
+    ["agent", "remove", ..] => fail(
+      "actors are never removed (their sessions are on the chain); \
+       retire one instead: kum agent retire <actor>",
+    ),
     ["agent", verb, ..] if tools::reserved_agent_word(verb) => fail(&format!(
-      "kum agent {verb} is reserved for the agent lifecycle \
-         (not built yet); the roster: kum agents, the deep \
-         story: kum dossier <agent>"
+      "usage: kum agent add <name> [--human] | rename <actor> <new> | \
+       merge <from> <into> | retire|unretire <actor> | show <actor> \
+       (you typed {verb:?})"
     )),
     ["agent", name] => dossier_cmd(name, &[]),
     ["agent", name, rest @ ..] => dossier_cmd(name, rest),
@@ -463,7 +478,11 @@ fn usage_of(word: &str) -> Option<&'static str> {
     "brief" => "kumbarium brief <ns>",
     "doc" => "kumbarium doc [ns] [--all] [--out DIR] [--show] [--open]",
     "agents" => "kumbarium agents [--all]",
-    "agent" => "kumbarium agent <name> (the dossier)",
+    "agent" => {
+      "kumbarium agent <actor> | agent add <name> [--human] | \
+       rename <actor> <new> | merge <from> <into> | \
+       retire|unretire <actor>"
+    }
     "dossier" => {
       "kumbarium dossier <agent> [--since D] [--until D] [--session F]"
     }
@@ -491,7 +510,7 @@ fn usage_of(word: &str) -> Option<&'static str> {
     "doctor" => "kumbarium doctor [--deep] [--apply] [--json]",
     "config" => "kumbarium config [--init|--open]",
     "paths" => "kumbarium paths",
-    "serve" => "kumbarium serve [reload [pid|--all]]",
+    "serve" => "kumbarium serve [--agent <name>] | serve reload [pid|--all]",
     "update" => "kumbarium update [--check|--yes]",
     "completions" => "kumbarium completions bash|zsh|fish [--install]",
     "instructions" => "kumbarium instructions [--snippet]",
@@ -634,6 +653,7 @@ pub(crate) fn open_stores() -> Result<Stores, String> {
     }
     Err(_) => config::Config::default(),
   };
+  let cfg_human = cfg.identity_human.clone();
   let state = tools::ServerState {
     library,
     audit,
@@ -650,6 +670,14 @@ pub(crate) fn open_stores() -> Result<Stores, String> {
     leases: None,
     leases_path: p.leases_db.clone(),
     presence: None,
+    // The CLI is the human at the terminal (D-056); serve
+    // replaces this with the agent source before initialize.
+    actor_source: actor::ActorSource::Human {
+      mode: cfg_human,
+      cwd: std::env::current_dir().unwrap_or_default(),
+    },
+    actor: None,
+    actor_bound: false,
   };
   Ok((p, state))
 }
@@ -901,10 +929,26 @@ fn backup_now() -> ExitCode {
   }
 }
 
-fn serve() -> ExitCode {
+fn serve(agent: Option<&str>) -> ExitCode {
   let (p, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
+  };
+  // A serve process is an agent working in a workspace (D-056):
+  // pinned by --agent (or KUMBARIUM_AGENT, for clients whose MCP
+  // config sets env more easily than args), else minted per
+  // (claimed name, workspace) at the first witnessed event.
+  let requested = agent.map(str::to_string).or_else(|| {
+    std::env::var("KUMBARIUM_AGENT")
+      .ok()
+      .map(|v| v.trim().to_string())
+      .filter(|v| !v.is_empty())
+  });
+  state.actor_source = actor::ActorSource::Agent {
+    workspace: actor::workspace_of(
+      &std::env::current_dir().unwrap_or_default(),
+    ),
+    requested,
   };
   // Reload carryover (D-048): a re-exec'd serve consumes its
   // predecessor's state file exactly once (the session id,
@@ -923,6 +967,19 @@ fn serve() -> ExitCode {
         }
         if let Some(s) = v.get("session_id").and_then(|x| x.as_str()) {
           state.session_id = s.into();
+        }
+        if let Some(req) = v.get("actor_requested").and_then(|x| x.as_str())
+          && let actor::ActorSource::Agent { requested, .. } =
+            &mut state.actor_source
+        {
+          *requested = Some(req.to_string());
+        }
+        if v.get("actor_bound").and_then(|x| x.as_bool()) == Some(true) {
+          state.actor = v
+            .get("actor_id")
+            .and_then(|x| x.as_str())
+            .and_then(|id| kumbarium_store::actor_get(&state.library, id).ok());
+          state.actor_bound = true;
         }
         if let Some(arr) = v.get("served_handoffs").and_then(|x| x.as_array()) {
           state.served_handoffs = arr

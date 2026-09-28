@@ -87,7 +87,7 @@ pub(crate) fn handoff_cmd(ns: &str, rest: &[&str]) -> ExitCode {
     scope: ns.clone(),
     detail: serde_json::json!({ "id": h.id }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("left, but audit append failed: {e}"));
   }
   println!(
@@ -127,7 +127,7 @@ pub(crate) fn handoff_drop_cmd(ns: &str) -> ExitCode {
     scope: ns.clone(),
     detail: serde_json::json!({ "id": h.id }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("dropped, but audit append failed: {e}"));
   }
   println!(
@@ -336,7 +336,7 @@ pub(crate) fn judge_handoff(
     scope: h.namespace.clone(),
     detail,
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("judged, but audit append failed: {e}"));
   }
   if approving {

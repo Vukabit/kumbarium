@@ -183,7 +183,7 @@ pub(crate) fn task_file_cmd(ns: &str, rest: &[&str]) -> ExitCode {
       "goal": task.goal,
     }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("filed, but audit append failed: {e}"));
   }
   let goal_str = task
@@ -241,7 +241,7 @@ pub(crate) fn task_judge_cmd(id: &str, to_done: bool, note: &str) -> ExitCode {
     scope: task.namespace.clone(),
     detail: serde_json::json!({ "id": full, "note": note }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("judged, but audit append failed: {e}"));
   }
   println!(
@@ -301,7 +301,7 @@ pub(crate) fn task_grade_cmd(id: &str, rest: &[&str]) -> ExitCode {
       "note": edit.note,
     }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("regraded, but audit append failed: {e}"));
   }
   println!(
@@ -359,7 +359,7 @@ pub(crate) fn task_reword_cmd(id: &str, rest: &[&str]) -> ExitCode {
       "content": task.content,
     }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("reworded, but audit append failed: {e}"));
   }
   println!(
@@ -801,7 +801,7 @@ pub(crate) fn move_task_cmd(
       "note": note,
     }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("moved, but audit append failed: {e}"));
   }
   println!(

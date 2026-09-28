@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod actors;
 mod backup;
 mod entries;
 mod links;
@@ -15,6 +16,11 @@ use std::path::Path;
 // return it, so callers get the type without a rusqlite dep.
 pub use rusqlite::Connection;
 
+pub use actors::{
+  Actor, ActorKind, MAX_ACTOR_NAME, NewActor, actor_by_key, actor_get,
+  actor_root, actor_slug, actors, merge_actor, mint_actor, rename_actor,
+  resolve_actor, set_actor_retired, validate_actor_name,
+};
 pub use backup::{
   Retention, backup, integrity, latest_backup_ms, prune, snapshots,
 };
@@ -31,8 +37,14 @@ pub use links::{Link, Rel, continues_chain, link, links_of, unlink};
 /// Numbered migrations, applied in order inside one transaction
 /// each. Append-only: a shipped migration is never edited; schema
 /// changes are a new numbered file.
-const MIGRATIONS: &[(i64, &str, &str)] =
-  &[(1, "0001_init", include_str!("../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+  (1, "0001_init", include_str!("../migrations/0001_init.sql")),
+  (
+    2,
+    "0002_actors",
+    include_str!("../migrations/0002_actors.sql"),
+  ),
+];
 
 /// The version pre-squash databases sit at: their schema is
 /// byte-identical to the squashed 0001, only the version rows
@@ -75,6 +87,16 @@ pub enum StoreError {
      corruption)"
   )]
   ContentDivergence(String),
+  #[error("no actor matches {0:?} (kum agents lists them)")]
+  ActorNotFound(String),
+  #[error("actor fragment {0:?} matches more than one actor")]
+  AmbiguousActor(String),
+  #[error("actor name {0:?} is taken")]
+  ActorNameTaken(String),
+  #[error("invalid actor name {0:?}: {1}")]
+  InvalidActorName(String, &'static str),
+  #[error("cannot merge: {0}")]
+  ActorMerge(String),
   #[error("backup io: {0}")]
   Io(#[from] std::io::Error),
   #[error("backup copy failed integrity check: {0}")]
@@ -192,7 +214,7 @@ mod tests {
   #[test]
   fn fresh_store_reaches_latest_schema() {
     let conn = open_in_memory().unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 1);
+    assert_eq!(schema_version(&conn).unwrap(), latest());
   }
 
   #[test]
@@ -200,14 +222,26 @@ mod tests {
     let conn = open_in_memory().unwrap();
     // A second pass sees itself at latest and applies nothing.
     migrate(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 1);
+    assert_eq!(schema_version(&conn).unwrap(), latest());
+  }
+
+  fn latest() -> i64 {
+    MIGRATIONS.last().map(|m| m.0).unwrap_or(0)
   }
 
   #[test]
   fn legacy_version_rows_collapse_to_the_squash() {
-    let conn = open_in_memory().unwrap();
-    // Simulate a pre-squash db: same schema, legacy version rows.
-    conn.execute("DELETE FROM schema_version", []).unwrap();
+    // Simulate a pre-squash db: the 0001 schema (identical to
+    // legacy latest), with legacy version rows.
+    let conn = Connection::open_in_memory().unwrap();
+    configure(&conn).unwrap();
+    conn
+      .execute_batch(&format!(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY,
+           name TEXT NOT NULL, applied_at TEXT NOT NULL);\n{}",
+        MIGRATIONS[0].2
+      ))
+      .unwrap();
     for (v, name) in [
       (1, "0001_init"),
       (2, "0002_entry_links"),
@@ -225,11 +259,21 @@ mod tests {
         .unwrap();
     }
     migrate(&conn).unwrap();
-    assert_eq!(schema_version(&conn).unwrap(), 1);
+    // Collapsed to the squashed init, then carried to latest by
+    // the append-only migrations after it.
+    assert_eq!(schema_version(&conn).unwrap(), latest());
+    let first: String = conn
+      .query_row(
+        "SELECT name FROM schema_version ORDER BY version LIMIT 1",
+        [],
+        |r| r.get(0),
+      )
+      .unwrap();
+    assert_eq!(first, "0001_init", "legacy rows collapse to the squash");
     let rows: i64 = conn
       .query_row("SELECT count(*) FROM schema_version", [], |r| r.get(0))
       .unwrap();
-    assert_eq!(rows, 1, "one row, the squashed init");
+    assert_eq!(rows, latest(), "one row per migration, no legacy rows");
   }
 
   #[test]

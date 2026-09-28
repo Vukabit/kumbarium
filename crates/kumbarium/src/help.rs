@@ -529,7 +529,8 @@ const PAGE_SERVE: &str = "\
 ## serve: the MCP server
 
 ```
-kum serve
+kum serve                   bind as the client in this workspace
+kum serve --agent <name>    bind as a registered actor
 ```
 
 Speaks MCP over stdio: newline-delimited JSON-RPC 2.0. Not for
@@ -539,8 +540,10 @@ task_list, confirm, supersede, task_file, task_update,
 handoff_write, lease_take, lease_release, secret_read
 (deletion is the human's verb: kum forget). Every
 call is audited under the agent identity the client declared
-at initialize, alongside a librarian-MINTED session id:
-agents are claimed, sessions are minted. stdout
+at initialize, alongside a librarian-MINTED session id, and
+each session binds a minted ACTOR (D-056): the client in its
+workspace, or the one named by `kum serve --agent <name>`
+(`KUMBARIUM_AGENT`). See `kum help agents`. stdout
 carries protocol only; diagnostics go to stderr.
 
 `kum serve reload [pid|--all]` hot-swaps live serve processes
@@ -726,9 +729,9 @@ kum secret set <ns> <name>      stock or rotate; value from
 kum secret read <ns> <name>     print the value
 kum secret copy <ns> <name>     concealed clipboard copy,
                                 auto-clear in 90 seconds
-kum secret grant <ns> <name> <agent> [--until DATE]
+kum secret grant <ns> <name> <actor> [--until DATE]
                                 allow secret_read (leased)
-kum secret revoke <ns> <name> <agent>   withdraw, effective now
+kum secret revoke <ns> <name> <actor>   withdraw, effective now
 kum secret shred <ns> <name>    destroy the value, keep record
 kum secret exec <ns> <name> [--as VAR] -- cmd args...
                                 run with the value injected
@@ -740,9 +743,16 @@ Day one, three lines:
 
 ```
 kum secret set global my-token           # prompts, echo off
-kum secret grant global my-token claude
+kum secret grant global my-token claude-code@my-repo
 kum secret exec global my-token -- ./deploy.sh
 ```
+
+Grants name ACTORS (D-056, `kum agents` lists them), so a grant
+reaches one agent in one workspace, never every session that
+claims a client name. A new workspace holds nothing until
+granted. Grants written before actors are name-wide: they still
+read, show as `(name-wide, legacy)`, and `kum doctor` names the
+command that replaces each one.
 
 These are the custody tools of the BROKER, the arm of the
 library that holds credential values so that memories, tasks,
@@ -894,36 +904,51 @@ shaped for a person, or for pasting into a fresh context.
 ";
 
 const PAGE_AGENTS: &str = "\
-## agents: the roster
+## agents: the roster and the lifecycle
 
 ```
-kum agents [--all]      every witnessed identity, at a glance
-kum agent <name>        the deep story (alias for dossier)
+kum agents [--all]                 every actor, at a glance
+kum agent <actor>                  the deep story (the dossier)
+kum agent add <name> [--human]     register one ahead of time
+kum agent rename <actor> <new>     the display name; the id stays
+kum agent merge <from> <into>      fold one trail into another
+kum agent retire|unretire <actor>  hide from the roster; keep all
 ```
 
-Cleanup is CURATION, never erasure: the ledger keeps every
-identity's history forever, so a stale identity is RETIRED in
-config, not deleted:
+Identity has three legs (D-056). The NAME is what a client
+claims at initialize (`claude-code`); the SESSION is minted per
+server process; the ACTOR is minted by the library and lasts
+across sessions. A serve process is an actor per (claimed name,
+workspace): the first session of `claude-code` in a repository
+mints `claude-code@<repo>`, and every later session there binds
+the same actor. The CLI is the human: an actor named from git
+config (user.name / user.email), else the OS login, set by
+`[identity] human` in config.
 
-```
-[agents]
-retired = \"demo, smoke, session-one\"
-```
+Each session opens its trail with a hashed `actor_bind` event,
+so attribution is as tamper-evident as the rest of the chain.
+Pin a client to a registered actor with `kum serve --agent
+<name>` (or `KUMBARIUM_AGENT=<name>` in its MCP config). An
+`<actor>` argument is a name or an id fragment; for history from
+before actors, a claimed name still works and reads as
+`(unbound)`.
 
-Retired identities leave the default roster and return under
-`--all`, marked. Reversible by editing config; the dossier and
-the ledger never hide anyone.
+Nothing here rewrites the ledger. A rename changes a label, a
+merge records where a trail now reads (two clones of one repo
+are the usual reason), and a retire hides a row that `--all`
+brings back. Actors are never removed. The config key `[agents]
+retired` still hides unbound claimed names.
 
-Every identity that ever touched the library, derived from the
-ledger and the shelves: last seen, minted sessions, event
-count, the estate (live writes, and how many were corrected by
-OTHERS), grants held, active reading-room leases. Identities
-seen only in imported entries show as pre-ledger.
+The roster counts: last seen, sessions, events, the estate
+(live writes, and how many were corrected by OTHER actors, so
+one Claude session correcting another finally counts), grants
+held, active leases. Counts, never scores: judgment stays yours,
+and `kum agent <actor>` is the evidence behind any row.
 
-Counts, never scores: the roster states what happened and
-holds no opinion; ranking agents by number is precisely the
-trap it refuses to build. Judgment stays yours, and
-`kum dossier <agent>` is the evidence behind any row.
+It disambiguates; it does not authenticate. A client can claim
+any name or pass any `--agent`, and subagents share their
+parent's connection. Authenticated identity is the daemon
+rung's, and will bind to these same actor ids.
 ";
 
 const PAGE_DOSSIER: &str = "\

@@ -451,6 +451,7 @@ mod tests {
         source: "test".into(),
         tags: tags.iter().map(|t| t.to_string()).collect(),
         status: kumbarium_store::Status::Live,
+        actor_id: None,
       },
     )
     .unwrap()
@@ -473,6 +474,7 @@ mod tests {
         source: "test".into(),
         tags: vec![],
         status: kumbarium_store::Status::Live,
+        actor_id: None,
       },
       None,
     )

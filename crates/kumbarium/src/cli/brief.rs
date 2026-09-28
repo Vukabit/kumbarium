@@ -351,6 +351,7 @@ mod tests {
       note: None,
       status: kumbarium_store::Status::Live,
       tags: vec![],
+      actor_id: None,
     }
   }
 

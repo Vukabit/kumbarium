@@ -186,7 +186,7 @@ pub(crate) fn janitor_cmd(apply: bool) -> ExitCode {
       "applied": applied,
     }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("applied, but audit append failed: {e}"));
   }
   println!(
@@ -592,6 +592,9 @@ pub(crate) fn judge_cmd(
   let mut detail = serde_json::json!({
     "id": full,
     "submitter": e.agent_id,
+    // The author's actor (D-056), so dossiers credit judgments
+    // to the actor, not to every session sharing its claim.
+    "submitter_actor": e.actor_id,
   });
   if let Some(reason) = &reason {
     detail["reason"] = serde_json::json!(reason);
@@ -607,7 +610,7 @@ pub(crate) fn judge_cmd(
     scope: e.namespace.clone(),
     detail,
   };
-  if let Err(err) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(err) = state.witness(&event) {
     return fail(&format!("judged, but audit append failed: {err}"));
   }
   if approving {
@@ -676,7 +679,7 @@ fn judge_task(
     scope: task.namespace.clone(),
     detail,
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("judged, but audit append failed: {e}"));
   }
   if approving {

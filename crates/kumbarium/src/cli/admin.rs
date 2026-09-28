@@ -214,13 +214,17 @@ pub(crate) fn namespace_add(path: &str, description: &str) -> ExitCode {
        project/{word}"
     ));
   }
-  let (_, state) = match open_stores() {
+  let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
   match kumbarium_store::register_namespace(&state.library, path, description) {
     Ok(_) => {
-      witness_registry(&state, kumbarium_audit::EventKind::NamespaceAdd, path);
+      witness_registry(
+        &mut state,
+        kumbarium_audit::EventKind::NamespaceAdd,
+        path,
+      );
       println!("registered {path}");
       ExitCode::SUCCESS
     }
@@ -233,7 +237,7 @@ pub(crate) fn namespace_add(path: &str, description: &str) -> ExitCode {
 /// append; a witness failure is reported but the registry
 /// change already happened.
 fn witness_registry(
-  state: &super::super::tools::ServerState,
+  state: &mut super::super::tools::ServerState,
   kind: kumbarium_audit::EventKind,
   path: &str,
 ) {
@@ -244,7 +248,7 @@ fn witness_registry(
     scope: path.to_string(),
     detail: serde_json::json!({ "path": path }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     eprintln!("kumbarium: registry change made, but audit append failed: {e}");
   }
 }
@@ -316,7 +320,7 @@ pub(crate) fn namespace_remove(path: &str) -> ExitCode {
   match kumbarium_store::remove_namespace(&state.library, path) {
     Ok(()) => {
       witness_registry(
-        &state,
+        &mut state,
         kumbarium_audit::EventKind::NamespaceRemove,
         path,
       );

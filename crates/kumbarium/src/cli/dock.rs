@@ -285,7 +285,7 @@ pub(crate) fn import_bundle_cmd(file: &str, as_pending: bool) -> ExitCode {
       "pending": as_pending,
     }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("imported, but audit append failed: {e}"));
   }
   println!(

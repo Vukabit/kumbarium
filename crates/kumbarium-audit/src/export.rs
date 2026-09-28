@@ -422,6 +422,24 @@ pub fn describe_event(kind: &str, detail: &str) -> String {
       "namespace_remove" => {
         Some(format!("removed namespace {} (was empty)", s("path")?))
       }
+      "actor_mint" => Some(format!(
+        "minted actor {} ({})",
+        s("name")?,
+        s("kind").unwrap_or("agent")
+      )),
+      "actor_bind" => Some(format!(
+        "session opened as {} (via {})",
+        s("name")?,
+        s("via").unwrap_or("auto")
+      )),
+      "actor_rename" => {
+        Some(format!("renamed actor {} to {}", s("from")?, s("to")?))
+      }
+      "actor_merge" => {
+        Some(format!("merged actor {} into {}", s("from")?, s("into")?))
+      }
+      "actor_retire" => Some(format!("retired actor {}", s("name")?)),
+      "actor_unretire" => Some(format!("unretired actor {}", s("name")?)),
       "secret_set" => Some(format!("stocked secret {:?}", s("name")?)),
       "secret_read" => {
         // found:false = the name was not on the shelf; nothing

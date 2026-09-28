@@ -265,7 +265,7 @@ pub(crate) fn link_cmd(from: &str, rel: &str, to: &str) -> ExitCode {
        duplicates, contradicts"
     ));
   };
-  let (_, state) = match open_stores() {
+  let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
@@ -295,7 +295,7 @@ pub(crate) fn link_cmd(from: &str, rel: &str, to: &str) -> ExitCode {
       "rel": rel.as_str(),
     }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("linked, but audit append failed: {e}"));
   }
   println!(
@@ -342,7 +342,7 @@ pub(crate) fn forget_cmd(id: &str, yes: bool) -> ExitCode {
     scope: entry.namespace.clone(),
     detail: serde_json::json!({ "id": full }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("forgotten, but audit append failed: {e}"));
   }
   println!(
@@ -356,7 +356,7 @@ pub(crate) fn forget_cmd(id: &str, yes: bool) -> ExitCode {
 /// Retire (or restore) an entry: human-only lifecycle verb,
 /// immediate because fully reversible; audited either way.
 pub(crate) fn retire_cmd(id: &str, retiring: bool) -> ExitCode {
-  let (_, state) = match open_stores() {
+  let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
@@ -389,7 +389,7 @@ pub(crate) fn retire_cmd(id: &str, retiring: bool) -> ExitCode {
     scope: entry.namespace.clone(),
     detail: serde_json::json!({ "id": full }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("done, but audit append failed: {e}"));
   }
   let short = kumbarium_store::short_id(&full);
@@ -579,6 +579,11 @@ pub(crate) fn revert_cmd(id: &str, apply: bool) -> ExitCode {
     );
     return ExitCode::SUCCESS;
   }
+  // The human at the terminal writes this version (D-056).
+  let human = match state.actor_id() {
+    Ok(id) => id,
+    Err(e) => return fail(&e),
+  };
   let new = kumbarium_store::NewEntry {
     namespace: target.namespace.clone(),
     kind: target.kind,
@@ -587,6 +592,7 @@ pub(crate) fn revert_cmd(id: &str, apply: bool) -> ExitCode {
     source: target.source.clone(),
     tags: target.tags.clone(),
     status: kumbarium_store::Status::Live,
+    actor_id: human,
   };
   let revert_note =
     format!("revert to {}", kumbarium_store::short_id(&target.id));
@@ -612,7 +618,7 @@ pub(crate) fn revert_cmd(id: &str, apply: bool) -> ExitCode {
       "note": revert_note,
     }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("reverted, but audit append failed: {e}"));
   }
   println!(
@@ -796,6 +802,11 @@ pub(crate) fn move_cmd(id: &str, namespace: &str) -> ExitCode {
     return fail("entry is already in that namespace");
   }
   let note = format!("moved from {}", e.namespace);
+  // The human at the terminal writes this version (D-056).
+  let human = match state.actor_id() {
+    Ok(id) => id,
+    Err(e) => return fail(&e),
+  };
   let new = kumbarium_store::NewEntry {
     namespace: namespace.to_string(),
     kind: e.kind,
@@ -804,6 +815,7 @@ pub(crate) fn move_cmd(id: &str, namespace: &str) -> ExitCode {
     source: e.source.clone(),
     tags: e.tags.clone(),
     status: kumbarium_store::Status::Live,
+    actor_id: human,
   };
   let ids = match tools::store_split(&mut state, &new, Some(&full), Some(&note))
   {
@@ -821,7 +833,7 @@ pub(crate) fn move_cmd(id: &str, namespace: &str) -> ExitCode {
       "note": note,
     }),
   };
-  if let Err(err) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(err) = state.witness(&event) {
     return fail(&format!("moved, but audit append failed: {err}"));
   }
   println!(
@@ -837,7 +849,7 @@ pub(crate) fn move_cmd(id: &str, namespace: &str) -> ExitCode {
 /// as the MCP tool: stamps last_confirmed_at, never touches the
 /// confidence number; the janitor judges that later).
 pub(crate) fn confirm_cmd(id: &str) -> ExitCode {
-  let (_, state) = match open_stores() {
+  let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
@@ -859,7 +871,7 @@ pub(crate) fn confirm_cmd(id: &str) -> ExitCode {
     scope,
     detail: serde_json::json!({ "id": full }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("confirmed, but audit append failed: {e}"));
   }
   println!("confirmed {}", sty.id(kumbarium_store::short_id(&full)));

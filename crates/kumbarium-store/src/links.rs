@@ -192,6 +192,7 @@ mod tests {
           source: "".into(),
           tags: vec![],
           status: crate::entries::Status::Live,
+          actor_id: None,
         },
       )
       .unwrap()
@@ -260,6 +261,7 @@ mod tests {
         source: "".into(),
         tags: vec![],
         status: crate::entries::Status::Live,
+        actor_id: None,
       },
     )
     .unwrap()
@@ -290,6 +292,7 @@ mod tests {
         source: "".into(),
         tags: vec![],
         status: crate::entries::Status::Live,
+        actor_id: None,
       },
     )
     .unwrap()
@@ -330,6 +333,7 @@ mod tests {
         source: "".into(),
         tags: vec![],
         status: crate::entries::Status::Live,
+        actor_id: None,
       },
       Some("typo fix"),
     )

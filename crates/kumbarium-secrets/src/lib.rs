@@ -27,6 +27,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     "0002_value_expiry",
     include_str!("../migrations/0002_value_expiry.sql"),
   ),
+  (
+    3,
+    "0003_grantee_kind",
+    include_str!("../migrations/0003_grantee_kind.sql"),
+  ),
 ];
 
 /// Envelope version byte; an unknown version fails closed
@@ -121,7 +126,11 @@ pub struct SecretMeta {
 pub struct Grant {
   pub namespace: String,
   pub name: String,
+  /// The grantee: an actor id, or (legacy, name-wide) a claimed
+  /// agent name. `grantee_kind` says which.
   pub agent_id: String,
+  /// "actor" or "name" (D-056).
+  pub grantee_kind: String,
   pub mode: String,
   pub expires_at: Option<String>,
   pub created_at: String,
@@ -612,7 +621,17 @@ pub fn history(
   Ok(chain)
 }
 
-/// Grant an agent access. Human-only caller; witnessed by them.
+/// How a read was allowed (D-056): by a grant to the reading
+/// actor, or by a legacy name-wide grant to its claimed name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrantVia {
+  Actor,
+  LegacyName,
+}
+
+/// Grant an ACTOR access (D-056: new grants are always to a
+/// minted actor id; name-wide grants are legacy only). Human-only
+/// caller; witnessed by them.
 pub fn grant(
   conn: &Connection,
   namespace: &str,
@@ -622,10 +641,11 @@ pub fn grant(
 ) -> Result<(), SecretsError> {
   conn.execute(
     "INSERT INTO grants
-       (namespace, name, agent_id, mode, expires_at, created_at)
-     VALUES (?1, ?2, ?3, 'reveal', ?4, ?5)
+       (namespace, name, agent_id, mode, expires_at, created_at,
+        grantee_kind)
+     VALUES (?1, ?2, ?3, 'reveal', ?4, ?5, 'actor')
      ON CONFLICT (namespace, name, agent_id)
-     DO UPDATE SET expires_at = ?4",
+     DO UPDATE SET expires_at = ?4, grantee_kind = 'actor'",
     params![
       namespace,
       name,
@@ -653,32 +673,45 @@ pub fn revoke(
   Ok(n > 0)
 }
 
-/// Deny-by-default read-time check: a reveal grant exists for
-/// this agent and has not expired.
+/// Deny-by-default read-time check (D-056): a live reveal grant
+/// to the reading actor, else a live LEGACY name-wide grant to
+/// its claimed name. None = refused.
 pub fn check_grant(
   conn: &Connection,
   namespace: &str,
   name: &str,
-  agent_id: &str,
-) -> Result<bool, SecretsError> {
-  let expires: Option<Option<String>> = conn
-    .query_row(
-      "SELECT expires_at FROM grants
-       WHERE namespace = ?1 AND name = ?2 AND agent_id = ?3
-         AND mode = 'reveal'",
-      params![namespace, name, agent_id],
-      |row| row.get(0),
-    )
-    .map(Some)
-    .or_else(|e| match e {
-      rusqlite::Error::QueryReturnedNoRows => Ok(None),
-      other => Err(other),
-    })?;
-  Ok(match expires {
-    None => false,
-    Some(None) => true,
-    Some(Some(until)) => kumbarium_util::now_iso8601() < until,
-  })
+  actor_id: Option<&str>,
+  claimed: &str,
+) -> Result<Option<GrantVia>, SecretsError> {
+  let live = |grantee: &str, kind: &str| -> Result<bool, SecretsError> {
+    let expires: Option<Option<String>> = conn
+      .query_row(
+        "SELECT expires_at FROM grants
+         WHERE namespace = ?1 AND name = ?2 AND agent_id = ?3
+           AND mode = 'reveal' AND grantee_kind = ?4",
+        params![namespace, name, grantee, kind],
+        |row| row.get(0),
+      )
+      .map(Some)
+      .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+      })?;
+    Ok(match expires {
+      None => false,
+      Some(None) => true,
+      Some(Some(until)) => kumbarium_util::now_iso8601() < until,
+    })
+  };
+  if let Some(actor) = actor_id
+    && live(actor, "actor")?
+  {
+    return Ok(Some(GrantVia::Actor));
+  }
+  if live(claimed, "name")? {
+    return Ok(Some(GrantVia::LegacyName));
+  }
+  Ok(None)
 }
 
 /// Every grant on a shelf (or all), for the listing.
@@ -688,7 +721,7 @@ pub fn grants(
 ) -> Result<Vec<Grant>, SecretsError> {
   let mut sql = String::from(
     "SELECT namespace, name, agent_id, mode, expires_at,
-            created_at
+            created_at, grantee_kind
      FROM grants",
   );
   let mut args: Vec<String> = Vec::new();
@@ -707,6 +740,7 @@ pub fn grants(
         mode: row.get(3)?,
         expires_at: row.get(4)?,
         created_at: row.get(5)?,
+        grantee_kind: row.get(6)?,
       })
     })?
     .collect::<Result<Vec<_>, _>>()?;
@@ -857,33 +891,69 @@ mod tests {
     let conn = open_in_memory().unwrap();
     set_secret(&conn, "global", "tok", b"value", Some(&KEY), None, None)
       .unwrap();
-    assert!(!check_grant(&conn, "global", "tok", "claude-code").unwrap());
-    grant(&conn, "global", "tok", "claude-code", None).unwrap();
-    assert!(check_grant(&conn, "global", "tok", "claude-code").unwrap());
+    let a = Some("actor-a");
+    let check =
+      || check_grant(&conn, "global", "tok", a, "claude-code").unwrap();
+    assert_eq!(check(), None);
+    grant(&conn, "global", "tok", "actor-a", None).unwrap();
+    assert_eq!(check(), Some(GrantVia::Actor));
     // A lease in the past denies.
     grant(
       &conn,
       "global",
       "tok",
-      "claude-code",
+      "actor-a",
       Some("2020-01-01T00:00:00.000Z"),
     )
     .unwrap();
-    assert!(!check_grant(&conn, "global", "tok", "claude-code").unwrap());
+    assert_eq!(check(), None);
     // Revocation is instantaneous by construction.
-    grant(&conn, "global", "tok", "claude-code", None).unwrap();
-    assert!(revoke(&conn, "global", "tok", "claude-code").unwrap());
-    assert!(!check_grant(&conn, "global", "tok", "claude-code").unwrap());
+    grant(&conn, "global", "tok", "actor-a", None).unwrap();
+    assert!(revoke(&conn, "global", "tok", "actor-a").unwrap());
+    assert_eq!(check(), None);
     // A lease in the future serves until it does not.
     grant(
       &conn,
       "global",
       "tok",
-      "claude-code",
+      "actor-a",
       Some("2999-12-31T23:59:59.999Z"),
     )
     .unwrap();
-    assert!(check_grant(&conn, "global", "tok", "claude-code").unwrap());
+    assert_eq!(check(), Some(GrantVia::Actor));
+  }
+
+  #[test]
+  fn actor_grants_never_reach_siblings_and_legacy_rows_still_read() {
+    let conn = open_in_memory().unwrap();
+    set_secret(&conn, "global", "tok", b"value", Some(&KEY), None, None)
+      .unwrap();
+    grant(&conn, "global", "tok", "actor-a", None).unwrap();
+    // Same claimed name, different actor: refused.
+    assert_eq!(
+      check_grant(&conn, "global", "tok", Some("actor-b"), "claude-code")
+        .unwrap(),
+      None
+    );
+    // A pre-D-056 row (keyed by claimed name) is name-wide.
+    conn
+      .execute(
+        "INSERT INTO grants (namespace, name, agent_id, mode, created_at)
+         VALUES ('global', 'tok', 'claude-code', 'reveal', 'x')",
+        [],
+      )
+      .unwrap();
+    assert_eq!(
+      check_grant(&conn, "global", "tok", Some("actor-b"), "claude-code")
+        .unwrap(),
+      Some(GrantVia::LegacyName)
+    );
+    let kinds: Vec<String> = grants(&conn, None)
+      .unwrap()
+      .into_iter()
+      .map(|g| g.grantee_kind)
+      .collect();
+    assert_eq!(kinds, vec!["actor".to_string(), "name".to_string()]);
   }
 
   #[test]

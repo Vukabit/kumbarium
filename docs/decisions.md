@@ -1094,3 +1094,26 @@ navigates like a generated API reference:
 Source files and docs describe the site in its own terms and
 never by reference to another project's documentation tooling
 (a standing rule for this open-source repo).
+
+## D-056: actors are minted, bound per session (2026-09-28)
+
+Designed in docs/design/actors.md and settled in review.
+Identity gains a third leg beside the claimed name and the
+minted session: a minted ACTOR, stable across sessions, so the
+ledger can answer "what has this agent done" and not only "what
+did this process do". Auto-minted per (claimed name, workspace),
+the workspace being the git toplevel of the serve process's
+working directory; registrable and pinnable with `kum serve
+--agent <name>`; renamed, merged, and retired through the
+agent-lifecycle verbs the reserved words have been holding.
+Attribution rides a hashed `actor_bind` event that opens every
+session, so the trail is tamper-evident through the session ids
+already in the recipe: no new hashed column, no re-chain, and
+D-045's closed door stays closed. It disambiguates, it does not
+authenticate (D-044, unchanged). Review settled three more: the
+CLI binds a HUMAN actor (identity from git config by default,
+else the OS login, configurable); secret grants move to actors,
+so a new workspace holds no credentials until granted, with
+legacy name-wide grants honored and reported, never re-pointed;
+actors do not travel between libraries (bundles carry a
+plain-text origin label instead, pending authn).

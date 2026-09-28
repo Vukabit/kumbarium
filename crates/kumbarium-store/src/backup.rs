@@ -236,6 +236,7 @@ mod tests {
         source: "".into(),
         tags: vec![],
         status: crate::Status::Live,
+        actor_id: None,
       },
     )
     .unwrap();

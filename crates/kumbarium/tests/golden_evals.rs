@@ -51,6 +51,7 @@ fn new_entry(seed: &Seed) -> kumbarium_store::NewEntry {
     source: "evals/golden.toml".into(),
     tags: Vec::new(),
     status: kumbarium_store::Status::Live,
+    actor_id: None,
   }
 }
 

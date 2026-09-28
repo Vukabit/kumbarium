@@ -125,6 +125,8 @@ Usage:
 
 wire agents up:
   kumbarium serve                     speak MCP over stdio
+  kumbarium serve --agent <name>      ...bound to a registered
+                                      actor (else the workspace's)
   kumbarium serve reload [pid|--all]  hot-swap live serves onto
                                       the current binary (--all
                                       or bare = every session)
@@ -183,9 +185,12 @@ the binder and the dossier:
   kumbarium brief <ns>                the day-one page: charter,
                                       standing facts, briefing,
                                       open matters, the stacks
-  kumbarium agents [--all]            the roster: every witnessed
-                                      identity, what it holds
-                                      (--all includes retired)
+  kumbarium agents [--all]            the roster: every actor,
+                                      what it holds (--all
+                                      includes retired)
+  kumbarium agent add <name>          register an actor; rename,
+       [--human]                      merge, retire|unretire
+                                      manage them (kum help agents)
   kumbarium doc [ns] [--all]          the library as a site,
        [--out DIR] [--show] [--open]  a reference site (--open:
                                       the browser)
@@ -236,11 +241,11 @@ the restricted stacks:
   kumbarium secret read <ns> <name>   print the value
   kumbarium secret copy <ns> <name>   concealed clipboard copy,
                                       auto-clear in 90s
-  kumbarium secret grant <ns> <name> <agent> [--until DATE]
-                                      allow the agent secret_read
+  kumbarium secret grant <ns> <name> <actor> [--until DATE]
+                                      allow the actor secret_read
                                       (--until leases through
                                       that day, UTC)
-  kumbarium secret revoke <ns> <name> <agent>
+  kumbarium secret revoke <ns> <name> <actor>
                                       withdraw it, effective now
   kumbarium secret shred <ns> <name>  destroy the value, keep
                                       the record

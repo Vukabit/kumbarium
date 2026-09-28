@@ -80,10 +80,24 @@ pub fn export(
     handoffs.sort_by(|a, b| a.id.cmp(&b.id));
   }
 
+  // Actor ids are local and never travel (D-056); the author's
+  // actor NAME rides along as a plain-text origin label.
+  let origins: std::collections::HashMap<String, String> =
+    kumbarium_store::actors(&state.library)
+      .map_err(|e| e.to_string())?
+      .into_iter()
+      .map(|a| (a.id, a.name))
+      .collect();
   let count = entries.len() + tasks.len() + handoffs.len();
   let body = body_value(
     scope,
-    entries.iter().map(entry_value).collect(),
+    entries
+      .iter()
+      .map(|e| {
+        let origin = e.actor_id.as_ref().and_then(|id| origins.get(id));
+        entry_value(e, origin.map(String::as_str))
+      })
+      .collect(),
     links
       .iter()
       .map(|(f, t, r)| json!({ "from": f, "to": t, "rel": r }))
@@ -385,8 +399,8 @@ fn local_chain_head(
   Ok(history.last().cloned().unwrap_or_else(|| start.to_string()))
 }
 
-fn entry_value(e: &kumbarium_store::Entry) -> Value {
-  json!({
+fn entry_value(e: &kumbarium_store::Entry, origin: Option<&str>) -> Value {
+  let mut v = json!({
     "id": e.id,
     "namespace": e.namespace,
     "kind": e.kind.as_str(),
@@ -399,7 +413,29 @@ fn entry_value(e: &kumbarium_store::Entry) -> Value {
     "created_at": e.created_at,
     "updated_at": e.updated_at,
     "tags": e.tags,
-  })
+  });
+  // Present only when the author had an actor, so bundles of
+  // pre-actor entries hash exactly as they always did.
+  if let Some(o) = origin {
+    v["origin"] = json!(o);
+  }
+  v
+}
+
+/// The plain-text origin label an imported entry's provenance
+/// gains (D-056): shown, never trusted as identity. Idempotent,
+/// so a re-exported entry does not stack labels.
+fn with_origin(source: String, origin: Option<String>) -> String {
+  match origin {
+    Some(o) if !source.contains("(origin: ") => {
+      if source.is_empty() {
+        format!("(origin: {o}, via bundle)")
+      } else {
+        format!("{source} (origin: {o}, via bundle)")
+      }
+    }
+    _ => source,
+  }
 }
 
 fn parse_entry(v: &Value) -> Result<kumbarium_store::Entry, String> {
@@ -421,7 +457,7 @@ fn parse_entry(v: &Value) -> Result<kumbarium_store::Entry, String> {
     kind,
     content: s("content")?,
     agent_id: s("agent_id")?,
-    source: opt("source").unwrap_or_default(),
+    source: with_origin(opt("source").unwrap_or_default(), opt("origin")),
     confidence: 0.5,
     confidence_basis: None,
     superseded_by: opt("superseded_by"),
@@ -442,6 +478,7 @@ fn parse_entry(v: &Value) -> Result<kumbarium_store::Entry, String> {
           .collect()
       })
       .unwrap_or_default(),
+    actor_id: None,
   })
 }
 
@@ -574,10 +611,55 @@ mod tests {
         source: "test".into(),
         tags: vec!["t1".into()],
         status: kumbarium_store::Status::Live,
+        actor_id: None,
       },
     )
     .unwrap()
     .id
+  }
+
+  #[test]
+  fn origin_labels_travel_but_actor_ids_never_do() {
+    let mut a = seeded_state("project/bnd");
+    let (actor, _) = kumbarium_store::mint_actor(
+      &a.library,
+      &kumbarium_store::NewActor {
+        name: "claude-code@ambyte".into(),
+        kind: kumbarium_store::ActorKind::Agent,
+        claimed: "claude-code".into(),
+        workspace: "/w/ambyte".into(),
+        key: None,
+      },
+      true,
+    )
+    .unwrap();
+    let mut new = kumbarium_store::NewEntry {
+      namespace: "project/bnd".into(),
+      kind: kumbarium_store::Kind::Decision,
+      content: "a fact with an author".into(),
+      agent_id: "claude-code".into(),
+      source: "session".into(),
+      tags: vec![],
+      status: kumbarium_store::Status::Live,
+      actor_id: None,
+    };
+    new.actor_id = Some(actor.id.clone());
+    let id = kumbarium_store::remember(&mut a.library, &new).unwrap().id;
+    let (text, _) = export(&mut a, "project/bnd").unwrap();
+    assert!(text.contains("\"origin\": \"claude-code@ambyte\""));
+    assert!(!text.contains(&actor.id), "actor ids are local");
+    let mut b = seeded_state("project/bnd");
+    import(&mut b, &text, false).unwrap();
+    let got = kumbarium_store::get(&b.library, &id).unwrap();
+    assert_eq!(
+      got.source,
+      "session (origin: claude-code@ambyte, via bundle)"
+    );
+    assert!(got.actor_id.is_none());
+    assert_eq!(
+      with_origin(got.source.clone(), Some("x".into())),
+      got.source
+    );
   }
 
   #[test]
@@ -747,6 +829,7 @@ mod tests {
         source: "test".into(),
         tags: vec![],
         status: kumbarium_store::Status::Live,
+        actor_id: None,
       },
       None,
     )
@@ -786,6 +869,7 @@ mod tests {
           source: "test".into(),
           tags: vec![],
           status: kumbarium_store::Status::Live,
+          actor_id: None,
         },
         None,
       )

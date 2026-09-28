@@ -40,6 +40,10 @@ pub struct Config {
   /// agents. History stays on the ledger; --all shows them
   /// marked. Comma-separated in config.
   pub agents_retired: Vec<String>,
+  /// Where the human actor's identity comes from (D-056):
+  /// "git" (user.name / user.email, falling back to os), "os"
+  /// (the login name), or any other value as a fixed name.
+  pub identity_human: String,
   /// Personal command vocabulary (D-035): name -> kumbarium
   /// argv prefix. Internal-only by construction (the value is
   /// spliced as arguments, never shelled); names that would
@@ -66,6 +70,7 @@ impl Default for Config {
       approvals_default_pending: false,
       approvals_pending_agents: Vec::new(),
       agents_retired: Vec::new(),
+      identity_human: "git".into(),
       aliases: Vec::new(),
     }
   }
@@ -112,6 +117,13 @@ dormant_days = 45
 # erased (the ledger keeps their history; kum agents --all
 # shows them marked). For test puppets and offboarded agents.
 # retired = \"demo, smoke\"
+
+[identity]
+# Who the human at the terminal is, as an actor (D-056): git
+# reads user.name / user.email from `git config` (repo over
+# global) and falls back to os when absent; os uses the login
+# name; any other value is taken as a fixed name.
+human = \"git\"
 
 [leases]
 # A reading-room lease lives this long past its holder's last
@@ -208,6 +220,16 @@ pub fn parse(text: &str) -> (Config, Vec<String>) {
           .filter(|a| !a.is_empty())
           .map(str::to_string)
           .collect();
+        continue;
+      }
+      "identity.human" => {
+        let v = raw_value.trim();
+        if v.is_empty() {
+          warnings
+            .push("config identity.human: empty; default (git) kept".into());
+        } else {
+          cfg.identity_human = v.to_string();
+        }
         continue;
       }
       "approvals.pending_agents" => {

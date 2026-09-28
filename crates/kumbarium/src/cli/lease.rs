@@ -203,7 +203,7 @@ pub(crate) fn lease_break_cmd(id: &str) -> ExitCode {
       "holder": broken.agent_id,
     }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("broken, but audit append failed: {e}"));
   }
   println!(

@@ -217,6 +217,31 @@ pub(crate) fn doctor_cmd(deep: bool, apply: bool, json: bool) -> ExitCode {
         preenable: false,
       }),
     }
+    // LEGACY GRANTS (D-056): a grant keyed by a claimed name
+    // reaches every session claiming it, in every workspace. It
+    // still reads (never silently re-pointed: one name maps to
+    // many actors), but each one is reported with its remedy.
+    if let Ok(grants) = kumbarium_secrets::grants(&conn, None) {
+      for g in grants.iter().filter(|g| g.grantee_kind == "name") {
+        f.push(Finding {
+          section: "secrets",
+          mark: Mark::Warn,
+          detail: format!(
+            "name-wide legacy grant: {}/{} -> {} (reaches every \
+             session claiming that name)",
+            g.namespace, g.name, g.agent_id
+          ),
+          remedy: Some(format!(
+            "kum secret grant {ns} {n} <actor> && kum secret revoke \
+             {ns} {n} {who}",
+            ns = g.namespace,
+            n = g.name,
+            who = g.agent_id
+          )),
+          preenable: false,
+        });
+      }
+    }
   }
 
   // BACKUPS (deep only, and only as coverage info): a section
@@ -398,7 +423,7 @@ fn apply_repairs(f: &[Finding], p: &paths::Paths) -> ExitCode {
     return ExitCode::FAILURE;
   }
 
-  let (_, state) = match open_stores() {
+  let (_, mut state) = match open_stores() {
     Ok(v) => v,
     Err(e) => return fail(&e),
   };
@@ -466,7 +491,7 @@ fn apply_repairs(f: &[Finding], p: &paths::Paths) -> ExitCode {
     scope: String::new(),
     detail: json!({ "repaired": repaired }),
   };
-  if let Err(e) = kumbarium_audit::append(&state.audit, &event) {
+  if let Err(e) = state.witness(&event) {
     return fail(&format!("repaired, but audit append failed: {e}"));
   }
   println!("{}", sty.green(&format!("repaired {repaired} finding(s)")));

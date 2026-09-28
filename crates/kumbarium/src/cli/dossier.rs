@@ -12,6 +12,7 @@
 use std::collections::BTreeSet;
 use std::process::ExitCode;
 
+use super::super::actor::{ActorIndex, Who};
 use super::super::{open_stores, style};
 use super::term::*;
 
@@ -43,10 +44,17 @@ pub(crate) fn agents_cmd(all: bool, json: bool) -> ExitCode {
     Ok(v) => v,
     Err(e) => return fail(&e.to_string()),
   };
-  let mut roster: std::collections::BTreeMap<String, RosterRow> =
+  // Rows are ACTORS (D-056): sessions attributed through their
+  // bind, merges followed. History from before actors keeps its
+  // claimed name, marked unbound, never guessed into an actor.
+  let idx = match ActorIndex::load(&state.library, &events) {
+    Ok(i) => i,
+    Err(e) => return fail(&e),
+  };
+  let mut roster: std::collections::BTreeMap<Who, RosterRow> =
     std::collections::BTreeMap::new();
   for ev in &events {
-    let row = roster.entry(ev.agent_id.clone()).or_default();
+    let row = roster.entry(idx.who_event(ev)).or_default();
     row.events += 1;
     if !ev.session_id.is_empty() {
       row.sessions.insert(ev.session_id.clone());
@@ -56,6 +64,12 @@ pub(crate) fn agents_cmd(all: bool, json: bool) -> ExitCode {
     }
     row.last_at = ev.at.clone();
   }
+  // Registered actors appear even before their first session.
+  for id in idx.actors.keys() {
+    if idx.actors[id].merged_into.is_none() {
+      roster.entry(Who::Actor(id.clone())).or_default();
+    }
+  }
   // The estate, per writer (writers may predate the ledger:
   // imports carry identities too, so entries seed rows).
   let entries = match kumbarium_store::entries_in(&state.library, None, true) {
@@ -63,18 +77,19 @@ pub(crate) fn agents_cmd(all: bool, json: bool) -> ExitCode {
     Err(e) => return fail(&e.to_string()),
   };
   for e in &entries {
-    let row = roster.entry(e.agent_id.clone()).or_default();
+    let who = idx.who_entry(e);
     if e.status == kumbarium_store::Status::Live {
-      match &e.superseded_by {
-        None => row.live += 1,
-        Some(next) => {
-          let successor = kumbarium_store::get(&state.library, next)
-            .map(|s| s.agent_id)
-            .unwrap_or_default();
-          if successor != e.agent_id {
-            row.corrected += 1;
-          }
+      let corrected = match &e.superseded_by {
+        None => {
+          roster.entry(who.clone()).or_default().live += 1;
+          false
         }
+        Some(next) => kumbarium_store::get(&state.library, next)
+          .map(|s| idx.who_entry(&s) != who)
+          .unwrap_or(false),
+      };
+      if corrected {
+        roster.entry(who).or_default().corrected += 1;
       }
     }
   }
@@ -83,7 +98,12 @@ pub(crate) fn agents_cmd(all: bool, json: bool) -> ExitCode {
     && let Ok(grants) = kumbarium_secrets::grants(conn, None)
   {
     for g in grants {
-      roster.entry(g.agent_id).or_default().grants += 1;
+      let who = if g.grantee_kind == "actor" {
+        idx.resolve(&state.library, &g.agent_id)
+      } else {
+        Who::Claimed(g.agent_id)
+      };
+      roster.entry(who).or_default().grants += 1;
     }
   }
   let ttl = state.cfg.leases_ttl_minutes;
@@ -93,30 +113,45 @@ pub(crate) fn agents_cmd(all: bool, json: bool) -> ExitCode {
       kumbarium_leases::active_in(conn, None, kumbarium_util::now_ms(), ttl)
   {
     for l in active {
-      roster.entry(l.agent_id).or_default().leases += 1;
+      let who = idx.who_session(&l.session_id, &l.agent_id);
+      roster.entry(who).or_default().leases += 1;
     }
   }
-  let retired: std::collections::HashSet<&str> = state
+  // Retired: `kum agent retire` on an actor, or (legacy) a
+  // claimed name listed under [agents] retired in config.
+  let cfg_retired: std::collections::HashSet<&str> = state
     .cfg
     .agents_retired
     .iter()
     .map(String::as_str)
     .collect();
-  let hidden = roster
-    .keys()
-    .filter(|a| retired.contains(a.as_str()))
-    .count();
+  let is_retired = |who: &Who| match who {
+    Who::Actor(_) => idx.actor(who).is_some_and(|a| a.retired_at.is_some()),
+    Who::Claimed(name) => cfg_retired.contains(name.as_str()),
+  };
+  let hidden = roster.keys().filter(|w| is_retired(w)).count();
   if !all {
-    roster.retain(|agent, _| !retired.contains(agent.as_str()));
+    roster.retain(|who, _| !is_retired(who));
   }
+  let mut rows: Vec<(&Who, &RosterRow)> = roster.iter().collect();
+  rows.sort_by(|a, b| b.1.last_at.cmp(&a.1.last_at));
   if json {
-    let mut rows: Vec<(&String, &RosterRow)> = roster.iter().collect();
-    rows.sort_by(|a, b| b.1.last_at.cmp(&a.1.last_at));
     let out: Vec<serde_json::Value> = rows
       .iter()
-      .map(|(agent, r)| {
+      .map(|(who, r)| {
+        let a = idx.actor(who);
         serde_json::json!({
-          "agent": agent,
+          "agent": match who {
+            Who::Actor(_) => a.map(|a| a.name.clone()).unwrap_or_default(),
+            Who::Claimed(n) => n.clone(),
+          },
+          "actor_id": a.map(|a| a.id.clone()),
+          "kind": a.map(|a| a.kind.as_str()),
+          "claimed": a.map(|a| a.claimed.clone()),
+          "workspace": a
+            .filter(|a| !a.workspace.is_empty())
+            .map(|a| super::super::actor::display_path(&a.workspace)),
+          "bound": matches!(who, Who::Actor(_)),
           "first_at": (!r.first_at.is_empty()).then_some(&r.first_at),
           "last_at": (!r.last_at.is_empty()).then_some(&r.last_at),
           "sessions": r.sessions.len(),
@@ -125,7 +160,7 @@ pub(crate) fn agents_cmd(all: bool, json: bool) -> ExitCode {
           "corrected_by_others": r.corrected,
           "grants": r.grants,
           "active_leases": r.leases,
-          "retired": retired.contains(agent.as_str()),
+          "retired": is_retired(who),
         })
       })
       .collect();
@@ -139,14 +174,18 @@ pub(crate) fn agents_cmd(all: bool, json: bool) -> ExitCode {
     "{} {}",
     sty.bold("the roster"),
     sty.dim(&format!(
-      "({} identities; kum dossier <agent> for any deep story)",
+      "({} identities; kum agent <name> for any deep story)",
       roster.len()
     ))
   );
   const COLS: &[Col] = &[
     Col {
-      title: "agent",
-      width: 20,
+      title: "actor",
+      width: 30,
+    },
+    Col {
+      title: "id",
+      width: 8,
     },
     Col {
       title: "last seen (local)",
@@ -178,16 +217,21 @@ pub(crate) fn agents_cmd(all: bool, json: bool) -> ExitCode {
     },
   ];
   println!("{}", sty.dim(&table_header(COLS)));
-  let mut rows: Vec<(&String, &RosterRow)> = roster.iter().collect();
-  rows.sort_by(|a, b| b.1.last_at.cmp(&a.1.last_at));
-  for (agent, r) in rows {
-    let mark = if retired.contains(agent.as_str()) {
-      sty.yellow(" [retired]")
-    } else {
-      String::new()
-    };
+  for (who, r) in rows {
+    let mut mark = String::new();
+    if let Some(a) = idx.actor(who)
+      && a.kind == kumbarium_store::ActorKind::Human
+    {
+      mark.push_str(&sty.dim(" [human]"));
+    }
+    if is_retired(who) {
+      mark.push_str(&sty.yellow(" [retired]"));
+    }
     let last = if r.last_at.is_empty() {
-      "(pre-ledger)".to_string()
+      match who {
+        Who::Actor(_) => "(no sessions yet)".to_string(),
+        Who::Claimed(_) => "(pre-ledger)".to_string(),
+      }
     } else {
       local_display(&r.last_at)
     };
@@ -197,10 +241,23 @@ pub(crate) fn agents_cmd(all: bool, json: bool) -> ExitCode {
     } else {
       corr_cell
     };
+    let (label, id) = match who {
+      Who::Actor(id) => {
+        (idx.label(who), kumbarium_store::short_id(id).to_string())
+      }
+      Who::Claimed(_) => (idx.label(who), String::new()),
+    };
+    let label_cell = cell(COLS, 0, &label);
+    let label_cell = if matches!(who, Who::Claimed(_)) {
+      sty.dim(&label_cell)
+    } else {
+      label_cell
+    };
     println!(
-      "{} {} {:>4} {:>6} {:>4} {} {:>6} {}{mark}",
-      cell(COLS, 0, agent),
-      sty.dim(&cell(COLS, 1, &last)),
+      "{} {} {} {:>4} {:>6} {:>4} {} {:>6} {}{mark}",
+      label_cell,
+      sty.id(&cell(COLS, 1, &id)),
+      sty.dim(&cell(COLS, 2, &last)),
       r.sessions.len(),
       r.events,
       r.live,
@@ -222,7 +279,8 @@ pub(crate) fn agents_cmd(all: bool, json: bool) -> ExitCode {
     "{}",
     sty.dim(
       "counts, never scores: corr = live-chain writes corrected \
-       by OTHERS; judgment stays yours"
+       by OTHERS; judgment stays yours; (unbound) = history from \
+       before actors (D-056)"
     )
   );
   ExitCode::SUCCESS
@@ -452,6 +510,15 @@ pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
     Ok(v) => v,
     Err(e) => return fail(&e.to_string()),
   };
+  // The subject (D-056): an actor by name or id (merges followed,
+  // so a merged actor's dossier reads the survivor's whole
+  // trail), else a claimed name for pre-actor history.
+  let idx = match ActorIndex::load(&state.library, &events) {
+    Ok(i) => i,
+    Err(e) => return fail(&e),
+  };
+  let target = idx.resolve(&state.library, agent);
+  let title = idx.label(&target);
   let mut t = Tally::default();
   let mut record: Vec<&kumbarium_audit::StoredEvent> = Vec::new();
   let mut sessions: BTreeSet<String> = BTreeSet::new();
@@ -464,25 +531,25 @@ pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
     {
       continue;
     }
-    if ev.agent_id == agent && !ev.session_id.is_empty() {
+    let who = idx.who_event(ev);
+    if who == target && !ev.session_id.is_empty() {
       sessions.insert(ev.session_id.clone());
     }
     let detail: serde_json::Value =
       serde_json::from_str(&ev.detail).unwrap_or_default();
     // Desk judgments name the agent as SUBMITTER on someone
     // else's event; everything else is the agent's own.
-    if ev.kind == "approve" || ev.kind == "reject" {
-      let submitter = detail.get("submitter").and_then(|s| s.as_str());
-      if submitter == Some(agent) {
-        match ev.kind.as_str() {
-          "approve" => t.approved += 1,
-          _ => t.rejected += 1,
-        }
-        record.push(ev);
-        continue;
+    if (ev.kind == "approve" || ev.kind == "reject")
+      && idx.who_submitter(&detail).as_ref() == Some(&target)
+    {
+      match ev.kind.as_str() {
+        "approve" => t.approved += 1,
+        _ => t.rejected += 1,
       }
+      record.push(ev);
+      continue;
     }
-    if ev.agent_id != agent {
+    if who != target {
       continue;
     }
     t.events += 1;
@@ -544,7 +611,7 @@ pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
     }
   }
   if record.is_empty() {
-    println!("no witnessed events for {agent:?} in that window");
+    println!("no witnessed events for {title} in that window");
     return ExitCode::SUCCESS;
   }
 
@@ -561,17 +628,17 @@ pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
   let mut superseded_by_others = 0usize;
   let mut pending = 0usize;
   let mut rejected_writes = 0usize;
-  for e in all_entries.iter().filter(|e| e.agent_id == agent) {
+  for e in all_entries.iter().filter(|e| idx.who_entry(e) == target) {
     match e.status {
       kumbarium_store::Status::Pending => pending += 1,
       kumbarium_store::Status::Rejected => rejected_writes += 1,
       kumbarium_store::Status::Live => match &e.superseded_by {
         None => live += 1,
         Some(next) => {
-          let successor_agent = kumbarium_store::get(&state.library, next)
-            .map(|s| s.agent_id)
-            .unwrap_or_default();
-          if successor_agent == agent {
+          let same = kumbarium_store::get(&state.library, next)
+            .map(|s| idx.who_entry(&s) == target)
+            .unwrap_or(false);
+          if same {
             superseded_by_self += 1;
           } else {
             superseded_by_others += 1;
@@ -590,7 +657,24 @@ pub(crate) fn dossier_cmd(agent: &str, rest: &[&str]) -> ExitCode {
   if let Some(frag) = &session {
     window.push_str(&format!(", session ~{frag}"));
   }
-  println!("{}", sty.bold(&format!("the dossier: {agent}")));
+  println!("{}", sty.bold(&format!("the dossier: {title}")));
+  if let Some(a) = idx.actor(&target) {
+    let mut about = format!(
+      "actor {} ({})",
+      kumbarium_store::short_id(&a.id),
+      a.kind.as_str()
+    );
+    if !a.claimed.is_empty() {
+      about.push_str(&format!(", claims {}", a.claimed));
+    }
+    if !a.workspace.is_empty() {
+      about.push_str(&format!(
+        ", works in {}",
+        super::super::actor::display_path(&a.workspace)
+      ));
+    }
+    println!("{}", sty.dim(&about));
+  }
   println!("{}", sty.dim(&format!("window: {window}")));
   println!("{}", sty.dim(&verified));
 

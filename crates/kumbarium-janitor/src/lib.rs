@@ -486,6 +486,7 @@ mod tests {
         source: "test".into(),
         tags: vec![],
         status: kumbarium_store::Status::Live,
+        actor_id: None,
       },
     )
     .unwrap();
@@ -869,6 +870,7 @@ mod tests {
         source: "test".into(),
         tags: vec![],
         status: kumbarium_store::Status::Live,
+        actor_id: None,
       },
     )
     .unwrap();

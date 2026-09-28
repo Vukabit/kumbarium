@@ -136,6 +136,7 @@ pub fn run(
       source: source_of(&p.file.path),
       tags,
       status: kumbarium_store::Status::Live,
+      actor_id: None,
     };
     // The shared write path: oversized content splits into
     // continues-chained parts here exactly as agent writes do.
@@ -177,7 +178,8 @@ pub fn run(
       "edges": edges,
     }),
   };
-  kumbarium_audit::append(&state.audit, &event)
+  state
+    .witness(&event)
     .map_err(|e| format!("audit append failed: {e}"))?;
 
   report.push(String::new());

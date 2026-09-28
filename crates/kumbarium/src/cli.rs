@@ -4,6 +4,7 @@
 //! keeps only wiring (dispatch, open_stores, serve, backups).
 
 pub(crate) mod admin;
+pub(crate) mod agent;
 pub(crate) mod brief;
 pub(crate) mod completions;
 pub(crate) mod desk;

@@ -82,6 +82,9 @@ pub struct NewEntry {
   pub source: String,
   pub tags: Vec<String>,
   pub status: Status,
+  /// The minted actor making the write (D-056); None for writes
+  /// with no bound actor (imports, pre-actor tooling).
+  pub actor_id: Option<String>,
 }
 
 /// A stored entry, tags included.
@@ -106,6 +109,9 @@ pub struct Entry {
   pub note: Option<String>,
   pub status: Status,
   pub tags: Vec<String>,
+  /// The minted actor that wrote it (D-056); None before actors
+  /// and for imported entries (actor ids are local).
+  pub actor_id: Option<String>,
 }
 
 /// One recall result. `bm25` is the raw FTS5 rank (LOWER is
@@ -242,7 +248,7 @@ pub fn entries_in(
             e.source, e.confidence, e.superseded_by,
             e.created_at, e.updated_at, e.last_accessed_at,
             e.last_confirmed_at, e.retired_at, e.note,
-            e.confidence_basis, e.status
+            e.confidence_basis, e.status, e.actor_id
      FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
      WHERE 1=1",
   );
@@ -463,7 +469,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<Entry, StoreError> {
     "SELECT e.id, ns.path, e.kind, e.content, e.agent_id, e.source,
             e.confidence, e.superseded_by, e.created_at,
             e.updated_at, e.last_accessed_at, e.last_confirmed_at,
-            e.retired_at, e.note, e.confidence_basis, e.status
+            e.retired_at, e.note, e.confidence_basis, e.status, e.actor_id
      FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
      WHERE e.id = ?1",
   )?;
@@ -536,7 +542,7 @@ pub fn recall_filtered(
             e.confidence, e.superseded_by, e.created_at,
             e.updated_at, e.last_accessed_at, e.last_confirmed_at,
             e.retired_at, e.note, e.confidence_basis, e.status,
-            bm25(entries_fts) AS rank
+            e.actor_id, bm25(entries_fts) AS rank
      FROM entries_fts
      JOIN entries e ON e.rowid = entries_fts.rowid
      JOIN namespaces ns ON ns.id = e.namespace_id
@@ -551,7 +557,7 @@ pub fn recall_filtered(
   );
   let mut stmt = conn.prepare(&sql)?;
   let rows = stmt.query_map(params_from_iter(args.iter()), |row| {
-    Ok((row_to_entry(row)?, row.get::<_, f64>(16)?))
+    Ok((row_to_entry(row)?, row.get::<_, f64>(17)?))
   })?;
   let mut hits = Vec::new();
   for row in rows {
@@ -794,7 +800,7 @@ pub fn pending_in(conn: &Connection) -> Result<Vec<Entry>, StoreError> {
             e.source, e.confidence, e.superseded_by,
             e.created_at, e.updated_at, e.last_accessed_at,
             e.last_confirmed_at, e.retired_at, e.note,
-            e.confidence_basis, e.status
+            e.confidence_basis, e.status, e.actor_id
      FROM entries e JOIN namespaces ns ON ns.id = e.namespace_id
      WHERE e.status = 'pending' AND e.superseded_by IS NULL
      ORDER BY e.created_at ASC",
@@ -888,8 +894,8 @@ fn insert_entry(
   conn.execute(
     "INSERT INTO entries
        (id, namespace_id, kind, content, agent_id, source,
-        status, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+        status, created_at, updated_at, actor_id)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)",
     params![
       id,
       ns,
@@ -899,6 +905,7 @@ fn insert_entry(
       new.source,
       new.status.as_str(),
       now,
+      new.actor_id,
     ],
   )?;
   for tag in &new.tags {
@@ -952,6 +959,7 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<Entry, rusqlite::Error> {
     confidence_basis: row.get(14)?,
     status: parse_status(row, 15)?,
     tags: Vec::new(),
+    actor_id: row.get(16)?,
   })
 }
 
@@ -1013,6 +1021,7 @@ mod tests {
       source: "unit-test".into(),
       tags: vec!["alpha".into(), "beta".into()],
       status: Status::Live,
+      actor_id: None,
     }
   }
 
@@ -1131,6 +1140,7 @@ mod tests {
       source: String::new(),
       tags: vec![],
       status: Status::Live,
+      actor_id: None,
     };
     let pref = NewEntry {
       kind: Kind::Preference,

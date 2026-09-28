@@ -124,13 +124,25 @@ fn initialize(state: &mut ServerState, id: Value, params: &Value) -> Value {
       );
     }
     state.agent_id = name.to_string();
+    // Bind the session's actor now that the claimed name is
+    // known (D-056): the bind opens the session's trail, and the
+    // presence record can name the actor. A failure here must
+    // not stop the server; the next witnessed event retries.
+    if let Err(e) = state.bind_actor() {
+      eprintln!("kumbarium: binding the session's actor failed: {e}");
+    }
     // The presence record (D-048) claims the identity too, so
     // kum processes names who is sitting where.
+    let shown = state
+      .actor
+      .as_ref()
+      .map(|a| a.name.clone())
+      .unwrap_or_else(|| state.agent_id.clone());
     if let Some(p) = &state.presence {
       p.update(&super::procs::PresenceInfo {
         pid: std::process::id(),
         version: env!("CARGO_PKG_VERSION").into(),
-        agent: state.agent_id.clone(),
+        agent: shown,
         session: state.session_id.clone(),
         client: super::procs::parent_client_name(),
         since: kumbarium_util::now_iso8601(),
@@ -354,6 +366,16 @@ pub mod hot {
       "served_handoffs":
         state.served_handoffs.iter().collect::<Vec<_>>(),
       "residue": residue,
+      // The session's binding carries over (D-056): a reloaded
+      // serve is the same session, never bound twice.
+      "actor_id": state.actor.as_ref().map(|a| a.id.clone()),
+      "actor_bound": state.actor_bound,
+      "actor_requested": match &state.actor_source {
+        super::super::actor::ActorSource::Agent { requested, .. } => {
+          requested.clone()
+        }
+        _ => None,
+      },
     });
     std::fs::create_dir_all(procs_dir)?;
     let path = procs_dir.join(format!("reload-{}.json", std::process::id()));
@@ -429,6 +451,159 @@ mod tests {
       .map(|b| b["text"].as_str().unwrap())
       .collect::<Vec<_>>()
       .join("\n")
+  }
+
+  fn agent_state(workspace: &str) -> ServerState {
+    let mut state = ServerState::in_memory();
+    state.actor_source = super::super::actor::ActorSource::Agent {
+      workspace: std::path::PathBuf::from(workspace),
+      requested: None,
+    };
+    kumbarium_store::register_namespace(&state.library, "project/demo", "t")
+      .unwrap();
+    state
+  }
+
+  fn kinds_in_session(state: &ServerState) -> Vec<String> {
+    kumbarium_audit::events_asc(&state.audit)
+      .unwrap()
+      .into_iter()
+      .filter(|e| e.session_id == state.session_id)
+      .map(|e| e.kind)
+      .collect()
+  }
+
+  #[test]
+  fn a_session_binds_its_actor_first_and_once() {
+    let mut state = agent_state("/work/demo");
+    drive(
+      &mut state,
+      &[
+        init_request(1),
+        call(
+          2,
+          "remember",
+          json!({
+            "namespace": "project/demo",
+            "kind": "decision",
+            "content": "actors open every session's trail",
+          }),
+        ),
+        call(
+          3,
+          "recall",
+          json!({ "scope": "project/demo", "query": "actors" }),
+        ),
+      ],
+    );
+    let kinds = kinds_in_session(&state);
+    assert_eq!(
+      kinds[0], "actor_bind",
+      "the bind opens the trail: {kinds:?}"
+    );
+    assert_eq!(kinds[1], "actor_mint", "a first sighting mints");
+    assert_eq!(kinds.iter().filter(|k| *k == "actor_bind").count(), 1);
+    let actor = state.actor.clone().expect("bound");
+    assert_eq!(actor.name, "test-client@demo");
+    // The write carries the actor; the chain still verifies.
+    let entries =
+      kumbarium_store::entries_in(&state.library, Some("project/demo"), false)
+        .unwrap();
+    assert_eq!(entries[0].actor_id.as_deref(), Some(actor.id.as_str()));
+    assert!(matches!(
+      kumbarium_audit::verify_chain(&state.audit).unwrap(),
+      kumbarium_audit::ChainStatus::Intact { .. }
+    ));
+  }
+
+  #[test]
+  fn the_same_client_in_two_workspaces_is_two_actors() {
+    let mut a = agent_state("/work/one");
+    drive(&mut a, &[init_request(1)]);
+    let first = a.actor.clone().unwrap();
+    // A second session in the same library and workspace binds
+    // the same actor without minting; another workspace mints.
+    let mut b = agent_state("/work/one");
+    b.library = std::mem::replace(
+      &mut a.library,
+      kumbarium_store::open_in_memory().unwrap(),
+    );
+    drive(&mut b, &[init_request(1)]);
+    assert_eq!(b.actor.as_ref().unwrap().id, first.id);
+    assert!(!kinds_in_session(&b).contains(&"actor_mint".to_string()));
+    b.actor_source = super::super::actor::ActorSource::Agent {
+      workspace: std::path::PathBuf::from("/work/two"),
+      requested: None,
+    };
+    b.actor_bound = false;
+    b.session_id = kumbarium_util::generate_id();
+    drive(&mut b, &[init_request(1)]);
+    assert_ne!(b.actor.as_ref().unwrap().id, first.id);
+  }
+
+  #[test]
+  fn the_opening_frame_names_the_actor() {
+    let mut state = agent_state("/work/demo");
+    let out = drive(
+      &mut state,
+      &[
+        init_request(1),
+        call(
+          2,
+          "recall",
+          json!({ "scope": "project/demo", "frame": true }),
+        ),
+      ],
+    );
+    let text = text_of(&out[1]);
+    assert!(
+      text.starts_with("YOU ARE test-client@demo (actor "),
+      "{text}"
+    );
+    assert!(text.contains("Nothing to serve"), "identity is not content");
+  }
+
+  #[test]
+  fn a_legacy_name_wide_grant_still_reads_and_says_so() {
+    let mut state = agent_state("/work/demo");
+    {
+      let conn = state.secrets().unwrap();
+      kumbarium_secrets::set_secret(
+        conn,
+        "project/demo",
+        "tok",
+        b"v",
+        None,
+        None,
+        None,
+      )
+      .unwrap();
+      conn
+        .execute(
+          "INSERT INTO grants (namespace, name, agent_id, mode, created_at)
+           VALUES ('project/demo', 'tok', 'test-client', 'reveal', 'x')",
+          [],
+        )
+        .unwrap();
+    }
+    let out = drive(
+      &mut state,
+      &[
+        init_request(1),
+        call(
+          2,
+          "secret_read",
+          json!({ "namespace": "project/demo", "name": "tok" }),
+        ),
+      ],
+    );
+    assert_ne!(out[1]["result"]["isError"], true, "{}", text_of(&out[1]));
+    let read = kumbarium_audit::events_asc(&state.audit)
+      .unwrap()
+      .into_iter()
+      .find(|e| e.kind == "secret_read")
+      .unwrap();
+    assert!(read.detail.contains("legacy-name"), "{}", read.detail);
   }
 
   #[test]
@@ -621,6 +796,11 @@ mod tests {
   #[test]
   fn secret_read_denies_by_default_and_grants_reveal() {
     let mut state = ServerState::in_memory();
+    // A bound agent session (D-056): grants name its actor.
+    state.actor_source = super::super::actor::ActorSource::Agent {
+      workspace: std::path::PathBuf::from("/work/x"),
+      requested: None,
+    };
     kumbarium_store::register_namespace(&state.library, "project/x", "t")
       .unwrap();
     {
@@ -653,15 +833,10 @@ mod tests {
       "refusal names the grant command, never the value: {text}"
     );
     {
+      let actor = state.actor_id().unwrap().expect("agent sessions bind");
       let conn = state.secrets().unwrap();
-      kumbarium_secrets::grant(
-        conn,
-        "project/x",
-        "deploy-key",
-        "unknown-agent",
-        None,
-      )
-      .unwrap();
+      kumbarium_secrets::grant(conn, "project/x", "deploy-key", &actor, None)
+        .unwrap();
     }
     let granted = drive(
       &mut state,

@@ -45,9 +45,102 @@ pub struct ServerState {
   /// here, updated when initialize claims an identity. None
   /// for CLI invocations and tests.
   pub presence: Option<super::procs::Presence>,
+  /// What this session binds as (D-056): an agent in a
+  /// workspace (serve), the human (CLI), or nothing (tests).
+  pub actor_source: super::actor::ActorSource,
+  /// The bound actor, once the session's actor_bind is written.
+  pub actor: Option<kumbarium_store::Actor>,
+  /// True once binding was attempted and written (or the source
+  /// binds nothing): the bind happens once per session.
+  pub actor_bound: bool,
 }
 
 impl ServerState {
+  /// Bind this session to its actor (D-056), once: resolve (the
+  /// registry mints on first sight), then write the hashed
+  /// actor_bind, and the actor_mint when this session minted.
+  /// Every witnessed event goes through `witness`, which calls
+  /// this first, so the bind always opens the session's trail.
+  /// Returns the bound actor's id (None when the source binds
+  /// nothing).
+  pub fn bind_actor(&mut self) -> Result<Option<String>, String> {
+    if self.actor_bound {
+      return Ok(self.actor.as_ref().map(|a| a.id.clone()));
+    }
+    let resolved =
+      super::actor::resolve(&self.library, &self.actor_source, &self.agent_id)?;
+    let Some(r) = resolved else {
+      self.actor_bound = true;
+      return Ok(None);
+    };
+    let workspace = super::actor::display_path(&r.actor.workspace);
+    let mut bind = json!({
+      "actor": r.actor.id,
+      "name": r.actor.name,
+      "kind": r.actor.kind.as_str(),
+      "via": r.via,
+      "claimed": self.agent_id,
+    });
+    if !workspace.is_empty() {
+      bind["workspace"] = json!(workspace);
+    }
+    if let Some(req) = &r.refused {
+      bind["refused"] = json!(req);
+      eprintln!(
+        "kumbarium: actor {req:?} is not registered (kum agents \
+         lists actors); bound as {} instead",
+        r.actor.name
+      );
+    }
+    self.append_raw(kumbarium_audit::EventKind::ActorBind, "", bind)?;
+    if r.minted {
+      self.append_raw(
+        kumbarium_audit::EventKind::ActorMint,
+        "",
+        json!({
+          "id": r.actor.id,
+          "name": r.actor.name,
+          "kind": r.actor.kind.as_str(),
+          "workspace": workspace,
+        }),
+      )?;
+    }
+    self.actor = Some(r.actor.clone());
+    self.actor_bound = true;
+    Ok(Some(r.actor.id))
+  }
+
+  /// The bound actor's id for stamping a write, binding first.
+  pub fn actor_id(&mut self) -> Result<Option<String>, String> {
+    self.bind_actor()
+  }
+
+  /// Append one event to the ledger, the session's actor bound
+  /// first (D-056). The one door every witnessed act uses.
+  pub fn witness(
+    &mut self,
+    event: &kumbarium_audit::Event,
+  ) -> Result<String, String> {
+    self.bind_actor()?;
+    kumbarium_audit::append(&self.audit, event).map_err(|e| e.to_string())
+  }
+
+  fn append_raw(
+    &self,
+    kind: kumbarium_audit::EventKind,
+    scope: &str,
+    detail: Value,
+  ) -> Result<String, String> {
+    let event = kumbarium_audit::Event {
+      agent_id: self.agent_id.clone(),
+      session_id: self.session_id.clone(),
+      kind,
+      scope: scope.to_string(),
+      detail,
+    };
+    kumbarium_audit::append(&self.audit, &event).map_err(|e| e.to_string())
+  }
+
   /// The docket connection, opening the shelf on first use.
   pub fn docket(&mut self) -> Result<&kumbarium_docket::Connection, String> {
     if self.docket.is_none() {
@@ -123,6 +216,9 @@ impl ServerState {
       leases: None,
       leases_path: std::path::PathBuf::new(),
       presence: None,
+      actor_source: super::actor::ActorSource::Unbound,
+      actor: None,
+      actor_bound: false,
     }
   }
 }
@@ -131,8 +227,9 @@ impl ServerState {
 /// `kum agent add|list|remove|retire|rename|show`). No agent
 /// identity may bear one: reserving now costs a refusal at
 /// claim time; un-reserving later would be a breaking rename.
-pub const RESERVED_AGENT_WORDS: &[&str] =
-  &["add", "list", "remove", "retire", "rename", "show"];
+pub const RESERVED_AGENT_WORDS: &[&str] = &[
+  "add", "list", "merge", "remove", "rename", "retire", "show", "unretire",
+];
 
 pub fn reserved_agent_word(name: &str) -> bool {
   RESERVED_AGENT_WORDS.contains(&name.to_ascii_lowercase().as_str())
@@ -618,6 +715,9 @@ fn remember(
 ) -> Result<Vec<String>, String> {
   let mut new = new_entry_args(args)?;
   new.agent_id = state.agent_id.clone();
+  // The write carries the session's actor (D-056), bound first
+  // so the bind precedes the write on the ledger.
+  new.actor_id = state.actor_id()?;
   new.status = write_status(state);
   // Near-duplicate check (D-052): the librarian already ranks
   // by relevance, so surface the closest existing entries at
@@ -1082,6 +1182,7 @@ fn recall(
   let mut briefing = None;
   let mut matters = None;
   let mut room = None;
+  let mut whoami = None;
   let mut matters_served = 0usize;
   let mut leases_served = 0usize;
   // Serve the frame on explicit frame:true (re-orientation,
@@ -1090,6 +1191,18 @@ fn recall(
   // byte-identical to the first-recall one, regenerated from
   // current state.
   if want_frame || !state.served_handoffs.contains(scope) {
+    // Who this session is (D-056), so what it files and leaves
+    // is written by a self it can name.
+    if state.bind_actor()?.is_some()
+      && let Some(a) = &state.actor
+    {
+      whoami = Some(format!(
+        "YOU ARE {} (actor {}): your writes, matters, and briefings \
+         carry this identity.",
+        a.name,
+        kumbarium_store::short_id(&a.id)
+      ));
+    }
     let handoff_reachable = state.handoff.is_some()
       || state.handoff_path.as_os_str().is_empty()
       || state.handoff_path.exists();
@@ -1244,8 +1357,12 @@ fn recall(
   }
   // Frame-only re-orientation (no query): return just the frame,
   // or say plainly there was nothing to serve.
+  let nothing_framed = blocks.is_empty();
+  if let Some(w) = whoami {
+    blocks.insert(0, w);
+  }
   let Some(query) = query else {
-    if blocks.is_empty() {
+    if nothing_framed {
       blocks.push(format!(
         "Nothing to serve for {scope}: no standing briefing, \
          interrupting matters, or active leases."
@@ -1304,6 +1421,9 @@ fn supersede(
   let old_id = resolve(state, required_str(args, "old_id")?)?;
   let mut new = new_entry_args(args)?;
   new.agent_id = state.agent_id.clone();
+  // The write carries the session's actor (D-056), bound first
+  // so the bind precedes the write on the ledger.
+  new.actor_id = state.actor_id()?;
   // Policy status; the store still forces pending when the
   // superseded entry is itself pending (D-027).
   new.status = write_status(state);
@@ -1587,9 +1707,24 @@ fn secret_read(
     .map_err(|e| format!("invalid namespace: {e}"))?;
   let name = required_str(args, "name")?.to_string();
   let agent = state.agent_id.clone();
-  let granted =
-    kumbarium_secrets::check_grant(state.secrets()?, &namespace, &name, &agent)
-      .map_err(|e| e.to_string())?;
+  // Grants follow actors (D-056): the reader is this session's
+  // actor; a legacy name-wide grant to the claimed name still
+  // reads, and the ledger says which door opened.
+  let actor = state.actor_id()?;
+  let grantee = state
+    .actor
+    .as_ref()
+    .map(|a| a.name.clone())
+    .unwrap_or_else(|| agent.clone());
+  let via = kumbarium_secrets::check_grant(
+    state.secrets()?,
+    &namespace,
+    &name,
+    actor.as_deref(),
+    &agent,
+  )
+  .map_err(|e| e.to_string())?;
+  let granted = via.is_some();
   let status =
     kumbarium_secrets::stock_status(state.secrets()?, &namespace, &name)
       .map_err(|e| e.to_string())?;
@@ -1597,11 +1732,15 @@ fn secret_read(
   // Witness BEFORE the value moves, with the TRUE outcome: a
   // refusal or a miss must never read as a disclosure on the
   // ledger (fail-closed, D-038).
+  let mut detail = json!({ "name": name, "granted": granted, "found": found });
+  if via == Some(kumbarium_secrets::GrantVia::LegacyName) {
+    detail["via"] = json!("legacy-name");
+  }
   audit(
     state,
     kumbarium_audit::EventKind::SecretRead,
     &namespace,
-    json!({ "name": name, "granted": granted, "found": found }),
+    detail,
   )?;
   if !granted {
     // Lapsed and never-granted deserve different relays: the
@@ -1612,20 +1751,24 @@ fn secret_read(
       .and_then(|rows| {
         rows
           .into_iter()
-          .find(|g| g.name == name && g.agent_id == agent)
+          .find(|g| {
+            g.name == name
+              && (actor.as_deref() == Some(g.agent_id.as_str())
+                || (g.grantee_kind == "name" && g.agent_id == agent))
+          })
           .and_then(|g| g.expires_at)
       });
     return Err(match lapsed {
       Some(until) => format!(
         "your grant on {namespace}/{name} lapsed on {}; ask the \
          human to re-grant: kumbarium secret grant {namespace} \
-         {name} {agent} [--until DATE]",
+         {name} {grantee} [--until DATE]",
         until.get(..10).unwrap_or(&until)
       ),
       None => format!(
-        "no grant: your identity ({agent}) is not granted \
+        "no grant: your identity ({grantee}) is not granted \
          {namespace}/{name}. Ask the human to run: kumbarium \
-         secret grant {namespace} {name} {agent}"
+         secret grant {namespace} {name} {grantee}"
       ),
     });
   }
@@ -1953,12 +2096,14 @@ fn new_entry_args(args: &Value) -> Result<kumbarium_store::NewEntry, String> {
     kind,
     content: content.to_string(),
     // The dispatching tool overwrites agent_id with the declared
-    // client identity, and status with the write policy for that
-    // identity (D-027), before any store write.
+    // client identity, actor_id with the bound actor (D-056), and
+    // status with the write policy for that identity (D-027),
+    // before any store write.
     agent_id: String::new(),
     status: kumbarium_store::Status::Live,
     source,
     tags,
+    actor_id: None,
   })
 }
 
@@ -1983,7 +2128,7 @@ fn describe_store_error(e: kumbarium_store::StoreError) -> String {
 }
 
 fn audit(
-  state: &ServerState,
+  state: &mut ServerState,
   kind: kumbarium_audit::EventKind,
   scope: &str,
   detail: Value,
@@ -1995,7 +2140,8 @@ fn audit(
     scope: scope.to_string(),
     detail,
   };
-  kumbarium_audit::append(&state.audit, &event)
+  state
+    .witness(&event)
     .map(|_| ())
     .map_err(|e| format!("operation applied but audit append failed: {e}"))
 }
