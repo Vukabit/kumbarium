@@ -836,19 +836,29 @@ const PAGE_DOC: &str = "\
 kum doc                 every shelf, as browsable HTML
 kum doc <ns>            that shelf and its subtree
                         (kum doc project: every project)
-kum doc --all           include superseded and retired facts
+kum doc --all           give superseded and retired facts
+                        their own pages
 kum doc --open          build, then open it in the browser
 kum doc --show          build, then reveal it
 kum doc --out DIR       build into DIR instead
 ```
 
-`cargo doc` for the library. A root index lists every shelf
-with its facts, open matters, and briefing; each shelf gets a
-page (standing briefing, open matters, facts grouped by kind);
-each fact gets a page (content, provenance, confidence and its
-basis, tags, edges in both directions, the supersession chain).
-Press `/` anywhere to search; it works offline from file://,
-no server.
+The library as a reference site. A root index lists every
+shelf; each shelf page carries its standing briefing, open
+matters, and its facts as tables (id, title, summary line,
+confidence); each fact page renders its content as markdown,
+with provenance, confidence and its basis, edges, and banners
+for superseded, retired, and disputed facts. `history` on a
+fact opens every version of its chain with the diffs between.
+`all facts` lists everything on one page.
+
+In fact text, `[[name]]`, `D-054`, short ids, and shelf paths
+link to their pages when the build holds them.
+
+Search works offline from file://, no server. Press `S` or `/`
+to search, `?` for every shortcut. Filters: `kind:decision`
+(or `decision:term`), `shelf:ambyte`, `tag:d-054` or `#d-054`.
+Themes (system, paper, slate, lamp) live under the gear.
 
 The build lands in exports/doc/ and is replaced wholesale each
 time; `--out` never replaces a folder that is not a previous

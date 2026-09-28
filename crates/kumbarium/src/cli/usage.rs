@@ -187,7 +187,7 @@ the binder and the dossier:
                                       identity, what it holds
                                       (--all includes retired)
   kumbarium doc [ns] [--all]          the library as a site,
-       [--out DIR] [--show] [--open]  cargo-doc style (--open:
+       [--out DIR] [--show] [--open]  a reference site (--open:
                                       the browser)
   kumbarium dossier <agent>           one agent's witnessed
        [--since D] [--until D]        story: served, wrote,

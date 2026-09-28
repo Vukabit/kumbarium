@@ -988,12 +988,11 @@ pass; the chain stays flat-merged for now.
 
 ## D-054: kum doc, the library as a static site (2026-09-28)
 
-`cargo doc` for the Library: `kum doc` renders every registered
-shelf as a browsable, offline HTML site, and `kum doc <scope>`
-narrows the build to that namespace and its descendants (the
-`cargo doc -p <crate>` move; `kum doc project` builds every
-project shelf). The site reads like rustdoc and looks like
-Kumbarium: a root index listing every shelf (the crate list), a
+A generated reference site for the Library: `kum doc` renders
+every registered shelf as a browsable, offline HTML site, and
+`kum doc <scope>` narrows the build to that namespace and its
+descendants (`kum doc project` builds every project shelf). The
+site reads like an API reference and looks like Kumbarium: a root index listing every shelf (the crate list), a
 page per shelf (standing briefing, open matters, facts grouped
 by kind), a page per fact (content, provenance, confidence and
 its basis, tags, typed edges both directions, the supersession
@@ -1004,8 +1003,8 @@ file:// with no server.
   loading dock's rule (every artifact is a row under `kum
   export`) stands for artifacts: files meant to travel. `kum
   doc` is a VIEW of the library that happens to be rendered to
-  disk, the way `cargo doc` is a view of a crate; the cargo
-  spelling is the feature. It still rides the export spine's
+  disk, the way generated API docs are a view of a codebase; the
+  short verb is the feature. It still rides the export spine's
   flags: `--out DIR`, `--show`, `--open`; `--stdout` is refused
   (a site is a directory, not a stream).
 - --OPEN OPENS BY ARTIFACT KIND (amends D-031): text artifacts
@@ -1028,8 +1027,9 @@ file:// with no server.
   (built beside, then swapped in). A scoped build is complete on
   its own; an edge to a fact outside the build renders as an
   external reference (short id, "not in this build"), the way
-  rustdoc treats items outside the documented set. Accumulating
-  scoped builds into one tree, cargo-style, was rejected for v1:
+  API references treat items outside the documented set.
+  Accumulating scoped builds into one shared tree was rejected
+  for v1:
   it makes determinism a function of build history.
 - UNTRUSTED CONTENT: every memory, tag, and briefing was written
   by an agent, so everything is HTML-escaped and content renders
@@ -1044,3 +1044,53 @@ Deliberately NOT built yet: the audit timeline and agent pages
 roadmap), and markdown rendering of fact content. Related to
 the low dashboard matter (6dac5cd6), which a static site may
 partly answer.
+
+## D-055: kum doc reads like an API reference (2026-09-28)
+
+Refinements to D-054, in three tiers, so the site reads and
+navigates like a generated API reference:
+
+- CONTENT RENDERS AS MARKDOWN: a hand-rolled, forgiving subset
+  (headings, nested lists, task boxes, quotes, fences, tables,
+  rules, code, bold, em, links). Not a full markdown engine:
+  unbalanced markers render literally, only http(s) and mailto
+  hrefs are ever emitted, and every byte leaves through one
+  escaper. Line joining is a heuristic: a long line that stops
+  mid-sentence is a wrap, anything else keeps its break, because
+  agents write both hard-wrapped prose and one-thought-per-line
+  notes.
+- INTRA-DOC LINKS: `[[name]]` resolves to a fact carrying that
+  tag, a shelf, or a shelf's unique leaf name; `D-054` resolves
+  to a fact tagged `d-054` or opening with it; a short id or
+  full id resolves to its fact; a shelf path to its shelf. An
+  ambiguous short id or leaf never links (no guessing), and an
+  unresolved `[[name]]` renders dimmed, "not in this build".
+- TITLES AND SUMMARY LINES: a leading heading is a fact's title,
+  otherwise its first sentence; the summary line is the first
+  sentence after it. Shelf pages list facts as item tables
+  (id, title, summary, tags, confidence).
+- BANNERS: superseded, retired, and disputed (a `contradicts`
+  edge either way) facts carry a banner at the top of the page.
+- HISTORY PAGES are a fact's source view: every circulating
+  version of a supersession chain, newest first, each with its
+  note and a line diff from the one before. They render even in
+  a heads-only build, since the old versions are part of the
+  fact's circulating record; `--all` still governs which
+  versions get their own fact pages.
+- NAVIGATION: an "on this page" sidebar, the shelf-mates of the
+  current fact, anchored collapsible sections with a collapse-all
+  toggle, copy buttons for `kum show <id>` / `kum brief <ns>`,
+  and an all.html listing every fact.
+- SEARCH: results replace the page (with `?search=` in the URL,
+  so results are linkable), split into tabs (in titles, in
+  content, shelves); filters `kind:`, `<kind>:term`, `shelf:`,
+  `tag:` / `#tag`; keys S or / focus, arrows move and switch
+  tabs, Enter opens, ? shows help, + toggles every section, Esc
+  goes back.
+- THEMES: system, paper, slate, and lamp, chosen in a settings
+  panel and remembered in the browser's local storage (a
+  per-viewer convenience; the build itself stays deterministic).
+
+Source files and docs describe the site in its own terms and
+never by reference to another project's documentation tooling
+(a standing rule for this open-source repo).
