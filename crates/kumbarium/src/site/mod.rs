@@ -79,13 +79,17 @@ struct Record {
   chains: BTreeMap<String, Vec<Entry>>,
   /// fact id (any version) -> its chain's key.
   chain_of: BTreeMap<String, String>,
-  /// Intra-doc link targets: `D-054`, a `[[tag]]`, a short id,
-  /// a shelf's leaf name. A short id or leaf two facts share
-  /// maps to None (ambiguous links never guess).
+  /// Intra-doc link targets: `D-054`, a `[[tag]]`, a short id
+  /// (a fact or an open matter; the value is the page URL), a
+  /// shelf's leaf name. A short id or leaf two share maps to
+  /// None (ambiguous links never guess).
   d_numbers: BTreeMap<String, String>,
   tags: BTreeMap<String, String>,
   shorts: BTreeMap<String, Option<String>>,
   leaves: BTreeMap<String, Option<String>>,
+  /// Each open matter's version chain, oldest first (regrades
+  /// and rewordings), keyed by the matter's live id.
+  matter_chains: BTreeMap<String, Vec<kumbarium_docket::Task>>,
 }
 
 /// Gather and render one build.
@@ -199,6 +203,7 @@ fn gather(state: &mut ServerState, opts: &Options) -> Result<Record, String> {
   // exist (a doc build never creates a section file).
   let ns_list: Vec<String> = names.iter().map(|s| s.to_string()).collect();
   let mut tasks: Vec<kumbarium_docket::Task> = Vec::new();
+  let mut matter_chains = BTreeMap::new();
   if state.docket.is_some()
     || state.docket_path.exists()
     || state.docket_path.as_os_str().is_empty()
@@ -211,6 +216,12 @@ fn gather(state: &mut ServerState, opts: &Options) -> Result<Record, String> {
         && t.state == kumbarium_docket::TaskState::Open
         && t.superseded_by.is_none()
     });
+    tasks.sort_by(|a, b| a.id.cmp(&b.id));
+    for t in &tasks {
+      let chain =
+        kumbarium_docket::history(conn, &t.id).map_err(|e| e.to_string())?;
+      matter_chains.insert(t.id.clone(), chain);
+    }
   }
   let mut briefings = BTreeMap::new();
   if state.handoff.is_some()
@@ -274,7 +285,13 @@ fn gather(state: &mut ServerState, opts: &Options) -> Result<Record, String> {
     shorts
       .entry(short_id(id).to_string())
       .and_modify(|v| *v = None)
-      .or_insert_with(|| Some(id.clone()));
+      .or_insert_with(|| Some(fact_url(id)));
+  }
+  for id in matter_chains.keys() {
+    shorts
+      .entry(short_id(id).to_string())
+      .and_modify(|v| *v = None)
+      .or_insert_with(|| Some(matter_url(id)));
   }
   let mut leaves: BTreeMap<String, Option<String>> = BTreeMap::new();
   for s in &shelves {
@@ -298,6 +315,7 @@ fn gather(state: &mut ServerState, opts: &Options) -> Result<Record, String> {
     tags,
     shorts,
     leaves,
+    matter_chains,
   })
 }
 
@@ -343,12 +361,7 @@ impl Record {
         if let Some(Some(path)) = self.leaves.get(&lower) {
           return Some(shelf_url(path));
         }
-        self
-          .shorts
-          .get(&lower)
-          .cloned()
-          .flatten()
-          .map(|id| fact(&id))
+        self.shorts.get(&lower).cloned().flatten()
       }
       md::Ref::Token(tok) => {
         if tok.len() == 5
@@ -359,10 +372,15 @@ impl Record {
         let hex =
           |s: &str| s.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-');
         if tok.len() == 8 && hex(tok) {
-          return self.shorts.get(tok).cloned().flatten().map(|id| fact(&id));
+          return self.shorts.get(tok).cloned().flatten();
         }
-        if tok.len() == 36 && hex(tok) && self.facts.contains_key(tok) {
-          return Some(fact_url(tok));
+        if tok.len() == 36 && hex(tok) {
+          if self.facts.contains_key(tok) {
+            return Some(fact_url(tok));
+          }
+          if self.matter_chains.contains_key(tok) {
+            return Some(matter_url(tok));
+          }
         }
         if tok.contains('/') && self.has_shelf(tok) {
           return Some(shelf_url(tok));
@@ -393,6 +411,10 @@ fn shelf_url(ns: &str) -> String {
 
 fn fact_url(id: &str) -> String {
   format!("fact/{id}.html")
+}
+
+fn matter_url(id: &str) -> String {
+  format!("matter/{id}.html")
 }
 
 fn history_url(key: &str) -> String {
@@ -664,6 +686,48 @@ mod tests {
     let index = &site.files["static/search-index.js"];
     assert!(index.contains("\"s\":\"The summary line.\""));
     assert!(index.contains("\"g\":\"alpha\""));
+  }
+
+  #[test]
+  fn open_matters_get_pages_links_and_search_entries() {
+    let mut s = state_with(&["global", "project/a"]);
+    let task = {
+      let conn = s.docket().unwrap();
+      let t = kumbarium_docket::file_task(
+        conn,
+        &kumbarium_docket::NewTask {
+          namespace: "project/a".into(),
+          content: "Rotate the grelvix key. Before the audit.".into(),
+          agent_id: "writer-a".into(),
+          source: "test".into(),
+          severity: kumbarium_docket::Severity::High,
+          goal: Some("2026-10-01".into()),
+          status: kumbarium_docket::Status::Live,
+        },
+      )
+      .unwrap();
+      t.id
+    };
+    let mentions = put(
+      &mut s,
+      "project/a",
+      &format!("see {} for the rotation", short_id(&task)),
+    );
+    let site = build(&mut s, &opts(None)).unwrap();
+    let page = &site.files[&matter_url(&task)];
+    assert!(page.contains("Rotate the grelvix key."));
+    assert!(page.contains("goal 2026-10-01"));
+    assert!(page.contains(&format!("kum task history {}", short_id(&task))));
+    let shelf = &site.files["shelf/project/a/index.html"];
+    assert!(
+      shelf.contains(&format!("href=\"../../../{}\"", matter_url(&task)))
+    );
+    assert!(site.files[&fact_url(&mentions)].contains(&format!(
+      "href=\"../{}\">{}</a>",
+      matter_url(&task),
+      short_id(&task)
+    )));
+    assert!(site.files["static/search-index.js"].contains("\"k\":\"matter\""));
   }
 
   #[test]

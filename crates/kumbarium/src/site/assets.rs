@@ -114,6 +114,7 @@ pub(super) const JS: &str = r##"// kum doc: themes, copy, toggles, search, keys.
     state: "project_state", project_state: "project_state",
     preference: "preference", pref: "preference",
     reference: "reference", ref: "reference",
+    matter: "matter", matters: "matter", task: "matter",
     shelf: "shelf"
   };
   var LABELS = ["In titles", "In content", "Shelves"];

@@ -11,7 +11,7 @@ use kumbarium_store::{Entry, Kind, short_id};
 use super::super::diff;
 use super::{
   KIND_ORDER, MARKER, Record, Shelf, Site, assets, esc, fact_url, history_url,
-  md, root_of, shelf_url,
+  matter_url, md, root_of, shelf_url,
 };
 
 pub(super) fn render(record: &Record) -> Site {
@@ -33,6 +33,12 @@ pub(super) fn render(record: &Record) -> Site {
   for (key, versions) in &record.chains {
     let url = history_url(key);
     files.insert(url.clone(), history_page(record, versions, &url));
+  }
+  for chain in record.matter_chains.values() {
+    if let Some(head) = chain.last() {
+      let url = matter_url(&head.id);
+      files.insert(url.clone(), matter_page(record, chain, &url));
+    }
   }
   Site {
     files,
@@ -321,7 +327,7 @@ const HELP: &str = "<div id=\"kum-help\" class=\"pop\" hidden>\n\
 <dt><kbd>Esc</kbd></dt><dd>close; clear the search</dd></dl>\n\
 <h3>Search</h3><dl class=\"keys\">\
 <dt><code>kind:decision</code></dt><dd>one kind: decision, state, preference, \
-reference, shelf</dd>\
+reference, matter, shelf</dd>\
 <dt><code>decision:rollout</code></dt><dd>a kind and a term together</dd>\
 <dt><code>shelf:ambyte</code></dt><dd>facts on shelves whose path contains \
 it</dd>\
@@ -464,8 +470,29 @@ fn all_page(record: &Record) -> String {
     plural(record.shelves.len(), "shelf", "shelves"),
   ));
   let mut toc = Vec::new();
-  for shelf in record.shelves.iter().filter(|s| !s.facts.is_empty()) {
+  for shelf in record
+    .shelves
+    .iter()
+    .filter(|s| !s.facts.is_empty() || !s.tasks.is_empty())
+  {
     let mut inner = String::new();
+    if !shelf.tasks.is_empty() {
+      inner.push_str(
+        "<h3 class=\"sub\">Open matters</h3>\n<ul class=\"compact\">\n",
+      );
+      for t in &shelf.tasks {
+        inner.push_str(&format!(
+          "<li><span class=\"sev {s}\">{s}</span> <a class=\"id\" href=\"{}\">{}</a> \
+           <a href=\"{}\">{}</a></li>\n",
+          matter_url(&t.id),
+          short_id(&t.id),
+          matter_url(&t.id),
+          esc(&md::title_and_summary(&t.content).0),
+          s = t.severity.as_str(),
+        ));
+      }
+      inner.push_str("</ul>\n");
+    }
     for kind in KIND_ORDER {
       let of_kind: Vec<&Entry> =
         shelf.facts.iter().filter(|e| e.kind == kind).collect();
@@ -583,7 +610,9 @@ fn shelf_page(record: &Record, shelf: &Shelf, url: &str) -> String {
     let mut inner = String::from("<ul class=\"matters\">\n");
     for t in &shelf.tasks {
       inner.push_str(&format!(
-        "<li><span class=\"sev {s}\">{s}</span> <span class=\"id\">{}</span> {}{}</li>\n",
+        "<li><span class=\"sev {s}\">{s}</span> <a class=\"id\" \
+         href=\"{root}{}\">{}</a> {}{}</li>\n",
+        matter_url(&t.id),
         short_id(&t.id),
         md_inline(record, &root, &t.content),
         match &t.goal {
@@ -883,6 +912,136 @@ fn fact_page(record: &Record, e: &Entry, url: &str) -> String {
   )
 }
 
+/// An open matter's page: the matter in full, its grade and goal,
+/// who filed it, and every version of it (regrades, rewordings).
+fn matter_page(
+  record: &Record,
+  chain: &[kumbarium_docket::Task],
+  url: &str,
+) -> String {
+  let root = root_of(url);
+  let t = chain.last().expect("chains are never empty");
+  let short = short_id(&t.id);
+  let (title, _) = md::title_and_summary(&t.content);
+  let mut body = crumbs(record, &root, &t.namespace, Some(short));
+  body.push_str(&title_row(
+    &esc(&title),
+    &copy_button(&format!("kum task history {short}")),
+  ));
+  body.push_str(&format!(
+    "<p class=\"meta\"><span class=\"kind\">open matter</span> <span \
+     class=\"sev {s}\">{s}</span>{} <span class=\"dim\">filed by {} \u{b7} \
+     {}</span></p>\n",
+    match &t.goal {
+      Some(g) => format!(" <span class=\"badge\">goal {}</span>", esc(g)),
+      None => String::new(),
+    },
+    esc(&chain[0].agent_id),
+    day(&chain[0].created_at),
+    s = t.severity.as_str(),
+  ));
+  let mut toc = vec![("matter".to_string(), "The matter".to_string(), None)];
+  body.push_str(&section(
+    "matter",
+    "The matter",
+    None,
+    &format!(
+      "<div class=\"docblock\">{}</div>\n",
+      md_html(record, &root, &t.content)
+    ),
+  ));
+  let mut rows: Vec<(&str, String)> = vec![
+    ("id", format!("<code>{}</code>", esc(&t.id))),
+    (
+      "shelf",
+      format!(
+        "<a href=\"{root}{}\">{}</a>",
+        shelf_url(&t.namespace),
+        esc(&t.namespace)
+      ),
+    ),
+    ("severity", t.severity.as_str().to_string()),
+    (
+      "goal",
+      t.goal
+        .as_deref()
+        .map(esc)
+        .unwrap_or_else(|| "none (someday)".into()),
+    ),
+    ("filed by", esc(&chain[0].agent_id)),
+    ("filed", when(&chain[0].created_at)),
+    ("updated", when(&t.updated_at)),
+  ];
+  if !t.source.is_empty() {
+    rows.push(("source", esc(&t.source)));
+  }
+  if let Some(note) = &t.note {
+    rows.push(("note", esc(note)));
+  }
+  let mut dl = String::from("<dl class=\"about\">\n");
+  for (k, v) in rows {
+    dl.push_str(&format!("<dt>{k}</dt><dd>{v}</dd>\n"));
+  }
+  dl.push_str("</dl>\n");
+  body.push_str(&section("about", "About", None, &dl));
+  toc.push(("about".into(), "About".into(), None));
+  if chain.len() > 1 {
+    let mut inner = String::from("<ol class=\"chain\">\n");
+    for (n, v) in chain.iter().enumerate() {
+      let prev = n.checked_sub(1).map(|i| &chain[i]);
+      let mut changed = Vec::new();
+      if let Some(p) = prev {
+        if p.severity != v.severity {
+          changed.push(format!(
+            "severity {} \u{2192} {}",
+            p.severity.as_str(),
+            v.severity.as_str()
+          ));
+        }
+        if p.goal != v.goal {
+          changed.push(format!(
+            "goal {} \u{2192} {}",
+            p.goal.as_deref().unwrap_or("none"),
+            v.goal.as_deref().unwrap_or("none")
+          ));
+        }
+        if p.content != v.content {
+          changed.push("reworded".into());
+        }
+      } else {
+        changed.push("filed".into());
+      }
+      inner.push_str(&format!(
+        "<li{}><span class=\"id\">{}</span> <span class=\"dim\">{} \u{b7} \
+         {}</span> {}{}</li>\n",
+        if v.id == t.id { " class=\"here\"" } else { "" },
+        short_id(&v.id),
+        day(&v.created_at),
+        esc(&v.agent_id),
+        esc(&changed.join(", ")),
+        v.note
+          .as_ref()
+          .map(|n| format!(" <span class=\"dim\">({})</span>", esc(n)))
+          .unwrap_or_default(),
+      ));
+    }
+    inner.push_str("</ol>\n");
+    body.push_str(&section("chain", "Chain", Some(chain.len()), &inner));
+    toc.push(("chain".into(), "Chain".into(), Some(chain.len())));
+  }
+  frame(
+    record,
+    Page {
+      url,
+      title,
+      shelf: Some(&t.namespace),
+      toc,
+      local: String::new(),
+      body,
+    },
+  )
+}
+
 /// The sidebar's sibling list: the fact's shelf-mates by kind,
 /// this one marked.
 fn siblings(record: &Record, root: &str, e: &Entry) -> String {
@@ -1036,6 +1195,21 @@ fn search_index(record: &Record) -> String {
       "k": e.kind.as_str(),
       "g": e.tags.join(" ").to_lowercase(),
       "x": text.to_lowercase(),
+    }));
+  }
+  for chain in record.matter_chains.values() {
+    let Some(t) = chain.last() else { continue };
+    let (title, summary) = md::title_and_summary(&t.content);
+    rows.push(serde_json::json!({
+      "i": short_id(&t.id),
+      "u": matter_url(&t.id),
+      "t": title,
+      "s": summary,
+      "n": t.namespace,
+      "k": "matter",
+      "g": "",
+      "x": format!("{} {}", t.severity.as_str(), md::plain(&t.content))
+        .to_lowercase(),
     }));
   }
   let json = serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into());

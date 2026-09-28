@@ -1077,6 +1077,12 @@ navigates like a generated API reference:
   a heads-only build, since the old versions are part of the
   fact's circulating record; `--all` still governs which
   versions get their own fact pages.
+- MATTERS: every open matter gets a page (the matter as
+  markdown, severity, goal, filer, its regrade chain), linked
+  from its shelf and from all.html, searchable as `matter:`, and
+  its short id resolves in text like a fact's. No "overdue"
+  mark: that would depend on the build date and break
+  byte-identical builds; the goal date is shown as filed.
 - NAVIGATION: an "on this page" sidebar, the shelf-mates of the
   current fact, anchored collapsible sections with a collapse-all
   toggle, copy buttons for `kum show <id>` / `kum brief <ns>`,

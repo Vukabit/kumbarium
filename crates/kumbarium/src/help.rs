@@ -860,6 +860,8 @@ confidence); each fact page renders its content as markdown,
 with provenance, confidence and its basis, edges, and banners
 for superseded, retired, and disputed facts. `history` on a
 fact opens every version of its chain with the diffs between.
+Each open matter gets a page too: the matter in full, its
+severity and goal, who filed it, and every regrade.
 `all facts` lists everything on one page.
 
 In fact text, `[[name]]`, `D-054`, short ids, and shelf paths
