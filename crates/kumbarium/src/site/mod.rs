@@ -79,7 +79,7 @@ struct Record {
   chains: BTreeMap<String, Vec<Entry>>,
   /// fact id (any version) -> its chain's key.
   chain_of: BTreeMap<String, String>,
-  /// Intra-doc link targets: `D-054`, a `[[tag]]`, a short id
+  /// Cross-reference targets: `D-054`, a `[[tag]]`, a short id
   /// (a fact or an open matter; the value is the page URL), a
   /// shelf's leaf name. A short id or leaf two share maps to
   /// None (ambiguous links never guess).
@@ -263,7 +263,7 @@ fn gather(state: &mut ServerState, opts: &Options) -> Result<Record, String> {
     })
     .collect();
 
-  // Intra-doc targets. Facts iterate by id, so "first claim
+  // Cross-reference targets. Facts iterate by id, so "first claim
   // wins" is deterministic.
   let mut titles = BTreeMap::new();
   let mut d_numbers = BTreeMap::new();
@@ -343,7 +343,7 @@ impl Record {
     }
   }
 
-  /// Resolve an intra-doc reference to a root-relative URL.
+  /// Resolve a cross-reference to a root-relative URL.
   fn resolve(&self, r: md::Ref<'_>) -> Option<String> {
     let fact = |id: &String| fact_url(id);
     match r {
@@ -629,7 +629,7 @@ mod tests {
   }
 
   #[test]
-  fn intra_doc_links_resolve() {
+  fn cross_references_resolve() {
     let mut s = state_with(&["global", "project/a"]);
     let d =
       put_tagged(&mut s, "global", "D-054: the site decision", &["d-054"]);

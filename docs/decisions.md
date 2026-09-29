@@ -1060,7 +1060,7 @@ navigates like a generated API reference:
   mid-sentence is a wrap, anything else keeps its break, because
   agents write both hard-wrapped prose and one-thought-per-line
   notes.
-- INTRA-DOC LINKS: `[[name]]` resolves to a fact carrying that
+- CROSS-REFERENCES: `[[name]]` resolves to a fact carrying that
   tag, a shelf, or a shelf's unique leaf name; `D-054` resolves
   to a fact tagged `d-054` or opening with it; a short id or
   full id resolves to its fact; a shelf path to its shelf. An

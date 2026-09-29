@@ -1,6 +1,6 @@
 //! Fact content as HTML: the markdown shapes agents actually
 //! write (headings, lists, quotes, fences, tables, rules, `code`,
-//! **bold**, *em*, links), plus reference-style intra-doc links:
+//! **bold**, *em*, links), plus cross-references:
 //! [[wiki]] names, D-numbers, short ids, and shelf paths resolve
 //! to pages in the build. NOT CommonMark, and deliberately
 //! forgiving: an unbalanced marker renders literally, and hostile
@@ -365,7 +365,7 @@ pub(super) fn inline(s: &str, refs: &Refs) -> String {
 }
 
 /// **bold**, *em*, [[wiki]], [text](url), and bare http(s) URLs;
-/// the text between them goes through `text` for intra-doc
+/// the text between them goes through `text` for cross-reference
 /// tokens.
 fn spans(s: &str, refs: &Refs) -> String {
   let mut out = String::new();
@@ -641,7 +641,7 @@ mod tests {
   }
 
   #[test]
-  fn inline_spans_and_intra_doc_links() {
+  fn inline_spans_and_cross_references() {
     let html = with_refs(|r| {
       inline(
         concat!(
