@@ -165,8 +165,8 @@ pub(crate) fn agent_merge_cmd(from: &str, into: &str) -> ExitCode {
     return fail(&e);
   }
   println!(
-    "merged {} into {survivor_name}: its sessions now read as {survivor_name}'s \
-     (the ledger is unchanged)",
+    "merged {} into {survivor_name}: its sessions now read as \
+     {survivor_name}'s (the ledger is unchanged)",
     source.name
   );
   ExitCode::SUCCESS

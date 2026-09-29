@@ -616,12 +616,20 @@ mod tests {
   fn blocks_render_their_shapes() {
     let html = with_refs(|r| {
       render(
-        "## Head\n\n- one\n- two\n  - nested\n- three\n\n1. first\n2. second\n\n> quoted\n\n```\n<raw>\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n---\ntext",
+        concat!(
+          "## Head\n\n- one\n- two\n  - nested\n- three\n\n",
+          "1. first\n2. second\n\n> quoted\n\n```\n<raw>\n```\n\n",
+          "| a | b |\n|---|---|\n| 1 | 2 |\n\n---\ntext",
+        ),
         r,
       )
     });
     assert!(html.contains("<h4 class=\"md\">Head</h4>"));
-    assert!(html.contains("<ul>\n<li>one</li>\n<li>two\n<ul>\n<li>nested</li>\n</ul>\n</li>\n<li>three</li>\n</ul>"), "{html}");
+    let nested = concat!(
+      "<ul>\n<li>one</li>\n<li>two\n<ul>\n<li>nested</li>\n</ul>\n",
+      "</li>\n<li>three</li>\n</ul>",
+    );
+    assert!(html.contains(nested), "{html}");
     assert!(html.contains("<ol>\n<li>first</li>\n<li>second</li>\n</ol>"));
     assert!(html.contains("<blockquote>\n<p>quoted</p>\n</blockquote>"));
     assert!(
@@ -636,7 +644,10 @@ mod tests {
   fn inline_spans_and_intra_doc_links() {
     let html = with_refs(|r| {
       inline(
-        "**b** *e* `code` [[known]] [[unknown]] see D-054, 1cb8e972 and project/a.",
+        concat!(
+          "**b** *e* `code` [[known]] [[unknown]] ",
+          "see D-054, 1cb8e972 and project/a.",
+        ),
         r,
       )
     });
@@ -660,7 +671,10 @@ mod tests {
   fn hostile_input_stays_inert() {
     let html = with_refs(|r| {
       render(
-        "<script>x</script>\n[click](javascript:alert(1))\n[ok](https://e.x/?a=\"b\")\n<img src=x onerror=y>",
+        concat!(
+          "<script>x</script>\n[click](javascript:alert(1))\n",
+          "[ok](https://e.x/?a=\"b\")\n<img src=x onerror=y>",
+        ),
         r,
       )
     });
@@ -677,7 +691,10 @@ mod tests {
   fn wrapped_prose_joins_and_notes_keep_their_lines() {
     let html = with_refs(|r| {
       render(
-        "this line is long enough to be a hard wrap and it keeps\ngoing on the next line.\n**Why:** short\n**How:** also",
+        concat!(
+          "this line is long enough to be a hard wrap and it keeps\n",
+          "going on the next line.\n**Why:** short\n**How:** also",
+        ),
         r,
       )
     });

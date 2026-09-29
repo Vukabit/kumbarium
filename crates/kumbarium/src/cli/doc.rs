@@ -1,4 +1,5 @@
-//! `kum doc` (D-054): the library as a static reference site. site.rs renders; this writes the build beside its
+//! `kum doc` (D-054): the library as a static reference site.
+//! site.rs renders; this writes the build beside its
 //! destination, swaps it in wholesale, and finishes the export
 //! spine's flags (--open goes to the browser: an HTML artifact
 //! opens with the OS opener, D-054's amendment to D-031).

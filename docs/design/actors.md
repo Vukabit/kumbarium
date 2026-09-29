@@ -33,11 +33,11 @@ OTHERS" compares claimed names and both sides are `claude-code`.
 
 ## The model: three legs
 
-| leg      | minted or claimed | lifetime             | answers              |
-|----------|-------------------|----------------------|----------------------|
-| name     | claimed           | whatever the client says | what client is this |
-| session  | minted (D-044)    | one serve process    | which incarnation    |
-| ACTOR    | minted (new)      | until merged/retired | who, across sessions |
+| leg     | minted or claimed | lifetime             | answers              |
+|---------|-------------------|----------------------|----------------------|
+| name    | claimed           | what the client says | what client is this  |
+| session | minted (D-044)    | one serve process    | which incarnation    |
+| ACTOR   | minted (new)      | until merged/retired | who, across sessions |
 
 An actor is a UUIDv7 the librarian mints, with a human-readable
 name. Events never carry the name: they carry the session, and

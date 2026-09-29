@@ -992,12 +992,13 @@ A generated reference site for the Library: `kum doc` renders
 every registered shelf as a browsable, offline HTML site, and
 `kum doc <scope>` narrows the build to that namespace and its
 descendants (`kum doc project` builds every project shelf). The
-site reads like an API reference and looks like Kumbarium: a root index listing every shelf (the crate list), a
-page per shelf (standing briefing, open matters, facts grouped
-by kind), a page per fact (content, provenance, confidence and
-its basis, tags, typed edges both directions, the supersession
-chain), and a search box over a prebuilt index that works from
-file:// with no server.
+site reads like an API reference and looks like Kumbarium: a
+root index listing every shelf, a page per shelf (standing
+briefing, open matters, facts grouped by kind), a page per fact
+(content, provenance, confidence and its basis, tags, typed
+edges both directions, the supersession chain), and a search
+box over a prebuilt index that works from file:// with no
+server.
 
 - A TOP-LEVEL VERB, a deliberate carve-out from D-031. The
   loading dock's rule (every artifact is a row under `kum

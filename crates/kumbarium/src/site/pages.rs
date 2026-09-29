@@ -133,14 +133,16 @@ fn tag_list(tags: &[String]) -> String {
 
 const COPY_ICON: &str = "<svg viewBox=\"0 0 16 16\" width=\"14\" height=\"14\" \
 aria-hidden=\"true\"><rect x=\"5\" y=\"5\" width=\"9\" height=\"9\" rx=\"1.5\" \
-fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"/><path d=\"M11 3.5V3a1 \
-1 0 0 0-1-1H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h.5\" fill=\"none\" \
+fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"/>\
+<path d=\"M11 3.5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h.5\" \
+fill=\"none\" \
 stroke=\"currentColor\" stroke-width=\"1.4\"/></svg>";
 
 const GEAR_ICON: &str = "<svg viewBox=\"0 0 16 16\" width=\"15\" height=\"15\" \
 aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"2.2\" fill=\"none\" \
 stroke=\"currentColor\" stroke-width=\"1.4\"/><path d=\"M8 1.5v2M8 12.5v2M1.5 \
-8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4\" \
+8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 \
+4.8l1.4-1.4\" \
 stroke=\"currentColor\" stroke-width=\"1.4\" stroke-linecap=\"round\"/></svg>";
 
 /// A copy button: copies a ready-to-run command line.
@@ -286,7 +288,8 @@ fn frame(record: &Record, p: Page) -> String {
      <meta name=\"generator\" content=\"kum doc\">\n\
      <title>{title} \u{b7} kumbarium</title>\n\
      <script>try{{var t=localStorage.getItem(\"kum-theme\");\
-     if(t&&t!==\"system\")document.documentElement.setAttribute(\"data-theme\",t)\
+     if(t&&t!==\"system\")document.documentElement\
+     .setAttribute(\"data-theme\",t)\
      }}catch(e){{}}</script>\n\
      <link rel=\"stylesheet\" href=\"{root}static/kum.css\">\n\
      </head>\n<body data-root=\"{root}\">\n\
@@ -423,8 +426,9 @@ fn index_page(record: &Record) -> String {
   for shelf in &record.shelves {
     let depth = shelf.path.matches('/').count();
     table.push_str(&format!(
-      "<tr><td style=\"--depth:{depth}\" class=\"tree\"><a href=\"{}\">{}</a></td>\
-       <td>{}</td><td class=\"n\">{}</td><td class=\"n\">{}</td><td>{}</td></tr>\n",
+      "<tr><td style=\"--depth:{depth}\" class=\"tree\">\
+       <a href=\"{}\">{}</a></td><td>{}</td><td class=\"n\">{}</td>\
+       <td class=\"n\">{}</td><td>{}</td></tr>\n",
       shelf_url(&shelf.path),
       esc(&shelf.path),
       esc(&shelf.description),
@@ -482,8 +486,8 @@ fn all_page(record: &Record) -> String {
       );
       for t in &shelf.tasks {
         inner.push_str(&format!(
-          "<li><span class=\"sev {s}\">{s}</span> <a class=\"id\" href=\"{}\">{}</a> \
-           <a href=\"{}\">{}</a></li>\n",
+          "<li><span class=\"sev {s}\">{s}</span> \
+           <a class=\"id\" href=\"{}\">{}</a> <a href=\"{}\">{}</a></li>\n",
           matter_url(&t.id),
           short_id(&t.id),
           matter_url(&t.id),
@@ -505,7 +509,8 @@ fn all_page(record: &Record) -> String {
       ));
       for e in of_kind {
         inner.push_str(&format!(
-          "<li><a class=\"id\" href=\"{}\">{}</a> <a href=\"{}\">{}</a>{}</li>\n",
+          "<li><a class=\"id\" href=\"{}\">{}</a> \
+           <a href=\"{}\">{}</a>{}</li>\n",
           fact_url(&e.id),
           short_id(&e.id),
           fact_url(&e.id),
@@ -573,7 +578,8 @@ fn shelf_page(record: &Record, shelf: &Shelf, url: &str) -> String {
     let mut inner = String::from("<ul class=\"compact\">\n");
     for c in &children {
       inner.push_str(&format!(
-        "<li><a href=\"{root}{}\"><code>{}</code></a> <span class=\"dim\">{}</span></li>\n",
+        "<li><a href=\"{root}{}\"><code>{}</code></a> \
+         <span class=\"dim\">{}</span></li>\n",
         shelf_url(&c.path),
         esc(&c.path),
         plural(c.facts.len(), "fact", "facts"),
@@ -652,8 +658,10 @@ fn shelf_page(record: &Record, shelf: &Shelf, url: &str) -> String {
       let (title, summary) =
         record.titles.get(&e.id).cloned().unwrap_or_default();
       inner.push_str(&format!(
-        "<tr><td class=\"item-id\"><a class=\"id\" href=\"{root}{u}\">{}</a></td>\
-         <td class=\"item-main\"><a class=\"item-title\" href=\"{root}{u}\">{}</a>{}\
+        "<tr><td class=\"item-id\">\
+         <a class=\"id\" href=\"{root}{u}\">{}</a></td>\
+         <td class=\"item-main\">\
+         <a class=\"item-title\" href=\"{root}{u}\">{}</a>{}\
          {}{}</td><td class=\"item-conf\">{}</td></tr>\n",
         short_id(&e.id),
         esc(&title),
@@ -1050,7 +1058,8 @@ fn siblings(record: &Record, root: &str, e: &Entry) -> String {
     return String::new();
   };
   let mut out = format!(
-    "<div class=\"side-block siblings\"><h2>In <a href=\"{root}{}\">{}</a></h2>\n",
+    "<div class=\"side-block siblings\">\
+     <h2>In <a href=\"{root}{}\">{}</a></h2>\n",
     shelf_url(&shelf.path),
     esc(&shelf.path)
   );
